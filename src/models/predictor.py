@@ -4,6 +4,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import xgboost as xgb
@@ -139,7 +140,8 @@ class Predictor:
 
         # ── Fetch fresh odds (single source of truth) ──────────
         fresh_snapshots: list = []
-        if game.odds_api_id:
+        odds_api_id = cast(Any, game.odds_api_id)
+        if odds_api_id is not None:
             try:
                 from src.data.odds_client import OddsClient
 
@@ -151,7 +153,7 @@ class Predictor:
                     fg_data = await client.fetch_odds()
                 fresh_snapshots.extend(_odds_response_to_snapshots(fg_data, game))
                 # 1st-half odds for this event
-                h1_data = await client.fetch_event_odds(game.odds_api_id)
+                h1_data = await client.fetch_event_odds(str(odds_api_id))
                 if h1_data and h1_data.get("bookmakers"):
                     fresh_snapshots.extend(_odds_response_to_snapshots([h1_data], game))
             except Exception:

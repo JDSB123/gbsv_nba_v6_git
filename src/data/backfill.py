@@ -10,6 +10,7 @@ ensuring a single source of truth for data ingestion logic.
 
 import logging
 from datetime import date, timedelta
+from typing import Any, cast
 
 from sqlalchemy import select
 
@@ -94,7 +95,8 @@ async def run_backfill(season: str = "2024-2025", days_back: int = 90) -> None:
             ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
             result = await db.execute(select(Game).where(Game.commence_time == ct))
             game = result.scalar_one_or_none()
-            if game and not game.odds_api_id:
+            game_odds_api_id = cast(Any, game.odds_api_id) if game is not None else None
+            if game is not None and game_odds_api_id is None:
                 game.odds_api_id = event["id"]
                 mapped += 1
         await db.commit()

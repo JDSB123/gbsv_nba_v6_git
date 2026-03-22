@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,13 +13,29 @@ from src.models.predictor import Predictor
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
 
+def _as_float(value: Any, default: float = 0.0) -> float:
+    return float(value) if value is not None else default
+
+
 def _format_prediction(pred: Prediction, game: Game) -> dict:
-    home_name = game.home_team.name if game.home_team else f"Team {game.home_team_id}"
-    away_name = game.away_team.name if game.away_team else f"Team {game.away_team_id}"
+    home_name = (
+        game.home_team.name
+        if game.home_team is not None
+        else f"Team {game.home_team_id}"
+    )
+    away_name = (
+        game.away_team.name
+        if game.away_team is not None
+        else f"Team {game.away_team_id}"
+    )
+    fg_home_ml_prob = _as_float(pred.fg_home_ml_prob, 0.5)
+    h1_home_ml_prob = _as_float(pred.h1_home_ml_prob, 0.5)
     return {
         "game_id": game.id,
         "odds_api_id": game.odds_api_id,
-        "commence_time": game.commence_time.isoformat() if game.commence_time else None,
+        "commence_time": (
+            game.commence_time.isoformat() if game.commence_time is not None else None
+        ),
         "away_team": away_name,
         "home_team": home_name,
         "predicted_scores": {
@@ -34,18 +52,20 @@ def _format_prediction(pred: Prediction, game: Game) -> dict:
             "fg_spread": {"prediction": pred.fg_spread},
             "fg_total": {"prediction": pred.fg_total},
             "fg_moneyline": {
-                "home_prob": pred.fg_home_ml_prob,
-                "away_prob": round(1 - (pred.fg_home_ml_prob or 0.5), 3),
+                "home_prob": fg_home_ml_prob,
+                "away_prob": round(1 - fg_home_ml_prob, 3),
             },
             "h1_spread": {"prediction": pred.h1_spread},
             "h1_total": {"prediction": pred.h1_total},
             "h1_moneyline": {
-                "home_prob": pred.h1_home_ml_prob,
-                "away_prob": round(1 - (pred.h1_home_ml_prob or 0.5), 3),
+                "home_prob": h1_home_ml_prob,
+                "away_prob": round(1 - h1_home_ml_prob, 3),
             },
         },
         "model_version": pred.model_version,
-        "predicted_at": pred.predicted_at.isoformat() if pred.predicted_at else None,
+        "predicted_at": (
+            pred.predicted_at.isoformat() if pred.predicted_at is not None else None
+        ),
         "clv": {
             "opening_spread": pred.opening_spread,
             "opening_total": pred.opening_total,
@@ -79,8 +99,9 @@ async def list_predictions(
     seen: set[int] = set()
     latest: list[Prediction] = []
     for pred in predictions:
-        if pred.game_id not in seen:
-            seen.add(pred.game_id)
+        game_id = int(cast(Any, pred.game_id))
+        if game_id not in seen:
+            seen.add(game_id)
             latest.append(pred)
 
     output = []
@@ -142,19 +163,27 @@ async def get_prediction(
         import numpy as np
 
         spreads = [
-            o.point for o in odds if o.market == "spreads" and o.point is not None
+            float(cast(Any, o.point))
+            for o in odds
+            if cast(Any, o.market) == "spreads" and o.point is not None
         ]
-        totals = [o.point for o in odds if o.market == "totals" and o.point is not None]
+        totals = [
+            float(cast(Any, o.point))
+            for o in odds
+            if cast(Any, o.market) == "totals" and o.point is not None
+        ]
 
         if spreads:
             mkt_spread = float(np.mean(spreads))
             result["markets"]["fg_spread"]["market_line"] = mkt_spread
             result["markets"]["fg_spread"]["edge"] = round(
-                pred.fg_spread - mkt_spread, 1
+                _as_float(pred.fg_spread) - mkt_spread, 1
             )
         if totals:
             mkt_total = float(np.mean(totals))
             result["markets"]["fg_total"]["market_line"] = mkt_total
-            result["markets"]["fg_total"]["edge"] = round(pred.fg_total - mkt_total, 1)
+            result["markets"]["fg_total"]["edge"] = round(
+                _as_float(pred.fg_total) - mkt_total, 1
+            )
 
     return result

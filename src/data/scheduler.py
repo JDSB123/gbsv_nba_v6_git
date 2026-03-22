@@ -1,5 +1,6 @@
 import logging
 from datetime import date
+from typing import Any, cast
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
@@ -127,7 +128,10 @@ async def sync_events_to_games() -> None:
                         select(Game).where(Game.commence_time == ct)
                     )
                     game = result.scalar_one_or_none()
-                    if game and not game.odds_api_id:
+                    game_odds_api_id = (
+                        cast(Any, game.odds_api_id) if game is not None else None
+                    )
+                    if game is not None and game_odds_api_id is None:
                         game.odds_api_id = odds_id
             await db.commit()
     except Exception:
@@ -159,6 +163,7 @@ async def fill_clv() -> None:
                 return
 
             for pred in preds:
+                pred_any = cast(Any, pred)
                 # Latest odds snapshot for this game
                 odds_q = await db.execute(
                     select(OddsSnapshot)
@@ -173,26 +178,30 @@ async def fill_clv() -> None:
                 import numpy as np
 
                 spreads = [
-                    s.point
+                    float(cast(Any, s.point))
                     for s in snapshots
-                    if s.market == "spreads" and s.point is not None
+                    if cast(Any, s.market) == "spreads" and s.point is not None
                 ]
                 totals = [
-                    s.point
+                    float(cast(Any, s.point))
                     for s in snapshots
-                    if s.market == "totals" and s.point is not None
+                    if cast(Any, s.market) == "totals" and s.point is not None
                 ]
                 if spreads:
-                    pred.closing_spread = round(float(np.mean(spreads)), 1)
-                    if pred.opening_spread is not None:
-                        pred.clv_spread = round(
-                            pred.closing_spread - pred.opening_spread, 1
+                    closing_spread = round(float(np.mean(spreads)), 1)
+                    pred_any.closing_spread = closing_spread
+                    opening_spread = cast(Any, pred.opening_spread)
+                    if opening_spread is not None:
+                        pred_any.clv_spread = round(
+                            float(closing_spread) - float(opening_spread), 1
                         )
                 if totals:
-                    pred.closing_total = round(float(np.mean(totals)), 1)
-                    if pred.opening_total is not None:
-                        pred.clv_total = round(
-                            pred.closing_total - pred.opening_total, 1
+                    closing_total = round(float(np.mean(totals)), 1)
+                    pred_any.closing_total = closing_total
+                    opening_total = cast(Any, pred.opening_total)
+                    if opening_total is not None:
+                        pred_any.clv_total = round(
+                            float(closing_total) - float(opening_total), 1
                         )
 
             await db.commit()

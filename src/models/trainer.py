@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import optuna
@@ -95,7 +96,9 @@ def _calibrate_probabilities(
     """
     lr = LogisticRegression()
     lr.fit(margins.reshape(-1, 1), actuals)
-    return float(lr.coef_[0][0]), float(lr.intercept_[0])
+    coef = float(np.ravel(lr.coef_)[0])
+    intercept = float(np.ravel(lr.intercept_)[0])
+    return coef, intercept
 
 
 class ModelTrainer:
@@ -121,17 +124,24 @@ class ModelTrainer:
         games = result.scalars().all()
         logger.info("Building dataset from %d completed games", len(games))
 
-        rows = []
+        rows: list[dict[str, Any]] = []
         for game in games:
             features = await build_feature_vector(game, db)
             if features is None:
                 continue
-            features["home_score_fg"] = float(game.home_score_fg)
-            features["away_score_fg"] = float(game.away_score_fg)
-            features["home_score_1h"] = float(game.home_score_1h or 0)
-            features["away_score_1h"] = float(game.away_score_1h or 0)
-            features["commence_time"] = game.commence_time
-            rows.append(features)
+            row: dict[str, Any] = dict(features)
+            row["home_score_fg"] = float(cast(Any, game.home_score_fg))
+            row["away_score_fg"] = float(cast(Any, game.away_score_fg))
+            home_score_1h = cast(Any, game.home_score_1h)
+            away_score_1h = cast(Any, game.away_score_1h)
+            row["home_score_1h"] = (
+                float(home_score_1h) if home_score_1h is not None else 0.0
+            )
+            row["away_score_1h"] = (
+                float(away_score_1h) if away_score_1h is not None else 0.0
+            )
+            row["commence_time"] = cast(Any, game.commence_time)
+            rows.append(row)
 
         df = pd.DataFrame(rows)
         logger.info("Dataset shape: %s", df.shape)
@@ -145,12 +155,14 @@ class ModelTrainer:
             return {}
 
         df = df.sort_values("commence_time").reset_index(drop=True)
-        X = df[self.feature_cols].fillna(-999.0).values  # sentinel, not 0
+        X: np.ndarray = np.asarray(
+            df[self.feature_cols].fillna(-999.0).to_numpy(dtype=float)
+        )  # sentinel, not 0
         metrics: dict[str, float] = {}
         best_params_all: dict[str, dict] = {}
 
         for target, model_name in zip(TARGETS, MODEL_NAMES, strict=True):
-            y = df[target].values
+            y: np.ndarray = np.asarray(df[target].to_numpy(dtype=float))
 
             # ── Optuna hyperparameter search ────────────────────
             if self.run_optuna and len(df) >= 200:
@@ -221,7 +233,8 @@ class ModelTrainer:
             away_preds = self.models["model_away_fg"].predict(X)
             fg_margins = home_preds - away_preds
             fg_actuals = (
-                df["home_score_fg"].values > df["away_score_fg"].values
+                np.asarray(df["home_score_fg"].to_numpy(dtype=float))
+                > np.asarray(df["away_score_fg"].to_numpy(dtype=float))
             ).astype(float)
             fg_coef, fg_intercept = _calibrate_probabilities(fg_margins, fg_actuals)
             metrics["calibration_fg_coef"] = fg_coef
@@ -232,7 +245,8 @@ class ModelTrainer:
             h1_away = self.models["model_away_1h"].predict(X)
             h1_margins = h1_home - h1_away
             h1_actuals = (
-                df["home_score_1h"].values > df["away_score_1h"].values
+                np.asarray(df["home_score_1h"].to_numpy(dtype=float))
+                > np.asarray(df["away_score_1h"].to_numpy(dtype=float))
             ).astype(float)
             h1_coef, h1_intercept = _calibrate_probabilities(h1_margins, h1_actuals)
             metrics["calibration_1h_coef"] = h1_coef

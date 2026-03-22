@@ -42,6 +42,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -58,9 +59,9 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version-file: ".python-version"
           cache: "pip"
@@ -88,15 +89,16 @@ jobs:
     needs: test
     if: ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       security-events: write # for uploading Trivy SARIF
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
-        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
+      - uses: actions/setup-python@v6
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap_models)
         with:
           python-version-file: ".python-version"
           cache: "pip"
@@ -104,12 +106,41 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - uses: azure/login@v2
+      - name: Validate Azure credentials secret
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          required = {"clientId", "clientSecret", "subscriptionId", "tenantId"}
+          raw = os.environ.get("AZURE_CREDENTIALS", "").strip()
+          if not raw:
+              print("::error::Missing required GitHub secret AZURE_CREDENTIALS.")
+              sys.exit(1)
+          try:
+              payload = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              print(f"::error::AZURE_CREDENTIALS is not valid JSON: {exc}")
+              sys.exit(1)
+          missing = sorted(key for key in required if not payload.get(key))
+          if missing:
+              print(
+                  "::error::AZURE_CREDENTIALS is missing required keys: "
+                  + ", ".join(missing)
+              )
+              sys.exit(1)
+          print("AZURE_CREDENTIALS secret structure looks valid.")
+          PY
+
+      - uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Bootstrap models before build
-        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap_models)
         run: |
           set -euo pipefail
 
@@ -119,35 +150,49 @@ jobs:
           RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
           RULE_NAME=allow-gha-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
 
+          if az postgres flexible-server firewall-rule create -h 2>&1 | grep -q -- "--server-name"; then
+            FIREWALL_CREATE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
+            FIREWALL_DELETE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
+          else
+            FIREWALL_CREATE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
+            FIREWALL_DELETE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
+          fi
+
           cleanup() {
             az postgres flexible-server firewall-rule delete \
+              --only-show-errors \
+              --output none \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              --name "$PG_SERVER_NAME" \
-              --rule-name "$RULE_NAME" --yes || true
+              "${FIREWALL_DELETE_ARGS[@]}" --yes || true
           }
           trap cleanup EXIT
 
           az postgres flexible-server firewall-rule create \
+            --only-show-errors \
+            --output none \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name "$PG_SERVER_NAME" \
-            --rule-name "$RULE_NAME" \
+            "${FIREWALL_CREATE_ARGS[@]}" \
             --start-ip-address "$RUNNER_IP" \
             --end-ip-address "$RUNNER_IP"
 
           PG_HOST=$(az postgres flexible-server show \
+            --only-show-errors \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name "$PG_SERVER_NAME" \
             --query fullyQualifiedDomainName -o tsv)
 
           PG_PASSWORD=$(az keyvault secret show \
+            --only-show-errors \
             --vault-name "$KV_NAME" \
             --name postgres-password \
             --query value -o tsv)
           ODDS_API_KEY=$(az keyvault secret show \
+            --only-show-errors \
             --vault-name "$KV_NAME" \
             --name odds-api-key \
             --query value -o tsv)
           BASKETBALL_API_KEY=$(az keyvault secret show \
+            --only-show-errors \
             --vault-name "$KV_NAME" \
             --name basketball-api-key \
             --query value -o tsv)
@@ -170,16 +215,17 @@ jobs:
           test -f src/models/artifacts/metrics.json
 
       - name: Log in to ACR
-        run: az acr login --name ${{ env.ACR_NAME }}
+        run: az acr login --only-show-errors --name ${{ env.ACR_NAME }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and push to ACR
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
+          provenance: false
           tags: |
             ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
@@ -187,7 +233,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: sarif
@@ -195,7 +241,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: trivy-results.sarif
@@ -206,16 +252,46 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version-file: ".python-version"
           cache: "pip"
 
-      - uses: azure/login@v2
+      - name: Validate Azure credentials secret
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          required = {"clientId", "clientSecret", "subscriptionId", "tenantId"}
+          raw = os.environ.get("AZURE_CREDENTIALS", "").strip()
+          if not raw:
+              print("::error::Missing required GitHub secret AZURE_CREDENTIALS.")
+              sys.exit(1)
+          try:
+              payload = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              print(f"::error::AZURE_CREDENTIALS is not valid JSON: {exc}")
+              sys.exit(1)
+          missing = sorted(key for key in required if not payload.get(key))
+          if missing:
+              print(
+                  "::error::AZURE_CREDENTIALS is missing required keys: "
+                  + ", ".join(missing)
+              )
+              sys.exit(1)
+          print("AZURE_CREDENTIALS secret structure looks valid.")
+          PY
+
+      - uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -230,26 +306,38 @@ jobs:
           RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
           RULE_NAME=allow-gha-${{ github.run_id }}-${{ github.run_attempt }}
 
+          if az postgres flexible-server firewall-rule create -h 2>&1 | grep -q -- "--server-name"; then
+            FIREWALL_CREATE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
+            FIREWALL_DELETE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
+          else
+            FIREWALL_CREATE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
+            FIREWALL_DELETE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
+          fi
+
           cleanup() {
             az postgres flexible-server firewall-rule delete \
+              --only-show-errors \
+              --output none \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              --name psql-nba-gbsv-v6-db \
-              --rule-name "$RULE_NAME" --yes || true
+              "${FIREWALL_DELETE_ARGS[@]}" --yes || true
           }
           trap cleanup EXIT
 
           az postgres flexible-server firewall-rule create \
+            --only-show-errors \
+            --output none \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name "$PG_SERVER_NAME" \
-            --rule-name "$RULE_NAME" \
+            "${FIREWALL_CREATE_ARGS[@]}" \
             --start-ip-address "$RUNNER_IP" \
             --end-ip-address "$RUNNER_IP"
 
           PG_HOST=$(az postgres flexible-server show \
+            --only-show-errors \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name "$PG_SERVER_NAME" \
             --query fullyQualifiedDomainName -o tsv)
           PG_PASSWORD=$(az keyvault secret show \
+            --only-show-errors \
             --vault-name "$KV_NAME" \
             --name postgres-password \
             --query value -o tsv)
@@ -262,6 +350,8 @@ jobs:
       - name: Deploy API to Container Apps
         run: |
           az containerapp update \
+            --only-show-errors \
+            --output none \
             --name ${{ env.API_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -269,6 +359,8 @@ jobs:
       - name: Deploy Worker to Container Apps
         run: |
           az containerapp update \
+            --only-show-errors \
+            --output none \
             --name ${{ env.WORKER_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -276,6 +368,7 @@ jobs:
       - name: Verify API health
         run: |
           API_FQDN=$(az containerapp show \
+            --only-show-errors \
             --name ${{ env.API_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query "properties.configuration.ingress.fqdn" -o tsv)
@@ -294,11 +387,12 @@ jobs:
           exit 1
 
       - name: Verify model readiness
-        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap_models)
         run: |
           set -euo pipefail
 
           API_FQDN=$(az containerapp show \
+            --only-show-errors \
             --name ${{ env.API_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query "properties.configuration.ingress.fqdn" -o tsv)

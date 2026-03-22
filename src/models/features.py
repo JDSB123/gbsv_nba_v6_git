@@ -1,5 +1,7 @@
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
+from typing import Any, cast
 
 import numpy as np
 from sqlalchemy import func, select
@@ -15,6 +17,15 @@ from src.db.models import (
 from src.models.elo import EloSystem
 
 logger = logging.getLogger(__name__)
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    return float(value) if value is not None else default
+
+
+def _as_str(value: Any, default: str = "") -> str:
+    return str(value) if value is not None else default
+
 
 # Injury status weights
 INJURY_WEIGHTS = {"out": 1.0, "doubtful": 0.75, "questionable": 0.25, "probable": 0.05}
@@ -108,11 +119,11 @@ async def build_elo_ratings(db: AsyncSession) -> EloSystem:
     elo = EloSystem()
     for g in games:
         elo.update(
-            g.home_team_id,
-            g.away_team_id,
-            float(g.home_score_fg),
-            float(g.away_score_fg),
-            season=g.season or "",
+            int(cast(Any, g.home_team_id)),
+            int(cast(Any, g.away_team_id)),
+            _as_float(cast(Any, g.home_score_fg)),
+            _as_float(cast(Any, g.away_score_fg)),
+            season=_as_str(cast(Any, g.season)),
         )
     _elo_system = elo
     logger.info("Built Elo ratings from %d games", len(games))
@@ -141,9 +152,9 @@ async def build_feature_vector(
             When ``None`` (training), historical cached odds from the DB are
             used instead.
     """
-    home_id = game.home_team_id
-    away_id = game.away_team_id
-    season = game.season or "2024-2025"
+    home_id = int(cast(Any, game.home_team_id))
+    away_id = int(cast(Any, game.away_team_id))
+    season = _as_str(cast(Any, game.season), "2024-2025")
 
     features: dict[str, float] = {}
 
@@ -157,16 +168,17 @@ async def build_feature_vector(
         )
         stats = result.scalar_one_or_none()
         if stats:
-            features[f"{prefix}_ppg"] = stats.ppg or 0.0
-            features[f"{prefix}_oppg"] = stats.oppg or 0.0
-            features[f"{prefix}_wins"] = float(stats.wins or 0)
-            features[f"{prefix}_losses"] = float(stats.losses or 0)
-            features[f"{prefix}_pace"] = stats.pace or 0.0
-            features[f"{prefix}_off_rating"] = stats.off_rating or 0.0
-            features[f"{prefix}_def_rating"] = stats.def_rating or 0.0
-            win_pct = (
-                stats.wins / max(stats.games_played, 1) if stats.games_played else 0.0
-            )
+            stats_any = cast(Any, stats)
+            features[f"{prefix}_ppg"] = _as_float(stats_any.ppg)
+            features[f"{prefix}_oppg"] = _as_float(stats_any.oppg)
+            features[f"{prefix}_wins"] = _as_float(stats_any.wins)
+            features[f"{prefix}_losses"] = _as_float(stats_any.losses)
+            features[f"{prefix}_pace"] = _as_float(stats_any.pace)
+            features[f"{prefix}_off_rating"] = _as_float(stats_any.off_rating)
+            features[f"{prefix}_def_rating"] = _as_float(stats_any.def_rating)
+            games_played = int(_as_float(stats_any.games_played))
+            wins = _as_float(stats_any.wins)
+            win_pct = wins / max(games_played, 1) if games_played else 0.0
             features[f"{prefix}_win_pct"] = win_pct
         else:
             for key in [
@@ -201,16 +213,16 @@ async def build_feature_vector(
                 h1_scored = []
                 h1_allowed = []
                 for g in recent:
-                    if g.home_team_id == team_id:
-                        pts_scored.append(g.home_score_fg or 0)
-                        pts_allowed.append(g.away_score_fg or 0)
-                        h1_scored.append(g.home_score_1h or 0)
-                        h1_allowed.append(g.away_score_1h or 0)
+                    if int(cast(Any, g.home_team_id)) == team_id:
+                        pts_scored.append(_as_float(cast(Any, g.home_score_fg)))
+                        pts_allowed.append(_as_float(cast(Any, g.away_score_fg)))
+                        h1_scored.append(_as_float(cast(Any, g.home_score_1h)))
+                        h1_allowed.append(_as_float(cast(Any, g.away_score_1h)))
                     else:
-                        pts_scored.append(g.away_score_fg or 0)
-                        pts_allowed.append(g.home_score_fg or 0)
-                        h1_scored.append(g.away_score_1h or 0)
-                        h1_allowed.append(g.home_score_1h or 0)
+                        pts_scored.append(_as_float(cast(Any, g.away_score_fg)))
+                        pts_allowed.append(_as_float(cast(Any, g.home_score_fg)))
+                        h1_scored.append(_as_float(cast(Any, g.away_score_1h)))
+                        h1_allowed.append(_as_float(cast(Any, g.home_score_1h)))
                 features[f"{prefix}_{label}_pts_avg"] = float(np.mean(pts_scored))
                 features[f"{prefix}_{label}_pts_allowed_avg"] = float(
                     np.mean(pts_allowed)
@@ -236,7 +248,7 @@ async def build_feature_vector(
             .limit(1)
         )
         last_game_time = result.scalar_one_or_none()
-        if last_game_time:
+        if last_game_time is not None:
             rest_days = (game.commence_time - last_game_time).days
             features[f"{prefix}_rest_days"] = float(rest_days)
             features[f"{prefix}_b2b"] = 1.0 if rest_days <= 1 else 0.0
@@ -262,7 +274,7 @@ async def build_feature_vector(
         injury_impact = 0.0
         injured_count = 0
         for inj in injuries:
-            weight = INJURY_WEIGHTS.get(inj.status.lower(), 0.0)
+            weight = INJURY_WEIGHTS.get(_as_str(cast(Any, inj.status)).lower(), 0.0)
             if weight > 0:
                 # Estimate player value from season averages
                 result2 = await db.execute(
@@ -283,7 +295,9 @@ async def build_feature_vector(
     home_pace = features.get("home_pace", 0.0)
     away_pace = features.get("away_pace", 0.0)
     features["expected_pace"] = (
-        (home_pace + away_pace) / 2.0 if (home_pace and away_pace) else 0.0
+        (home_pace + away_pace) / 2.0
+        if (home_pace != 0.0 and away_pace != 0.0)
+        else 0.0
     )
     features["pace_diff"] = home_pace - away_pace
 
@@ -308,12 +322,12 @@ async def build_feature_vector(
             scored = []
             allowed = []
             for g in venue_games:
-                if g.home_team_id == team_id:
-                    scored.append(g.home_score_fg or 0)
-                    allowed.append(g.away_score_fg or 0)
+                if int(cast(Any, g.home_team_id)) == team_id:
+                    scored.append(_as_float(cast(Any, g.home_score_fg)))
+                    allowed.append(_as_float(cast(Any, g.away_score_fg)))
                 else:
-                    scored.append(g.away_score_fg or 0)
-                    allowed.append(g.home_score_fg or 0)
+                    scored.append(_as_float(cast(Any, g.away_score_fg)))
+                    allowed.append(_as_float(cast(Any, g.home_score_fg)))
             features[f"{prefix}_venue_ppg"] = float(np.mean(scored))
             features[f"{prefix}_venue_oppg"] = float(np.mean(allowed))
         else:
@@ -338,10 +352,14 @@ async def build_feature_vector(
         if streak_games:
             first_won = None
             for g in streak_games:
-                if g.home_team_id == team_id:
-                    won = (g.home_score_fg or 0) > (g.away_score_fg or 0)
+                if int(cast(Any, g.home_team_id)) == team_id:
+                    won = _as_float(cast(Any, g.home_score_fg)) > _as_float(
+                        cast(Any, g.away_score_fg)
+                    )
                 else:
-                    won = (g.away_score_fg or 0) > (g.home_score_fg or 0)
+                    won = _as_float(cast(Any, g.away_score_fg)) > _as_float(
+                        cast(Any, g.home_score_fg)
+                    )
                 if first_won is None:
                     first_won = won
                 if won == first_won:
@@ -354,10 +372,14 @@ async def build_feature_vector(
         l5_wins = 0
         l10_wins = 0
         for i, g in enumerate(streak_games):
-            if g.home_team_id == team_id:
-                won = (g.home_score_fg or 0) > (g.away_score_fg or 0)
+            if int(cast(Any, g.home_team_id)) == team_id:
+                won = _as_float(cast(Any, g.home_score_fg)) > _as_float(
+                    cast(Any, g.away_score_fg)
+                )
             else:
-                won = (g.away_score_fg or 0) > (g.home_score_fg or 0)
+                won = _as_float(cast(Any, g.away_score_fg)) > _as_float(
+                    cast(Any, g.home_score_fg)
+                )
             if won:
                 l10_wins += 1
                 if i < 5:
@@ -395,10 +417,14 @@ async def build_feature_vector(
         h2h_wins = 0
         h2h_margins = []
         for g in h2h_games:
-            if g.home_team_id == home_id:
-                margin = (g.home_score_fg or 0) - (g.away_score_fg or 0)
+            if int(cast(Any, g.home_team_id)) == home_id:
+                margin = _as_float(cast(Any, g.home_score_fg)) - _as_float(
+                    cast(Any, g.away_score_fg)
+                )
             else:
-                margin = (g.away_score_fg or 0) - (g.home_score_fg or 0)
+                margin = _as_float(cast(Any, g.away_score_fg)) - _as_float(
+                    cast(Any, g.home_score_fg)
+                )
             h2h_margins.append(margin)
             if margin > 0:
                 h2h_wins += 1
@@ -409,8 +435,8 @@ async def build_feature_vector(
         features["h2h_avg_margin"] = 0.0
 
     # ── Travel / timezone ───────────────────────────────────────
-    home_name = game.home_team.name if game.home_team else ""
-    away_name = game.away_team.name if game.away_team else ""
+    home_name = game.home_team.name if game.home_team is not None else ""
+    away_name = game.away_team.name if game.away_team is not None else ""
     home_tz = TEAM_TZ.get(home_name, -5)
     away_tz = TEAM_TZ.get(away_name, -5)
     features["tz_diff"] = float(abs(home_tz - away_tz))
@@ -442,20 +468,28 @@ async def build_feature_vector(
         snapshots = odds_snapshots
     if snapshots:
         spreads = [
-            s.point for s in snapshots if s.market == "spreads" and s.point is not None
+            _as_float(s.point)
+            for s in snapshots
+            if _as_str(s.market) == "spreads"
+            and s.point is not None
         ]
         totals = [
-            s.point for s in snapshots if s.market == "totals" and s.point is not None
+            _as_float(s.point)
+            for s in snapshots
+            if _as_str(s.market) == "totals"
+            and s.point is not None
         ]
         h1_spreads = [
-            s.point
+            _as_float(s.point)
             for s in snapshots
-            if s.market == "spreads_1st_half" and s.point is not None
+            if _as_str(s.market) == "spreads_1st_half"
+            and s.point is not None
         ]
         h1_totals = [
-            s.point
+            _as_float(s.point)
             for s in snapshots
-            if s.market == "totals_1st_half" and s.point is not None
+            if _as_str(s.market) == "totals_1st_half"
+            and s.point is not None
         ]
 
         features["mkt_spread_avg"] = float(np.mean(spreads)) if spreads else 0.0
@@ -468,49 +502,50 @@ async def build_feature_vector(
         features["mkt_1h_total_avg"] = float(np.mean(h1_totals)) if h1_totals else 0.0
 
         # Moneyline implied probability (overall)
-        h2h = [s for s in snapshots if s.market == "h2h"]
+        h2h = [s for s in snapshots if _as_str(s.market) == "h2h"]
         if h2h:
             home_prices = [
-                s.price
+                _as_float(s.price)
                 for s in h2h
-                if "home" in (s.outcome_name or "").lower()
-                or s.outcome_name == game.home_team.name
+                if "home" in _as_str(s.outcome_name).lower()
+                or _as_str(s.outcome_name) == home_name
             ]
             if home_prices:
                 avg_price = np.mean(home_prices)
                 if avg_price < 0:
-                    features["mkt_home_ml_prob"] = abs(avg_price) / (
-                        abs(avg_price) + 100
+                    features["mkt_home_ml_prob"] = float(
+                        abs(avg_price) / (abs(avg_price) + 100)
                     )
                 else:
-                    features["mkt_home_ml_prob"] = 100 / (avg_price + 100)
+                    features["mkt_home_ml_prob"] = float(100 / (avg_price + 100))
             else:
                 features["mkt_home_ml_prob"] = 0.5
         else:
             features["mkt_home_ml_prob"] = 0.5
 
         # ── Sharp vs. Square book analysis ──────────────────────
-        home_team_name = game.home_team.name if game.home_team else ""
+        home_team_name = game.home_team.name if game.home_team is not None else ""
 
-        def _split_by_book_type(snaps: list, mkt: str, field: str = "point"):
+        def _split_by_book_type(snaps: Sequence[Any], mkt: str, field: str = "point"):
             sharp_vals, square_vals = [], []
             for s in snaps:
-                if s.market != mkt:
+                if _as_str(s.market) != mkt:
                     continue
                 val = getattr(s, field)
                 if val is None:
                     continue
-                bk = (s.bookmaker or "").lower()
+                bk = _as_str(s.bookmaker).lower()
                 if bk in SHARP_BOOKS:
-                    sharp_vals.append(val)
+                    sharp_vals.append(_as_float(val))
                 elif bk in SQUARE_BOOKS:
-                    square_vals.append(val)
+                    square_vals.append(_as_float(val))
             return sharp_vals, square_vals
 
-        def _price_to_implied(price: float) -> float:
-            if price < 0:
-                return abs(price) / (abs(price) + 100)
-            return 100 / (price + 100)
+        def _price_to_implied(price: Any) -> float:
+            price_f = _as_float(price)
+            if price_f < 0:
+                return abs(price_f) / (abs(price_f) + 100)
+            return 100 / (price_f + 100)
 
         # Spread: sharp vs square
         sharp_spr, square_spr = _split_by_book_type(snapshots, "spreads")
@@ -540,21 +575,21 @@ async def build_feature_vector(
         sharp_h2h = [
             s
             for s in snapshots
-            if s.market == "h2h"
-            and (s.bookmaker or "").lower() in SHARP_BOOKS
+            if _as_str(s.market) == "h2h"
+            and _as_str(s.bookmaker).lower() in SHARP_BOOKS
             and (
-                "home" in (s.outcome_name or "").lower()
-                or s.outcome_name == home_team_name
+                "home" in _as_str(s.outcome_name).lower()
+                or _as_str(s.outcome_name) == home_team_name
             )
         ]
         square_h2h = [
             s
             for s in snapshots
-            if s.market == "h2h"
-            and (s.bookmaker or "").lower() in SQUARE_BOOKS
+            if _as_str(s.market) == "h2h"
+            and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
             and (
-                "home" in (s.outcome_name or "").lower()
-                or s.outcome_name == home_team_name
+                "home" in _as_str(s.outcome_name).lower()
+                or _as_str(s.outcome_name) == home_team_name
             )
         ]
 
@@ -570,39 +605,39 @@ async def build_feature_vector(
             )
         else:
             features["square_ml_prob"] = features["mkt_home_ml_prob"]
-        features["sharp_square_ml_diff"] = (
+        features["sharp_square_ml_diff"] = float(
             features["sharp_ml_prob"] - features["square_ml_prob"]
         )
 
         # ── Line movement (opening → current) ──────────────────
         # Opening = earliest captured snapshot; Current = latest
-        oldest_ts = min(s.captured_at for s in snapshots)
+        oldest_ts = min(cast(Any, s.captured_at) for s in snapshots)
         opening_spreads = [
-            s.point
+            _as_float(s.point)
             for s in snapshots
-            if s.market == "spreads"
-            and s.captured_at == oldest_ts
+            if _as_str(s.market) == "spreads"
+            and cast(Any, s.captured_at) == oldest_ts
             and s.point is not None
         ]
         current_spreads = [
-            s.point
+            _as_float(s.point)
             for s in snapshots
-            if s.market == "spreads"
-            and s.captured_at == snapshots[0].captured_at
+            if _as_str(s.market) == "spreads"
+            and cast(Any, s.captured_at) == cast(Any, snapshots[0].captured_at)
             and s.point is not None
         ]
         opening_totals = [
-            s.point
+            _as_float(s.point)
             for s in snapshots
-            if s.market == "totals"
-            and s.captured_at == oldest_ts
+            if _as_str(s.market) == "totals"
+            and cast(Any, s.captured_at) == oldest_ts
             and s.point is not None
         ]
         current_totals = [
-            s.point
+            _as_float(s.point)
             for s in snapshots
-            if s.market == "totals"
-            and s.captured_at == snapshots[0].captured_at
+            if _as_str(s.market) == "totals"
+            and cast(Any, s.captured_at) == cast(Any, snapshots[0].captured_at)
             and s.point is not None
         ]
 

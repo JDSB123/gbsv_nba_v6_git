@@ -10,24 +10,42 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "001_add_clv"
-down_revision = None
+down_revision = "000_initial"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("predictions", sa.Column("opening_spread", sa.Float(), nullable=True))
-    op.add_column("predictions", sa.Column("opening_total", sa.Float(), nullable=True))
-    op.add_column("predictions", sa.Column("closing_spread", sa.Float(), nullable=True))
-    op.add_column("predictions", sa.Column("closing_total", sa.Float(), nullable=True))
-    op.add_column("predictions", sa.Column("clv_spread", sa.Float(), nullable=True))
-    op.add_column("predictions", sa.Column("clv_total", sa.Float(), nullable=True))
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("predictions")
+    }
+    columns_to_add = (
+        ("opening_spread", sa.Float()),
+        ("opening_total", sa.Float()),
+        ("closing_spread", sa.Float()),
+        ("closing_total", sa.Float()),
+        ("clv_spread", sa.Float()),
+        ("clv_total", sa.Float()),
+    )
+    for column_name, column_type in columns_to_add:
+        if column_name not in existing_columns:
+            op.add_column(
+                "predictions",
+                sa.Column(column_name, column_type, nullable=True),
+            )
 
 
 def downgrade() -> None:
-    op.drop_column("predictions", "clv_total")
-    op.drop_column("predictions", "clv_spread")
-    op.drop_column("predictions", "closing_total")
-    op.drop_column("predictions", "closing_spread")
-    op.drop_column("predictions", "opening_total")
-    op.drop_column("predictions", "opening_spread")
+    existing_columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("predictions")
+    }
+    for column_name in (
+        "clv_total",
+        "clv_spread",
+        "closing_total",
+        "closing_spread",
+        "opening_total",
+        "opening_spread",
+    ):
+        if column_name in existing_columns:
+            op.drop_column("predictions", column_name)
