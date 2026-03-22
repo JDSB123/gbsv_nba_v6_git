@@ -98,37 +98,50 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
 
         # ── 5. Sync Odds API events to games ───────────────────
         logger.info("Step 5/6: Syncing Odds API events ...")
-        events = await odds.fetch_events()
-        mapped = 0
-        for event in events:
-            commence = event.get("commence_time")
-            if not commence:
-                continue
-            ct = parse_api_datetime(commence)
-            result = await db.execute(select(Game).where(Game.commence_time == ct))
-            game = result.scalar_one_or_none()
-            game_odds_api_id = cast(Any, game.odds_api_id) if game is not None else None
-            if game is not None and game_odds_api_id is None:
-                game.odds_api_id = event["id"]
-                mapped += 1
-        await db.commit()
-        logger.info("  Mapped %d events to games", mapped)
+        events: list[dict[str, Any]] = []
+        try:
+            events = await odds.fetch_events()
+            mapped = 0
+            for event in events:
+                commence = event.get("commence_time")
+                if not commence:
+                    continue
+                ct = parse_api_datetime(commence)
+                result = await db.execute(select(Game).where(Game.commence_time == ct))
+                game = result.scalar_one_or_none()
+                game_odds_api_id = (
+                    cast(Any, game.odds_api_id) if game is not None else None
+                )
+                if game is not None and game_odds_api_id is None:
+                    game.odds_api_id = event["id"]
+                    mapped += 1
+            await db.commit()
+            logger.info("  Mapped %d events to games", mapped)
+        except Exception:
+            logger.exception(
+                "Odds event sync failed during backfill; continuing without odds bootstrap"
+            )
 
         # ── 6. Current odds for upcoming games ─────────────────
         logger.info("Step 6/6: Fetching current odds ...")
-        fg_odds = await odds.fetch_odds()
-        if fg_odds:
-            count = await odds.persist_odds(fg_odds, db)
-            logger.info("  Persisted %d full-game odds snapshots", count)
+        try:
+            fg_odds = await odds.fetch_odds()
+            if fg_odds:
+                count = await odds.persist_odds(fg_odds, db)
+                logger.info("  Persisted %d full-game odds snapshots", count)
 
-        # 1H odds for the next few events
-        h1_count = 0
-        for event in events[:10]:
-            event_id = event.get("id")
-            if event_id:
-                data = await odds.fetch_event_odds(event_id)
-                if data and data.get("bookmakers"):
-                    h1_count += await odds.persist_odds([data], db)
-        logger.info("  Persisted %d 1H odds snapshots", h1_count)
+            # 1H odds for the next few events
+            h1_count = 0
+            for event in events[:10]:
+                event_id = event.get("id")
+                if event_id:
+                    data = await odds.fetch_event_odds(event_id)
+                    if data and data.get("bookmakers"):
+                        h1_count += await odds.persist_odds([data], db)
+            logger.info("  Persisted %d 1H odds snapshots", h1_count)
+        except Exception:
+            logger.exception(
+                "Odds fetch failed during backfill; continuing without odds snapshots"
+            )
 
     logger.info("Backfill complete.")
