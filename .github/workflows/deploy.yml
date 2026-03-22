@@ -141,6 +141,9 @@ jobs:
 
       - name: Bootstrap models before build
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap_models)
+        env:
+          BACKFILL_SEASON: ${{ inputs.backfill_season || '2024-2025' }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days || '120' }}
         run: |
           set -euo pipefail
 
@@ -150,30 +153,64 @@ jobs:
           RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
           RULE_NAME=allow-gha-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
 
-          if az postgres flexible-server firewall-rule create -h 2>&1 | grep -q -- "--server-name"; then
-            FIREWALL_CREATE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
-            FIREWALL_DELETE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
-          else
-            FIREWALL_CREATE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
-            FIREWALL_DELETE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
-          fi
-
-          cleanup() {
-            az postgres flexible-server firewall-rule delete \
+          create_firewall_rule() {
+            local output
+            if output=$(az postgres flexible-server firewall-rule create \
               --only-show-errors \
               --output none \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              "${FIREWALL_DELETE_ARGS[@]}" --yes || true
+              --server-name "$PG_SERVER_NAME" \
+              --name "$RULE_NAME" \
+              --start-ip-address "$RUNNER_IP" \
+              --end-ip-address "$RUNNER_IP" 2>&1); then
+              return 0
+            fi
+            if grep -q "unrecognized arguments: --server-name" <<<"$output"; then
+              az postgres flexible-server firewall-rule create \
+                --only-show-errors \
+                --output none \
+                --resource-group ${{ env.RESOURCE_GROUP }} \
+                --name "$PG_SERVER_NAME" \
+                --rule-name "$RULE_NAME" \
+                --start-ip-address "$RUNNER_IP" \
+                --end-ip-address "$RUNNER_IP"
+              return 0
+            fi
+            printf '%s\n' "$output" >&2
+            return 1
+          }
+
+          delete_firewall_rule() {
+            local output
+            if output=$(az postgres flexible-server firewall-rule delete \
+              --only-show-errors \
+              --output none \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --server-name "$PG_SERVER_NAME" \
+              --name "$RULE_NAME" \
+              --yes 2>&1); then
+              return 0
+            fi
+            if grep -q "unrecognized arguments: --server-name" <<<"$output"; then
+              az postgres flexible-server firewall-rule delete \
+                --only-show-errors \
+                --output none \
+                --resource-group ${{ env.RESOURCE_GROUP }} \
+                --name "$PG_SERVER_NAME" \
+                --rule-name "$RULE_NAME" \
+                --yes
+              return 0
+            fi
+            printf '%s\n' "$output" >&2
+            return 1
+          }
+
+          cleanup() {
+            delete_firewall_rule || true
           }
           trap cleanup EXIT
 
-          az postgres flexible-server firewall-rule create \
-            --only-show-errors \
-            --output none \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            "${FIREWALL_CREATE_ARGS[@]}" \
-            --start-ip-address "$RUNNER_IP" \
-            --end-ip-address "$RUNNER_IP"
+          create_firewall_rule
 
           PG_HOST=$(az postgres flexible-server show \
             --only-show-errors \
@@ -205,7 +242,7 @@ jobs:
 
           pip install --no-cache-dir -r requirements.txt
           python -m src migrate
-          python -m src backfill --season "${{ inputs.backfill_season }}" --days "${{ inputs.backfill_days }}"
+          python -m src backfill --season "$BACKFILL_SEASON" --days "$BACKFILL_DAYS"
           python -m src train
 
           test -f src/models/artifacts/model_home_fg.json
@@ -306,30 +343,64 @@ jobs:
           RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
           RULE_NAME=allow-gha-${{ github.run_id }}-${{ github.run_attempt }}
 
-          if az postgres flexible-server firewall-rule create -h 2>&1 | grep -q -- "--server-name"; then
-            FIREWALL_CREATE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
-            FIREWALL_DELETE_ARGS=(--server-name "$PG_SERVER_NAME" --name "$RULE_NAME")
-          else
-            FIREWALL_CREATE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
-            FIREWALL_DELETE_ARGS=(--name "$PG_SERVER_NAME" --rule-name "$RULE_NAME")
-          fi
-
-          cleanup() {
-            az postgres flexible-server firewall-rule delete \
+          create_firewall_rule() {
+            local output
+            if output=$(az postgres flexible-server firewall-rule create \
               --only-show-errors \
               --output none \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              "${FIREWALL_DELETE_ARGS[@]}" --yes || true
+              --server-name "$PG_SERVER_NAME" \
+              --name "$RULE_NAME" \
+              --start-ip-address "$RUNNER_IP" \
+              --end-ip-address "$RUNNER_IP" 2>&1); then
+              return 0
+            fi
+            if grep -q "unrecognized arguments: --server-name" <<<"$output"; then
+              az postgres flexible-server firewall-rule create \
+                --only-show-errors \
+                --output none \
+                --resource-group ${{ env.RESOURCE_GROUP }} \
+                --name "$PG_SERVER_NAME" \
+                --rule-name "$RULE_NAME" \
+                --start-ip-address "$RUNNER_IP" \
+                --end-ip-address "$RUNNER_IP"
+              return 0
+            fi
+            printf '%s\n' "$output" >&2
+            return 1
+          }
+
+          delete_firewall_rule() {
+            local output
+            if output=$(az postgres flexible-server firewall-rule delete \
+              --only-show-errors \
+              --output none \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --server-name "$PG_SERVER_NAME" \
+              --name "$RULE_NAME" \
+              --yes 2>&1); then
+              return 0
+            fi
+            if grep -q "unrecognized arguments: --server-name" <<<"$output"; then
+              az postgres flexible-server firewall-rule delete \
+                --only-show-errors \
+                --output none \
+                --resource-group ${{ env.RESOURCE_GROUP }} \
+                --name "$PG_SERVER_NAME" \
+                --rule-name "$RULE_NAME" \
+                --yes
+              return 0
+            fi
+            printf '%s\n' "$output" >&2
+            return 1
+          }
+
+          cleanup() {
+            delete_firewall_rule || true
           }
           trap cleanup EXIT
 
-          az postgres flexible-server firewall-rule create \
-            --only-show-errors \
-            --output none \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            "${FIREWALL_CREATE_ARGS[@]}" \
-            --start-ip-address "$RUNNER_IP" \
-            --end-ip-address "$RUNNER_IP"
+          create_firewall_rule
 
           PG_HOST=$(az postgres flexible-server show \
             --only-show-errors \
