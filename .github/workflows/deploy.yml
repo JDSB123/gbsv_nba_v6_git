@@ -241,12 +241,7 @@ jobs:
           export LOG_LEVEL=INFO
 
           if [ -z "$BACKFILL_SEASON" ]; then
-            BACKFILL_SEASON=$(python - <<'PY'
-from src.data.seasons import current_nba_season
-
-print(current_nba_season())
-PY
-)
+            BACKFILL_SEASON=$(python -c "from src.data.seasons import current_nba_season; print(current_nba_season())")
           fi
           echo "Bootstrapping season ${BACKFILL_SEASON} with ${BACKFILL_DAYS} days of history"
 
