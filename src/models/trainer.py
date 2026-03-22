@@ -12,6 +12,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.db.models import Game
 from src.models.features import (
@@ -114,6 +115,7 @@ class ModelTrainer:
 
         result = await db.execute(
             select(Game)
+            .options(selectinload(Game.home_team), selectinload(Game.away_team))
             .where(
                 Game.status == "FT",
                 Game.home_score_fg.is_not(None),

@@ -10,6 +10,7 @@ import numpy as np
 import xgboost as xgb
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.db.models import Game, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
@@ -265,7 +266,10 @@ class Predictor:
         ``predict_game`` call so we don't hammer the API per game.
         """
         result = await db.execute(
-            select(Game).where(Game.status == "NS").order_by(Game.commence_time)
+            select(Game)
+            .options(selectinload(Game.home_team), selectinload(Game.away_team))
+            .where(Game.status == "NS")
+            .order_by(Game.commence_time)
         )
         games = result.scalars().all()
         if not games:
