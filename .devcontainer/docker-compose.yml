@@ -6,12 +6,9 @@ services:
     volumes:
       - ..:/workspace:cached
     command: sleep infinity
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/nba_gbsv
-      - APP_ENV=development
-      - LOG_LEVEL=DEBUG
     env_file:
       - ../.env
+      - ../.env.development
     depends_on:
       db:
         condition: service_healthy

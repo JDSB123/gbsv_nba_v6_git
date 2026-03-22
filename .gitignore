@@ -13,8 +13,10 @@ build/
 venv/
 env/
 
-# Environment variables
+# Environment variables (keep .env.example + .env.production)
 .env
+.env.development
+.env.test
 
 # IDE
 .idea/

@@ -23,3 +23,20 @@ def test_settings_env_override(monkeypatch):
     assert s.app_env == "production"
     assert s.odds_api_key == "k1"
     assert s.basketball_api_key == "k2"
+
+
+def test_validation_skipped_in_test_env():
+    """APP_ENV=test should not require real API keys."""
+    from src.config import Settings
+
+    s = Settings(app_env="test")
+    assert s.odds_api_key == ""
+    assert s.basketball_api_key == ""
+
+
+def test_validation_fails_when_keys_missing():
+    """Non-test envs must supply API keys."""
+    from src.config import Settings
+
+    with pytest.raises(ValueError, match="Missing required env vars"):
+        Settings(app_env="development", odds_api_key="", basketball_api_key="")

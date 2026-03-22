@@ -42,8 +42,11 @@ jobs:
 
       - name: Run tests
         env:
+          ODDS_API_KEY: test-odds-key-ci
+          BASKETBALL_API_KEY: test-basketball-key-ci
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv
           APP_ENV: test
+          LOG_LEVEL: WARNING
         run: pytest tests/ -v
 
   deploy:
