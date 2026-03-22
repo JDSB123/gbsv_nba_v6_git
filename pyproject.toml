@@ -1,3 +1,16 @@
+[project]
+name = "nba-gbsv-v6"
+version = "6.0.0"
+requires-python = ">=3.12"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]

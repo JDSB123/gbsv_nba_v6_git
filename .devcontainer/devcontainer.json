@@ -7,19 +7,23 @@
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   "forwardPorts": [8000, 5432],
-  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt && alembic upgrade head",
+  "postCreateCommand": "pip install --no-cache-dir -r requirements-dev.txt && python -m src migrate 2>/dev/null || echo 'Skipped migration — generate one first with: alembic revision --autogenerate -m initial'",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-toolsai.jupyter",
+        "charliermarsh.ruff",
         "mtxr.sqltools",
         "mtxr.sqltools-driver-pg"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
-        "python.testing.pytestEnabled": true
+        "python.testing.pytestEnabled": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        }
       }
     }
   }

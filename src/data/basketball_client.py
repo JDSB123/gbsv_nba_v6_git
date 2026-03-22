@@ -32,7 +32,9 @@ class BasketballClient:
     def _headers(self) -> dict[str, str]:
         return {"x-apisports-key": self.api_key}
 
-    async def _get(self, endpoint: str, params: dict | None = None) -> list[dict[str, Any]]:
+    async def _get(
+        self, endpoint: str, params: dict | None = None
+    ) -> list[dict[str, Any]]:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self.base_url}/{endpoint}",
@@ -54,7 +56,9 @@ class BasketballClient:
             params["date"] = game_date.isoformat()
         return await self._get("games", params)
 
-    async def fetch_team_stats(self, team_id: int, season: str = "2024-2025") -> list[dict]:
+    async def fetch_team_stats(
+        self, team_id: int, season: str = "2024-2025"
+    ) -> list[dict]:
         return await self._get(
             "statistics",
             {"team": team_id, "league": self.league_id, "season": season},
@@ -74,7 +78,9 @@ class BasketballClient:
     async def fetch_h2h(self, team1_id: int, team2_id: int) -> list[dict]:
         return await self._get("games/h2h", {"h2h": f"{team1_id}-{team2_id}"})
 
-    async def fetch_players(self, team_id: int, season: str = "2024-2025") -> list[dict]:
+    async def fetch_players(
+        self, team_id: int, season: str = "2024-2025"
+    ) -> list[dict]:
         return await self._get(
             "players", {"team": team_id, "league": self.league_id, "season": season}
         )
@@ -88,14 +94,21 @@ class BasketballClient:
                 group = [group]
             for entry in group:
                 team_data = entry.get("team", {})
-                stmt = pg_insert(Team).values(
-                    id=team_data["id"],
-                    name=team_data["name"],
-                    abbreviation=team_data.get("name", "")[:10],
-                    conference=entry.get("group", {}).get("name"),
-                ).on_conflict_do_update(
-                    index_elements=["id"],
-                    set_={"name": team_data["name"], "conference": entry.get("group", {}).get("name")},
+                stmt = (
+                    pg_insert(Team)
+                    .values(
+                        id=team_data["id"],
+                        name=team_data["name"],
+                        abbreviation=team_data.get("name", "")[:10],
+                        conference=entry.get("group", {}).get("name"),
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "name": team_data["name"],
+                            "conference": entry.get("group", {}).get("name"),
+                        },
+                    )
                 )
                 await db.execute(stmt)
         await db.commit()
@@ -127,39 +140,48 @@ class BasketballClient:
             if isinstance(commence, str):
                 commence = datetime.fromisoformat(commence.replace("Z", "+00:00"))
 
-            stmt = pg_insert(Game).values(
-                id=game_id,
-                home_team_id=g["teams"]["home"]["id"],
-                away_team_id=g["teams"]["away"]["id"],
-                commence_time=commence,
-                status=status_info.get("short", "NS"),
-                season=g.get("league", {}).get("season"),
-                home_q1=home_q1,
-                home_q2=home_q2,
-                home_q3=home_q3,
-                home_q4=home_q4,
-                home_ot=home.get("over_time", 0),
-                away_q1=away_q1,
-                away_q2=away_q2,
-                away_q3=away_q3,
-                away_q4=away_q4,
-                away_ot=away.get("over_time", 0),
-                home_score_1h=home_1h,
-                away_score_1h=away_1h,
-                home_score_fg=home.get("total"),
-                away_score_fg=away.get("total"),
-            ).on_conflict_do_update(
-                index_elements=["id"],
-                set_={
-                    "status": status_info.get("short", "NS"),
-                    "home_q1": home_q1, "home_q2": home_q2,
-                    "home_q3": home_q3, "home_q4": home_q4,
-                    "away_q1": away_q1, "away_q2": away_q2,
-                    "away_q3": away_q3, "away_q4": away_q4,
-                    "home_score_1h": home_1h, "away_score_1h": away_1h,
-                    "home_score_fg": home.get("total"),
-                    "away_score_fg": away.get("total"),
-                },
+            stmt = (
+                pg_insert(Game)
+                .values(
+                    id=game_id,
+                    home_team_id=g["teams"]["home"]["id"],
+                    away_team_id=g["teams"]["away"]["id"],
+                    commence_time=commence,
+                    status=status_info.get("short", "NS"),
+                    season=g.get("league", {}).get("season"),
+                    home_q1=home_q1,
+                    home_q2=home_q2,
+                    home_q3=home_q3,
+                    home_q4=home_q4,
+                    home_ot=home.get("over_time", 0),
+                    away_q1=away_q1,
+                    away_q2=away_q2,
+                    away_q3=away_q3,
+                    away_q4=away_q4,
+                    away_ot=away.get("over_time", 0),
+                    home_score_1h=home_1h,
+                    away_score_1h=away_1h,
+                    home_score_fg=home.get("total"),
+                    away_score_fg=away.get("total"),
+                )
+                .on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={
+                        "status": status_info.get("short", "NS"),
+                        "home_q1": home_q1,
+                        "home_q2": home_q2,
+                        "home_q3": home_q3,
+                        "home_q4": home_q4,
+                        "away_q1": away_q1,
+                        "away_q2": away_q2,
+                        "away_q3": away_q3,
+                        "away_q4": away_q4,
+                        "home_score_1h": home_1h,
+                        "away_score_1h": away_1h,
+                        "home_score_fg": home.get("total"),
+                        "away_score_fg": away.get("total"),
+                    },
+                )
             )
             await db.execute(stmt)
             count += 1
@@ -177,23 +199,29 @@ class BasketballClient:
         games_data = s.get("games", {})
         points = s.get("points", {})
 
-        stmt = pg_insert(TeamSeasonStats).values(
-            team_id=team_id,
-            season=season,
-            games_played=games_data.get("played", {}).get("all", 0),
-            wins=games_data.get("wins", {}).get("all", {}).get("total", 0),
-            losses=games_data.get("loses", {}).get("all", {}).get("total", 0),
-            ppg=points.get("for", {}).get("average", {}).get("all"),
-            oppg=points.get("against", {}).get("average", {}).get("all"),
-        ).on_conflict_do_update(
-            constraint="uq_team_season",
-            set_={
-                "games_played": games_data.get("played", {}).get("all", 0),
-                "wins": games_data.get("wins", {}).get("all", {}).get("total", 0),
-                "losses": games_data.get("loses", {}).get("all", {}).get("total", 0),
-                "ppg": points.get("for", {}).get("average", {}).get("all"),
-                "oppg": points.get("against", {}).get("average", {}).get("all"),
-            },
+        stmt = (
+            pg_insert(TeamSeasonStats)
+            .values(
+                team_id=team_id,
+                season=season,
+                games_played=games_data.get("played", {}).get("all", 0),
+                wins=games_data.get("wins", {}).get("all", {}).get("total", 0),
+                losses=games_data.get("loses", {}).get("all", {}).get("total", 0),
+                ppg=points.get("for", {}).get("average", {}).get("all"),
+                oppg=points.get("against", {}).get("average", {}).get("all"),
+            )
+            .on_conflict_do_update(
+                constraint="uq_team_season",
+                set_={
+                    "games_played": games_data.get("played", {}).get("all", 0),
+                    "wins": games_data.get("wins", {}).get("all", {}).get("total", 0),
+                    "losses": games_data.get("loses", {})
+                    .get("all", {})
+                    .get("total", 0),
+                    "ppg": points.get("for", {}).get("average", {}).get("all"),
+                    "oppg": points.get("against", {}).get("average", {}).get("all"),
+                },
+            )
         )
         await db.execute(stmt)
         await db.commit()
@@ -210,7 +238,9 @@ class BasketballClient:
                     continue
 
                 # Ensure player exists
-                existing = await db.execute(select(Player.id).where(Player.id == player_id))
+                existing = await db.execute(
+                    select(Player.id).where(Player.id == player_id)
+                )
                 if existing.scalar_one_or_none() is None:
                     player_obj = Player(
                         id=player_id,
@@ -233,32 +263,38 @@ class BasketballClient:
                     if val is None or val == "":
                         return None
                     try:
-                        return int(str(val).split(":")[0]) if ":" in str(val) else int(val)
+                        return (
+                            int(str(val).split(":")[0]) if ":" in str(val) else int(val)
+                        )
                     except (ValueError, TypeError):
                         return None
 
-                stmt = pg_insert(PlayerGameStats).values(
-                    player_id=player_id,
-                    game_id=game_id,
-                    minutes=_safe_int(p.get("min")),
-                    points=_safe_int(p.get("points")),
-                    rebounds=_safe_int(p.get("totReb")),
-                    assists=_safe_int(p.get("assists")),
-                    steals=_safe_int(p.get("steals")),
-                    blocks=_safe_int(p.get("blocks")),
-                    turnovers=_safe_int(p.get("turnovers")),
-                    fg_pct=_safe_float(p.get("fgp")),
-                    three_pct=_safe_float(p.get("tpp")),
-                    ft_pct=_safe_float(p.get("ftp")),
-                    plus_minus=_safe_float(p.get("plusMinus")),
-                ).on_conflict_do_update(
-                    constraint="uq_player_game",
-                    set_={
-                        "minutes": _safe_int(p.get("min")),
-                        "points": _safe_int(p.get("points")),
-                        "rebounds": _safe_int(p.get("totReb")),
-                        "assists": _safe_int(p.get("assists")),
-                    },
+                stmt = (
+                    pg_insert(PlayerGameStats)
+                    .values(
+                        player_id=player_id,
+                        game_id=game_id,
+                        minutes=_safe_int(p.get("min")),
+                        points=_safe_int(p.get("points")),
+                        rebounds=_safe_int(p.get("totReb")),
+                        assists=_safe_int(p.get("assists")),
+                        steals=_safe_int(p.get("steals")),
+                        blocks=_safe_int(p.get("blocks")),
+                        turnovers=_safe_int(p.get("turnovers")),
+                        fg_pct=_safe_float(p.get("fgp")),
+                        three_pct=_safe_float(p.get("tpp")),
+                        ft_pct=_safe_float(p.get("ftp")),
+                        plus_minus=_safe_float(p.get("plusMinus")),
+                    )
+                    .on_conflict_do_update(
+                        constraint="uq_player_game",
+                        set_={
+                            "minutes": _safe_int(p.get("min")),
+                            "points": _safe_int(p.get("points")),
+                            "rebounds": _safe_int(p.get("totReb")),
+                            "assists": _safe_int(p.get("assists")),
+                        },
+                    )
                 )
                 await db.execute(stmt)
         await db.commit()

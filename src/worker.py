@@ -1,27 +1,15 @@
-"""Standalone worker process — runs the scheduler in a loop."""
+"""DEPRECATED — use ``python -m src work`` instead.
 
-import asyncio
-import logging
+This file is kept only as a backwards-compatible shim so that existing
+Dockerfiles / scripts that reference ``src.worker`` continue to work.
+"""
 
-from src.config import get_settings
-from src.data.scheduler import create_scheduler
-
-settings = get_settings()
+from src.__main__ import cmd_work
+import argparse
 
 
 def main() -> None:
-    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
-    logger = logging.getLogger(__name__)
-    logger.info("Starting worker process (scheduler only)")
-
-    scheduler = create_scheduler()
-    scheduler.start()
-
-    try:
-        asyncio.get_event_loop().run_forever()
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown(wait=False)
-        logger.info("Worker shut down")
+    cmd_work(argparse.Namespace())
 
 
 if __name__ == "__main__":

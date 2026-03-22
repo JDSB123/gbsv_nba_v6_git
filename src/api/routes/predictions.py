@@ -23,8 +23,14 @@ def _format_prediction(pred: Prediction, game: Game) -> dict:
         "away_team": away_name,
         "home_team": home_name,
         "predicted_scores": {
-            "full_game": {"away": pred.predicted_away_fg, "home": pred.predicted_home_fg},
-            "first_half": {"away": pred.predicted_away_1h, "home": pred.predicted_home_1h},
+            "full_game": {
+                "away": pred.predicted_away_fg,
+                "home": pred.predicted_home_fg,
+            },
+            "first_half": {
+                "away": pred.predicted_away_1h,
+                "home": pred.predicted_home_1h,
+            },
         },
         "markets": {
             "fg_spread": {"prediction": pred.fg_spread},
@@ -99,7 +105,9 @@ async def get_prediction(game_id: int, db: AsyncSession = Depends(get_db)):
     )
     pred = pred_result.scalar_one_or_none()
     if not pred:
-        raise HTTPException(status_code=404, detail="No prediction available for this game")
+        raise HTTPException(
+            status_code=404, detail="No prediction available for this game"
+        )
 
     result = _format_prediction(pred, game)
 
@@ -114,13 +122,17 @@ async def get_prediction(game_id: int, db: AsyncSession = Depends(get_db)):
     if odds:
         import numpy as np
 
-        spreads = [o.point for o in odds if o.market == "spreads" and o.point is not None]
+        spreads = [
+            o.point for o in odds if o.market == "spreads" and o.point is not None
+        ]
         totals = [o.point for o in odds if o.market == "totals" and o.point is not None]
 
         if spreads:
             mkt_spread = float(np.mean(spreads))
             result["markets"]["fg_spread"]["market_line"] = mkt_spread
-            result["markets"]["fg_spread"]["edge"] = round(pred.fg_spread - mkt_spread, 1)
+            result["markets"]["fg_spread"]["edge"] = round(
+                pred.fg_spread - mkt_spread, 1
+            )
         if totals:
             mkt_total = float(np.mean(totals))
             result["markets"]["fg_total"]["market_line"] = mkt_total

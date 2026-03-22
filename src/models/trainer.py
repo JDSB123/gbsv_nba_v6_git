@@ -120,7 +120,9 @@ class ModelTrainer:
         # Save feature importance
         if self.models:
             first_model = next(iter(self.models.values()))
-            importance = dict(zip(self.feature_cols, first_model.feature_importances_.tolist()))
+            importance = dict(
+                zip(self.feature_cols, first_model.feature_importances_.tolist())
+            )
             imp_path = ARTIFACTS_DIR / "feature_importance.json"
             imp_path.write_text(json.dumps(importance, indent=2))
 

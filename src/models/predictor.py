@@ -1,7 +1,9 @@
 import json
 import logging
 import math
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import xgboost as xgb
@@ -19,12 +21,39 @@ MODEL_VERSION = "v6.0.0"
 
 
 def _margin_to_prob(margin: float, scale: float = 7.5) -> float:
-    """Convert predicted point margin to win probability via logistic function.
-
-    `scale` controls steepness — calibrated to NBA historical data where
-    ~7.5 point margin ≈ ~75% win probability.
-    """
+    """Convert predicted point margin to win probability via logistic function."""
     return 1.0 / (1.0 + math.exp(-margin / scale))
+
+
+def _odds_response_to_snapshots(odds_data: list[dict], game: Game) -> list:
+    """Convert raw Odds API JSON into OddsSnapshot-like objects.
+
+    Returns lightweight SimpleNamespace objects that quack like
+    OddsSnapshot (same attribute names).  This keeps the feature
+    builder's downstream code identical for both fresh and cached data.
+    """
+    now = datetime.utcnow()
+    snapshots: list = []
+    for event in odds_data:
+        if event.get("id") != game.odds_api_id:
+            continue
+        for bookmaker in event.get("bookmakers", []):
+            bk_name = bookmaker["key"]
+            for market in bookmaker.get("markets", []):
+                market_key = market["key"]
+                for outcome in market.get("outcomes", []):
+                    snapshots.append(
+                        SimpleNamespace(
+                            game_id=game.id,
+                            bookmaker=bk_name,
+                            market=market_key,
+                            outcome_name=outcome["name"],
+                            price=outcome["price"],
+                            point=outcome.get("point"),
+                            captured_at=now,
+                        )
+                    )
+    return snapshots
 
 
 class Predictor:
@@ -61,12 +90,37 @@ class Predictor:
         return {}
 
     async def predict_game(self, game: Game, db: AsyncSession) -> dict | None:
-        """Generate predictions for a single game. Returns prediction dict or None."""
+        """Generate predictions for a single game using *fresh* live odds.
+
+        Always fetches the latest odds from The Odds API so predictions
+        are never stale.  Falls back gracefully if the game has no
+        ``odds_api_id`` or the fetch fails (uses empty odds in that case).
+        """
         if not self.is_ready:
             logger.warning("Models not loaded, cannot predict")
             return None
 
-        features = await build_feature_vector(game, db)
+        # ── Fetch fresh odds (single source of truth) ──────────
+        fresh_snapshots: list = []
+        if game.odds_api_id:
+            try:
+                from src.data.odds_client import OddsClient
+
+                client = OddsClient()
+                # Full-game odds
+                fg_data = await client.fetch_odds()
+                fresh_snapshots.extend(_odds_response_to_snapshots(fg_data, game))
+                # 1st-half odds for this event
+                h1_data = await client.fetch_event_odds(game.odds_api_id)
+                if h1_data and h1_data.get("bookmakers"):
+                    fresh_snapshots.extend(_odds_response_to_snapshots([h1_data], game))
+            except Exception:
+                logger.exception(
+                    "Failed to fetch fresh odds for game %s; using empty odds",
+                    game.odds_api_id,
+                )
+
+        features = await build_feature_vector(game, db, odds_snapshots=fresh_snapshots)
         if features is None:
             return None
 
@@ -93,13 +147,13 @@ class Predictor:
             "h1_home_ml_prob": round(_margin_to_prob(h1_margin, scale=5.0), 3),
         }
 
-    async def predict_and_store(self, game: Game, db: AsyncSession) -> Prediction | None:
+    async def predict_and_store(
+        self, game: Game, db: AsyncSession
+    ) -> Prediction | None:
         """Predict and persist to database."""
         pred_dict = await self.predict_game(game, db)
         if pred_dict is None:
             return None
-
-        from datetime import datetime
 
         prediction = Prediction(
             game_id=game.id,

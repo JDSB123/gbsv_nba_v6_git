@@ -238,7 +238,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'worker'
           image: '${acr.properties.loginServer}/nba-gbsv-v6:latest'
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          command: ['python', '-m', 'src.worker']
+          command: ['python', '-m', 'src', 'work']
           env: [
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }

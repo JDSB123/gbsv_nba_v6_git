@@ -1,10 +1,12 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+from functools import lru_cache
 
-from src.db.session import get_db
 from src.models.predictor import Predictor
 
-predictor = Predictor()
+
+@lru_cache
+def _get_predictor() -> Predictor:
+    return Predictor()
 
 
 async def get_predictor() -> Predictor:
-    return predictor
+    return _get_predictor()

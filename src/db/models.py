@@ -81,9 +81,7 @@ class Game(Base):
     predictions = relationship("Prediction", back_populates="game")
     player_stats = relationship("PlayerGameStats", back_populates="game")
 
-    __table_args__ = (
-        Index("ix_games_status_commence", "status", "commence_time"),
-    )
+    __table_args__ = (Index("ix_games_status_commence", "status", "commence_time"),)
 
 
 class TeamSeasonStats(Base):
@@ -103,9 +101,7 @@ class TeamSeasonStats(Base):
 
     team = relationship("Team", back_populates="season_stats")
 
-    __table_args__ = (
-        UniqueConstraint("team_id", "season", name="uq_team_season"),
-    )
+    __table_args__ = (UniqueConstraint("team_id", "season", name="uq_team_season"),)
 
 
 class PlayerGameStats(Base):
@@ -129,9 +125,7 @@ class PlayerGameStats(Base):
     player = relationship("Player", back_populates="game_stats")
     game = relationship("Game", back_populates="player_stats")
 
-    __table_args__ = (
-        UniqueConstraint("player_id", "game_id", name="uq_player_game"),
-    )
+    __table_args__ = (UniqueConstraint("player_id", "game_id", name="uq_player_game"),)
 
 
 class OddsSnapshot(Base):
@@ -175,9 +169,7 @@ class Prediction(Base):
 
     game = relationship("Game", back_populates="predictions")
 
-    __table_args__ = (
-        Index("ix_pred_game_version", "game_id", "model_version"),
-    )
+    __table_args__ = (Index("ix_pred_game_version", "game_id", "model_version"),)
 
 
 class Injury(Base):

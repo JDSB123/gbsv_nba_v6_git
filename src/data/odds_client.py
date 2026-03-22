@@ -33,8 +33,13 @@ class OddsClient:
         return self._remaining_quota
 
     def _should_skip(self) -> bool:
-        if self._remaining_quota is not None and self._remaining_quota < settings.odds_api_quota_min:
-            logger.warning("Odds API quota low (%s), skipping request", self._remaining_quota)
+        if (
+            self._remaining_quota is not None
+            and self._remaining_quota < settings.odds_api_quota_min
+        ):
+            logger.warning(
+                "Odds API quota low (%s), skipping request", self._remaining_quota
+            )
             return True
         return False
 
