@@ -40,3 +40,21 @@ def test_validation_fails_when_keys_missing():
 
     with pytest.raises(ValueError, match="Missing required env vars"):
         Settings(app_env="development", odds_api_key="", basketball_api_key="")
+
+
+def test_resolve_database_url_prefers_env_without_api_keys(monkeypatch):
+    from src.config import get_settings, resolve_database_url
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@db.example:5432/nba")
+    monkeypatch.delenv("ODDS_API_KEY", raising=False)
+    monkeypatch.delenv("BASKETBALL_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    try:
+        assert (
+            resolve_database_url()
+            == "postgresql+asyncpg://user:pass@db.example:5432/nba"
+        )
+    finally:
+        get_settings.cache_clear()

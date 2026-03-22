@@ -84,3 +84,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def resolve_database_url() -> str:
+    """Return the database URL without forcing unrelated secret validation."""
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if database_url:
+        return database_url
+    return get_settings().database_url
