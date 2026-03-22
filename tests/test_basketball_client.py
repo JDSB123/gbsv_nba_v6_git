@@ -68,13 +68,13 @@ async def test_persist_team_season_stats_accepts_dict_payload():
     db = AsyncMock()
     stats = {
         "games": {
-            "played": {"all": 82},
-            "wins": {"all": {"total": 50}},
-            "loses": {"all": {"total": 32}},
+            "played": {"all": "82"},
+            "wins": {"all": {"total": "50"}},
+            "loses": {"all": {"total": "32"}},
         },
         "points": {
-            "for": {"average": {"all": 118.2}},
-            "against": {"average": {"all": 111.1}},
+            "for": {"average": {"all": "118.2"}},
+            "against": {"average": {"all": "111.1"}},
         },
     }
 

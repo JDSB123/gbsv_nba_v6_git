@@ -21,6 +21,18 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _as_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    if value in (None, ""):
+        return default
+    return int(value)
+
+
 def normalize_team_stats(stats: Any) -> dict[str, Any] | None:
     if isinstance(stats, dict):
         return stats
@@ -237,22 +249,32 @@ class BasketballClient:
             .values(
                 team_id=team_id,
                 season=season,
-                games_played=games_data.get("played", {}).get("all", 0),
-                wins=games_data.get("wins", {}).get("all", {}).get("total", 0),
-                losses=games_data.get("loses", {}).get("all", {}).get("total", 0),
-                ppg=points.get("for", {}).get("average", {}).get("all"),
-                oppg=points.get("against", {}).get("average", {}).get("all"),
+                games_played=_as_int(games_data.get("played", {}).get("all")),
+                wins=_as_int(games_data.get("wins", {}).get("all", {}).get("total")),
+                losses=_as_int(
+                    games_data.get("loses", {}).get("all", {}).get("total")
+                ),
+                ppg=_as_float(points.get("for", {}).get("average", {}).get("all")),
+                oppg=_as_float(
+                    points.get("against", {}).get("average", {}).get("all")
+                ),
             )
             .on_conflict_do_update(
                 constraint="uq_team_season",
                 set_={
-                    "games_played": games_data.get("played", {}).get("all", 0),
-                    "wins": games_data.get("wins", {}).get("all", {}).get("total", 0),
-                    "losses": games_data.get("loses", {})
-                    .get("all", {})
-                    .get("total", 0),
-                    "ppg": points.get("for", {}).get("average", {}).get("all"),
-                    "oppg": points.get("against", {}).get("average", {}).get("all"),
+                    "games_played": _as_int(games_data.get("played", {}).get("all")),
+                    "wins": _as_int(
+                        games_data.get("wins", {}).get("all", {}).get("total")
+                    ),
+                    "losses": _as_int(
+                        games_data.get("loses", {}).get("all", {}).get("total")
+                    ),
+                    "ppg": _as_float(
+                        points.get("for", {}).get("average", {}).get("all")
+                    ),
+                    "oppg": _as_float(
+                        points.get("against", {}).get("average", {}).get("all")
+                    ),
                 },
             )
         )
