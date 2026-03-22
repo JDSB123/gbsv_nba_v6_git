@@ -159,6 +159,7 @@ jobs:
           export LOG_LEVEL=INFO
 
           pip install --no-cache-dir -r requirements.txt
+          python -m src migrate
           python -m src backfill --season "${{ inputs.backfill_season }}" --days "${{ inputs.backfill_days }}"
           python -m src train
 
@@ -195,7 +196,7 @@ jobs:
 
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: trivy-results.sarif
 
@@ -303,4 +304,4 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
 
           STATUS_JSON=$(curl -fsS "https://${API_FQDN}/model/status")
-            python -c "import json,sys; payload=json.loads(sys.argv[1]); assert payload.get('ready'), 'Model is not ready after bootstrap deploy'; print('Model readiness check passed')" "$STATUS_JSON"
+          python -c "import json,sys; payload=json.loads(sys.argv[1]); assert payload.get('ready'), 'Model is not ready after bootstrap deploy'; print('Model readiness check passed')" "$STATUS_JSON"
