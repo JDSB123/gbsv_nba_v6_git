@@ -125,4 +125,4 @@ def test_alembic_upgrade_bootstraps_fresh_database(monkeypatch: pytest.MonkeyPat
         "clv_spread",
         "clv_total",
     }.issubset(prediction_columns)
-    assert revision == "001_add_clv"
+    assert revision == "002_model_registry"
