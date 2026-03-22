@@ -29,7 +29,7 @@ def test_validation_skipped_in_test_env():
     """APP_ENV=test should not require real API keys."""
     from src.config import Settings
 
-    s = Settings(app_env="test")
+    s = Settings(app_env="test", odds_api_key="", basketball_api_key="")
     assert s.odds_api_key == ""
     assert s.basketball_api_key == ""
 

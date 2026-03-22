@@ -121,7 +121,11 @@ class ModelTrainer:
         if self.models:
             first_model = next(iter(self.models.values()))
             importance = dict(
-                zip(self.feature_cols, first_model.feature_importances_.tolist(), strict=True)
+                zip(
+                    self.feature_cols,
+                    first_model.feature_importances_.tolist(),
+                    strict=True,
+                )
             )
             imp_path = ARTIFACTS_DIR / "feature_importance.json"
             imp_path.write_text(json.dumps(importance, indent=2))
