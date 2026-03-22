@@ -53,10 +53,15 @@ class OddsClient:
     async def fetch_odds(
         self,
         markets: str = "h2h,spreads,totals",
-        regions: str = "us",
+        regions: str = "us,us2",
         odds_format: str = "american",
     ) -> list[dict[str, Any]]:
-        """Fetch full-game odds for all upcoming NBA games. Cost: ~3 credits."""
+        """Fetch full-game odds for all upcoming NBA games.
+
+        Uses us+us2 regions to capture both retail (square) and
+        offshore/professional (sharp, e.g. Pinnacle) book lines.
+        Cost: ~6 credits (3 per region).
+        """
         if self._should_skip():
             return []
         async with httpx.AsyncClient() as client:
@@ -78,10 +83,14 @@ class OddsClient:
         self,
         event_id: str,
         markets: str = "h2h_1st_half,spreads_1st_half,totals_1st_half",
-        regions: str = "us",
+        regions: str = "us,us2",
         odds_format: str = "american",
     ) -> dict[str, Any]:
-        """Fetch 1st-half odds for a specific event. Cost: ~3 credits per event."""
+        """Fetch 1st-half odds for a specific event.
+
+        Uses us+us2 regions for sharp/square coverage.
+        Cost: ~6 credits per event.
+        """
         if self._should_skip():
             return {}
         async with httpx.AsyncClient() as client:

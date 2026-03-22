@@ -20,6 +20,18 @@ logger = logging.getLogger(__name__)
 # Injury status weights
 INJURY_WEIGHTS = {"out": 1.0, "doubtful": 0.75, "questionable": 0.25, "probable": 0.05}
 
+# ── Sharp vs. Square book classification ────────────────────
+# Sharp books: professional-facing, efficient lines, low vig
+SHARP_BOOKS = frozenset({
+    "pinnacle", "lowvig", "betonlineag",
+})
+# Square books: retail-facing, wider vig, public-driven lines
+SQUARE_BOOKS = frozenset({
+    "fanduel", "draftkings", "betmgm", "pointsbetus",
+    "caesars", "wynnbet", "unibet_us", "betrivers",
+    "superbook", "twinspires", "betus",
+})
+
 
 async def build_feature_vector(
     game: Game, db: AsyncSession
@@ -155,7 +167,7 @@ async def build_feature_vector(
         select(OddsSnapshot)
         .where(OddsSnapshot.game_id == game.id)
         .order_by(OddsSnapshot.captured_at.desc())
-        .limit(200)
+        .limit(500)
     )
     snapshots = result.scalars().all()
     if snapshots:
@@ -171,7 +183,7 @@ async def build_feature_vector(
         features["mkt_1h_spread_avg"] = float(np.mean(h1_spreads)) if h1_spreads else 0.0
         features["mkt_1h_total_avg"] = float(np.mean(h1_totals)) if h1_totals else 0.0
 
-        # Moneyline implied probability
+        # Moneyline implied probability (overall)
         h2h = [s for s in snapshots if s.market == "h2h"]
         if h2h:
             home_prices = [s.price for s in h2h if "home" in (s.outcome_name or "").lower() or s.outcome_name == game.home_team.name]
@@ -185,9 +197,98 @@ async def build_feature_vector(
                 features["mkt_home_ml_prob"] = 0.5
         else:
             features["mkt_home_ml_prob"] = 0.5
+
+        # ── Sharp vs. Square book analysis ──────────────────────
+        home_team_name = game.home_team.name if game.home_team else ""
+
+        def _split_by_book_type(snaps: list, mkt: str, field: str = "point"):
+            sharp_vals, square_vals = [], []
+            for s in snaps:
+                if s.market != mkt:
+                    continue
+                val = getattr(s, field)
+                if val is None:
+                    continue
+                bk = (s.bookmaker or "").lower()
+                if bk in SHARP_BOOKS:
+                    sharp_vals.append(val)
+                elif bk in SQUARE_BOOKS:
+                    square_vals.append(val)
+            return sharp_vals, square_vals
+
+        def _price_to_implied(price: float) -> float:
+            if price < 0:
+                return abs(price) / (abs(price) + 100)
+            return 100 / (price + 100)
+
+        # Spread: sharp vs square
+        sharp_spr, square_spr = _split_by_book_type(snapshots, "spreads")
+        features["sharp_spread"] = float(np.mean(sharp_spr)) if sharp_spr else features["mkt_spread_avg"]
+        features["square_spread"] = float(np.mean(square_spr)) if square_spr else features["mkt_spread_avg"]
+        features["sharp_square_spread_diff"] = features["sharp_spread"] - features["square_spread"]
+
+        # Total: sharp vs square
+        sharp_tot, square_tot = _split_by_book_type(snapshots, "totals")
+        features["sharp_total"] = float(np.mean(sharp_tot)) if sharp_tot else features["mkt_total_avg"]
+        features["square_total"] = float(np.mean(square_tot)) if square_tot else features["mkt_total_avg"]
+        features["sharp_square_total_diff"] = features["sharp_total"] - features["square_total"]
+
+        # Moneyline implied prob: sharp vs square
+        sharp_h2h = [s for s in snapshots if s.market == "h2h" and (s.bookmaker or "").lower() in SHARP_BOOKS
+                     and ("home" in (s.outcome_name or "").lower() or s.outcome_name == home_team_name)]
+        square_h2h = [s for s in snapshots if s.market == "h2h" and (s.bookmaker or "").lower() in SQUARE_BOOKS
+                      and ("home" in (s.outcome_name or "").lower() or s.outcome_name == home_team_name)]
+
+        if sharp_h2h:
+            features["sharp_ml_prob"] = float(np.mean([_price_to_implied(s.price) for s in sharp_h2h]))
+        else:
+            features["sharp_ml_prob"] = features["mkt_home_ml_prob"]
+        if square_h2h:
+            features["square_ml_prob"] = float(np.mean([_price_to_implied(s.price) for s in square_h2h]))
+        else:
+            features["square_ml_prob"] = features["mkt_home_ml_prob"]
+        features["sharp_square_ml_diff"] = features["sharp_ml_prob"] - features["square_ml_prob"]
+
+        # ── Line movement (opening → current) ──────────────────
+        # Opening = earliest captured snapshot; Current = latest
+        oldest_ts = min(s.captured_at for s in snapshots)
+        opening_spreads = [s.point for s in snapshots if s.market == "spreads"
+                          and s.captured_at == oldest_ts and s.point is not None]
+        current_spreads = [s.point for s in snapshots if s.market == "spreads"
+                          and s.captured_at == snapshots[0].captured_at and s.point is not None]
+        opening_totals = [s.point for s in snapshots if s.market == "totals"
+                         and s.captured_at == oldest_ts and s.point is not None]
+        current_totals = [s.point for s in snapshots if s.market == "totals"
+                         and s.captured_at == snapshots[0].captured_at and s.point is not None]
+
+        open_spr = float(np.mean(opening_spreads)) if opening_spreads else 0.0
+        curr_spr = float(np.mean(current_spreads)) if current_spreads else 0.0
+        open_tot = float(np.mean(opening_totals)) if opening_totals else 0.0
+        curr_tot = float(np.mean(current_totals)) if current_totals else 0.0
+
+        features["spread_move"] = curr_spr - open_spr
+        features["total_move"] = curr_tot - open_tot
+
+        # ── Reverse line movement (RLM) indicator ──────────────
+        # RLM = spread moved toward the sharp side despite public likely
+        # being on the other side.  Proxy: if the sharp-square spread
+        # divergence and the line movement direction disagree with what
+        # public action would cause, flag RLM.
+        # Positive sharp_square_spread_diff → sharps see home stronger.
+        # If spread ALSO moved toward home (more negative = home favored
+        # more), that aligns with sharp $, not public. Flag as RLM.
+        spread_moved_toward_sharp = (
+            (features["sharp_square_spread_diff"] > 0 and features["spread_move"] < 0)
+            or (features["sharp_square_spread_diff"] < 0 and features["spread_move"] > 0)
+        )
+        features["rlm_flag"] = 1.0 if spread_moved_toward_sharp else 0.0
     else:
         for k in ["mkt_spread_avg", "mkt_spread_std", "mkt_total_avg", "mkt_total_std",
-                   "mkt_1h_spread_avg", "mkt_1h_total_avg", "mkt_home_ml_prob"]:
+                   "mkt_1h_spread_avg", "mkt_1h_total_avg", "mkt_home_ml_prob",
+                   "sharp_spread", "square_spread", "sharp_square_spread_diff",
+                   "sharp_total", "square_total", "sharp_square_total_diff",
+                   "sharp_ml_prob", "square_ml_prob", "sharp_square_ml_diff",
+                   "spread_move", "total_move", "rlm_flag"]:
             features[k] = 0.0
 
     return features
@@ -213,5 +314,11 @@ def get_feature_columns() -> list[str]:
     cols.extend([
         "mkt_spread_avg", "mkt_spread_std", "mkt_total_avg", "mkt_total_std",
         "mkt_1h_spread_avg", "mkt_1h_total_avg", "mkt_home_ml_prob",
+        # Sharp vs. Square analysis
+        "sharp_spread", "square_spread", "sharp_square_spread_diff",
+        "sharp_total", "square_total", "sharp_square_total_diff",
+        "sharp_ml_prob", "square_ml_prob", "sharp_square_ml_diff",
+        # Line movement & RLM
+        "spread_move", "total_move", "rlm_flag",
     ])
     return cols
