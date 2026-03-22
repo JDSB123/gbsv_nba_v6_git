@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import httpx
@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.data.seasons import current_nba_season
+from src.data.seasons import current_nba_season, parse_api_datetime
 from src.db.models import (
     Game,
     Player,
@@ -160,7 +160,7 @@ class BasketballClient:
             status_info = g.get("status", {})
             commence = g.get("date")
             if isinstance(commence, str):
-                commence = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+                commence = parse_api_datetime(commence)
 
             stmt = (
                 pg_insert(Game)

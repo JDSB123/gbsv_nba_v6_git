@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 NBA_SEASON_START_MONTH = 10
 NBA_SEASON_START_DAY = 1
@@ -53,3 +53,10 @@ def resolve_backfill_window(
     end_date = min(max(anchor_date, season_start), season_end)
     start_date = max(season_start, end_date - timedelta(days=max(days_back, 0)))
     return resolved_season, start_date, end_date
+
+
+def parse_api_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone(UTC).replace(tzinfo=None)

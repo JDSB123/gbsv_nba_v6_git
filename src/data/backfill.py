@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from src.data.basketball_client import BasketballClient
 from src.data.odds_client import OddsClient
-from src.data.seasons import resolve_backfill_window
+from src.data.seasons import parse_api_datetime, resolve_backfill_window
 from src.db.models import Game, Team
 from src.db.session import async_session_factory
 
@@ -101,12 +101,10 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
         events = await odds.fetch_events()
         mapped = 0
         for event in events:
-            from datetime import datetime
-
             commence = event.get("commence_time")
             if not commence:
                 continue
-            ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+            ct = parse_api_datetime(commence)
             result = await db.execute(select(Game).where(Game.commence_time == ct))
             game = result.scalar_one_or_none()
             game_odds_api_id = cast(Any, game.odds_api_id) if game is not None else None

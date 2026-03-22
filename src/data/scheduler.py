@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 
 from src.config import get_settings
-from src.data.seasons import current_nba_season
+from src.data.seasons import current_nba_season, parse_api_datetime
 from src.db.models import Game, Team
 from src.db.session import async_session_factory
 
@@ -112,8 +112,6 @@ async def sync_events_to_games() -> None:
     """Sync Odds API events to games table (map odds_api_id)."""
     logger.info("Syncing events to games...")
     try:
-        from datetime import datetime
-
         from src.data.odds_client import OddsClient
 
         client = OddsClient()
@@ -123,7 +121,7 @@ async def sync_events_to_games() -> None:
                 odds_id = event["id"]
                 commence = event.get("commence_time")
                 if commence:
-                    ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+                    ct = parse_api_datetime(commence)
                     result = await db.execute(
                         select(Game).where(Game.commence_time == ct)
                     )

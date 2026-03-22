@@ -1,10 +1,15 @@
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import AsyncMock
 
 import pytest
 
 from src.data.basketball_client import BasketballClient, normalize_team_stats
-from src.data.seasons import current_nba_season, resolve_backfill_window, season_for_date
+from src.data.seasons import (
+    current_nba_season,
+    parse_api_datetime,
+    resolve_backfill_window,
+    season_for_date,
+)
 
 
 def test_normalize_team_stats_accepts_dict_payload():
@@ -48,6 +53,13 @@ def test_resolve_backfill_window_caps_to_season_start():
     assert season == "2024-2025"
     assert start_date == date(2024, 10, 1)
     assert end_date == date(2025, 2, 1)
+
+
+def test_parse_api_datetime_returns_naive_utc():
+    parsed = parse_api_datetime("2025-11-22T00:00:00Z")
+
+    assert parsed == datetime(2025, 11, 22, 0, 0)
+    assert parsed.tzinfo is None
 
 
 @pytest.mark.asyncio
