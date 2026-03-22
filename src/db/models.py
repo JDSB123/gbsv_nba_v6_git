@@ -166,6 +166,14 @@ class Prediction(Base):
     h1_spread = Column(Float)
     h1_total = Column(Float)
     h1_home_ml_prob = Column(Float)
+    # Opening-line snapshot for CLV tracking
+    opening_spread = Column(Float)
+    opening_total = Column(Float)
+    # Closing-line value (filled post-game by scheduler)
+    closing_spread = Column(Float)
+    closing_total = Column(Float)
+    clv_spread = Column(Float)
+    clv_total = Column(Float)
     predicted_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     game = relationship("Game", back_populates="predictions")

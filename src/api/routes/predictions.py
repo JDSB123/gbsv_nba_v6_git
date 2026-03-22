@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +44,14 @@ def _format_prediction(pred: Prediction, game: Game) -> dict:
         },
         "model_version": pred.model_version,
         "predicted_at": pred.predicted_at.isoformat() if pred.predicted_at else None,
+        "clv": {
+            "opening_spread": pred.opening_spread,
+            "opening_total": pred.opening_total,
+            "closing_spread": pred.closing_spread,
+            "closing_total": pred.closing_total,
+            "clv_spread": pred.clv_spread,
+            "clv_total": pred.clv_total,
+        },
     }
 
 

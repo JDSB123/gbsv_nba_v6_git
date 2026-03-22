@@ -24,8 +24,9 @@ def test_margin_to_prob_negative():
 
 def test_feature_columns_count():
     cols = get_feature_columns()
-    # 2 teams × (8 season + 8 recent + 5 schedule/injury) + 7 market + 12 sharp/square = 61
-    assert len(cols) == 61
+    # 2 × (8 season + 8 recent + 5 schedule/injury) + 2 × 5 new per-team
+    # + 12 game-level + 7 market + 12 sharp/square = 83
+    assert len(cols) == 83
 
 
 def test_feature_columns_no_duplicates():

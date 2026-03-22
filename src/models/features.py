@@ -12,11 +12,55 @@ from src.db.models import (
     PlayerGameStats,
     TeamSeasonStats,
 )
+from src.models.elo import EloSystem
 
 logger = logging.getLogger(__name__)
 
 # Injury status weights
 INJURY_WEIGHTS = {"out": 1.0, "doubtful": 0.75, "questionable": 0.25, "probable": 0.05}
+
+# ── NBA team timezone offsets (UTC) for travel features ─────
+# Maps api-sports team IDs to UTC offset (EST=-5, CST=-6, MST=-7, PST=-8)
+# Populated lazily by team *name* when IDs aren't known yet.
+TEAM_TZ: dict[str, int] = {
+    # Eastern (-5)
+    "Boston Celtics": -5,
+    "Brooklyn Nets": -5,
+    "New York Knicks": -5,
+    "Philadelphia 76ers": -5,
+    "Toronto Raptors": -5,
+    "Chicago Bulls": -6,
+    "Cleveland Cavaliers": -5,
+    "Detroit Pistons": -5,
+    "Indiana Pacers": -5,
+    "Milwaukee Bucks": -6,
+    "Atlanta Hawks": -5,
+    "Charlotte Hornets": -5,
+    "Miami Heat": -5,
+    "Orlando Magic": -5,
+    "Washington Wizards": -5,
+    # Central (-6)
+    "Dallas Mavericks": -6,
+    "Houston Rockets": -6,
+    "Memphis Grizzlies": -6,
+    "New Orleans Pelicans": -6,
+    "San Antonio Spurs": -6,
+    "Minnesota Timberwolves": -6,
+    "Oklahoma City Thunder": -6,
+    # Mountain (-7)
+    "Denver Nuggets": -7,
+    "Utah Jazz": -7,
+    "Phoenix Suns": -7,
+    # Pacific (-8)
+    "Golden State Warriors": -8,
+    "LA Clippers": -8,
+    "Los Angeles Lakers": -8,
+    "Portland Trail Blazers": -8,
+    "Sacramento Kings": -8,
+}
+
+# ── Shared Elo instance (built once per trainer/predictor run) ──
+_elo_system: EloSystem | None = None
 
 # ── Sharp vs. Square book classification ────────────────────
 # Sharp books: professional-facing, efficient lines, low vig
@@ -43,6 +87,42 @@ SQUARE_BOOKS = frozenset(
         "betus",
     }
 )
+
+
+async def build_elo_ratings(db: AsyncSession) -> EloSystem:
+    """Build Elo ratings from all completed games (called once per run)."""
+    global _elo_system  # noqa: PLW0603
+    if _elo_system is not None:
+        return _elo_system
+
+    result = await db.execute(
+        select(Game)
+        .where(
+            Game.status == "FT",
+            Game.home_score_fg.is_not(None),
+            Game.away_score_fg.is_not(None),
+        )
+        .order_by(Game.commence_time)
+    )
+    games = result.scalars().all()
+    elo = EloSystem()
+    for g in games:
+        elo.update(
+            g.home_team_id,
+            g.away_team_id,
+            float(g.home_score_fg),
+            float(g.away_score_fg),
+            season=g.season or "",
+        )
+    _elo_system = elo
+    logger.info("Built Elo ratings from %d games", len(games))
+    return elo
+
+
+def reset_elo_cache() -> None:
+    """Clear cached Elo so it's rebuilt on next call (e.g. after retrain)."""
+    global _elo_system  # noqa: PLW0603
+    _elo_system = None
 
 
 async def build_feature_vector(
@@ -198,6 +278,154 @@ async def build_feature_vector(
                 injured_count += 1
         features[f"{prefix}_injury_impact"] = injury_impact
         features[f"{prefix}_injured_count"] = float(injured_count)
+
+    # ── Expected game pace (interaction) ────────────────────────
+    home_pace = features.get("home_pace", 0.0)
+    away_pace = features.get("away_pace", 0.0)
+    features["expected_pace"] = (
+        (home_pace + away_pace) / 2.0 if (home_pace and away_pace) else 0.0
+    )
+    features["pace_diff"] = home_pace - away_pace
+
+    # ── Home/away venue splits (PPG when home vs. away) ─────────
+    for prefix, team_id in [("home", home_id), ("away", away_id)]:
+        if prefix == "home":
+            venue_filter = Game.home_team_id == team_id
+        else:
+            venue_filter = Game.away_team_id == team_id
+        result = await db.execute(
+            select(Game)
+            .where(
+                Game.status == "FT",
+                venue_filter,
+                Game.commence_time < game.commence_time,
+            )
+            .order_by(Game.commence_time.desc())
+            .limit(15)
+        )
+        venue_games = result.scalars().all()
+        if venue_games:
+            scored = []
+            allowed = []
+            for g in venue_games:
+                if g.home_team_id == team_id:
+                    scored.append(g.home_score_fg or 0)
+                    allowed.append(g.away_score_fg or 0)
+                else:
+                    scored.append(g.away_score_fg or 0)
+                    allowed.append(g.home_score_fg or 0)
+            features[f"{prefix}_venue_ppg"] = float(np.mean(scored))
+            features[f"{prefix}_venue_oppg"] = float(np.mean(allowed))
+        else:
+            features[f"{prefix}_venue_ppg"] = features.get(f"{prefix}_ppg", 0.0)
+            features[f"{prefix}_venue_oppg"] = features.get(f"{prefix}_oppg", 0.0)
+
+    # ── Win streak & L5/L10 record ──────────────────────────────
+    for prefix, team_id in [("home", home_id), ("away", away_id)]:
+        result = await db.execute(
+            select(Game)
+            .where(
+                Game.status == "FT",
+                (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
+                Game.commence_time < game.commence_time,
+            )
+            .order_by(Game.commence_time.desc())
+            .limit(10)
+        )
+        streak_games = result.scalars().all()
+        # Win streak (positive = wins, negative = losses)
+        streak = 0
+        if streak_games:
+            first_won = None
+            for g in streak_games:
+                if g.home_team_id == team_id:
+                    won = (g.home_score_fg or 0) > (g.away_score_fg or 0)
+                else:
+                    won = (g.away_score_fg or 0) > (g.home_score_fg or 0)
+                if first_won is None:
+                    first_won = won
+                if won == first_won:
+                    streak += 1 if won else -1
+                else:
+                    break
+        features[f"{prefix}_win_streak"] = float(streak)
+
+        # L5 and L10 record (wins in last 5/10)
+        l5_wins = 0
+        l10_wins = 0
+        for i, g in enumerate(streak_games):
+            if g.home_team_id == team_id:
+                won = (g.home_score_fg or 0) > (g.away_score_fg or 0)
+            else:
+                won = (g.away_score_fg or 0) > (g.home_score_fg or 0)
+            if won:
+                l10_wins += 1
+                if i < 5:
+                    l5_wins += 1
+            elif i < 5:
+                pass  # loss in L5, already 0
+        features[f"{prefix}_l5_record"] = float(l5_wins)
+        features[f"{prefix}_l10_record"] = float(l10_wins)
+
+    # ── Season phase ────────────────────────────────────────────
+    home_gp = features.get("home_wins", 0) + features.get("home_losses", 0)
+    away_gp = features.get("away_wins", 0) + features.get("away_losses", 0)
+    features["season_progress"] = (home_gp + away_gp) / (2.0 * 82.0)
+
+    # ── Elo ratings ─────────────────────────────────────────────
+    elo = await build_elo_ratings(db)
+    features["home_elo"] = elo.rating(home_id)
+    features["away_elo"] = elo.rating(away_id)
+    features["elo_diff"] = features["home_elo"] - features["away_elo"]
+
+    # ── Head-to-head history ────────────────────────────────────
+    result = await db.execute(
+        select(Game)
+        .where(
+            Game.status == "FT",
+            ((Game.home_team_id == home_id) & (Game.away_team_id == away_id))
+            | ((Game.home_team_id == away_id) & (Game.away_team_id == home_id)),
+            Game.commence_time < game.commence_time,
+        )
+        .order_by(Game.commence_time.desc())
+        .limit(10)
+    )
+    h2h_games = result.scalars().all()
+    if h2h_games:
+        h2h_wins = 0
+        h2h_margins = []
+        for g in h2h_games:
+            if g.home_team_id == home_id:
+                margin = (g.home_score_fg or 0) - (g.away_score_fg or 0)
+            else:
+                margin = (g.away_score_fg or 0) - (g.home_score_fg or 0)
+            h2h_margins.append(margin)
+            if margin > 0:
+                h2h_wins += 1
+        features["h2h_win_pct"] = h2h_wins / len(h2h_games)
+        features["h2h_avg_margin"] = float(np.mean(h2h_margins))
+    else:
+        features["h2h_win_pct"] = 0.5
+        features["h2h_avg_margin"] = 0.0
+
+    # ── Travel / timezone ───────────────────────────────────────
+    home_name = game.home_team.name if game.home_team else ""
+    away_name = game.away_team.name if game.away_team else ""
+    home_tz = TEAM_TZ.get(home_name, -5)
+    away_tz = TEAM_TZ.get(away_name, -5)
+    features["tz_diff"] = float(abs(home_tz - away_tz))
+
+    # ── Opponent-adjusted ratings ───────────────────────────────
+    # Approximation: team off rating relative to opponent def rating
+    features["home_adj_off"] = features.get("home_off_rating", 0.0) - features.get(
+        "away_def_rating", 0.0
+    )
+    features["home_adj_def"] = features.get("away_off_rating", 0.0) - features.get(
+        "home_def_rating", 0.0
+    )
+    features["rest_diff"] = features.get("home_rest_days", 0.0) - features.get(
+        "away_rest_days", 0.0
+    )
 
     # ── Market signals (latest odds) ────────────────────────────
     if odds_snapshots is None:
@@ -459,6 +687,35 @@ def get_feature_columns() -> list[str]:
                 f"{prefix}_injured_count",
             ]
         )
+    # ── New per-team features ───────────────────────────────────
+    for prefix in ["home", "away"]:
+        cols.extend(
+            [
+                f"{prefix}_venue_ppg",
+                f"{prefix}_venue_oppg",
+                f"{prefix}_win_streak",
+                f"{prefix}_l5_record",
+                f"{prefix}_l10_record",
+            ]
+        )
+    # ── Game-level features ─────────────────────────────────────
+    cols.extend(
+        [
+            "expected_pace",
+            "pace_diff",
+            "season_progress",
+            "home_elo",
+            "away_elo",
+            "elo_diff",
+            "h2h_win_pct",
+            "h2h_avg_margin",
+            "tz_diff",
+            "home_adj_off",
+            "home_adj_def",
+            "rest_diff",
+        ]
+    )
+    # ── Market signals ──────────────────────────────────────────
     cols.extend(
         [
             "mkt_spread_avg",

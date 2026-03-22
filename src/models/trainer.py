@@ -3,48 +3,112 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import optuna
 import pandas as pd
 import xgboost as xgb
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Game
-from src.models.features import build_feature_vector, get_feature_columns
+from src.models.features import (
+    build_feature_vector,
+    get_feature_columns,
+    reset_elo_cache,
+)
 
 logger = logging.getLogger(__name__)
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 ARTIFACTS_DIR.mkdir(exist_ok=True)
 
-MODEL_VERSION = "v6.0.0"
+MODEL_VERSION = "v6.1.0"
 
 # Target columns: what each model predicts
 TARGETS = ["home_score_fg", "away_score_fg", "home_score_1h", "away_score_1h"]
 MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
 
-XGB_PARAMS = {
+# Baseline params (used when Optuna is skipped or as starting point)
+DEFAULT_XGB_PARAMS = {
     "objective": "reg:squarederror",
     "max_depth": 6,
     "learning_rate": 0.05,
-    "n_estimators": 300,
+    "n_estimators": 500,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
     "min_child_weight": 5,
     "reg_alpha": 0.1,
     "reg_lambda": 1.0,
     "random_state": 42,
+    "early_stopping_rounds": 30,
 }
+
+# Optuna search bounds
+OPTUNA_N_TRIALS = 30
+
+
+def _optuna_objective(
+    trial: optuna.Trial,
+    X: np.ndarray,
+    y: np.ndarray,
+    n_splits: int = 5,
+) -> float:
+    """Optuna objective — minimise CV MAE."""
+    params = {
+        "objective": "reg:squarederror",
+        "max_depth": trial.suggest_int("max_depth", 3, 10),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+        "n_estimators": trial.suggest_int("n_estimators", 100, 800, step=50),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 15),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+        "random_state": 42,
+        "early_stopping_rounds": 30,
+    }
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    maes = []
+    for train_idx, val_idx in tscv.split(X):
+        model = xgb.XGBRegressor(**params)
+        model.fit(
+            X[train_idx],
+            y[train_idx],
+            eval_set=[(X[val_idx], y[val_idx])],
+            verbose=False,
+        )
+        preds = model.predict(X[val_idx])
+        maes.append(mean_absolute_error(y[val_idx], preds))
+    return float(np.mean(maes))
+
+
+def _calibrate_probabilities(
+    margins: np.ndarray,
+    actuals: np.ndarray,
+) -> tuple[float, float]:
+    """Fit a logistic regression on predicted margin → actual W/L.
+
+    Returns (coef, intercept) so the predictor can use them.
+    """
+    lr = LogisticRegression()
+    lr.fit(margins.reshape(-1, 1), actuals)
+    return float(lr.coef_[0][0]), float(lr.intercept_[0])
 
 
 class ModelTrainer:
-    def __init__(self) -> None:
+    def __init__(self, run_optuna: bool = True) -> None:
         self.feature_cols = get_feature_columns()
         self.models: dict[str, xgb.XGBRegressor] = {}
+        self.run_optuna = run_optuna
 
     async def _build_dataset(self, db: AsyncSession) -> pd.DataFrame:
         """Build training dataset from completed games."""
+        # Reset Elo cache so it's rebuilt fresh for this training run
+        reset_elo_cache()
+
         result = await db.execute(
             select(Game)
             .where(
@@ -74,33 +138,71 @@ class ModelTrainer:
         return df
 
     async def train(self, db: AsyncSession) -> dict[str, float]:
-        """Train all 4 models. Returns metrics dict."""
+        """Train all 4 models with optional Optuna tuning. Returns metrics."""
         df = await self._build_dataset(db)
         if df.empty or len(df) < 50:
             logger.warning("Not enough data to train (%d rows)", len(df))
             return {}
 
         df = df.sort_values("commence_time").reset_index(drop=True)
-        X = df[self.feature_cols].fillna(0).values
+        X = df[self.feature_cols].fillna(-999.0).values  # sentinel, not 0
         metrics: dict[str, float] = {}
+        best_params_all: dict[str, dict] = {}
 
         for target, model_name in zip(TARGETS, MODEL_NAMES, strict=True):
             y = df[target].values
-            model = xgb.XGBRegressor(**XGB_PARAMS)
 
-            # Time-series cross-validation
+            # ── Optuna hyperparameter search ────────────────────
+            if self.run_optuna and len(df) >= 200:
+                logger.info(
+                    "Running Optuna for %s (%d trials)...", model_name, OPTUNA_N_TRIALS
+                )
+                study = optuna.create_study(direction="minimize")
+                study.optimize(
+                    lambda trial, _X=X, _y=y: _optuna_objective(trial, _X, _y),
+                    n_trials=OPTUNA_N_TRIALS,
+                )
+                best = study.best_params
+                best["objective"] = "reg:squarederror"
+                best["random_state"] = 42
+                best["early_stopping_rounds"] = 30
+                best_params_all[model_name] = best
+                logger.info(
+                    "%s best params: %s (MAE=%.2f)", model_name, best, study.best_value
+                )
+            else:
+                best = dict(DEFAULT_XGB_PARAMS)
+                best_params_all[model_name] = best
+
+            # ── Cross-validation with early stopping ────────────
             tscv = TimeSeriesSplit(n_splits=5)
             maes, rmses = [], []
             for train_idx, val_idx in tscv.split(X):
                 X_train, X_val = X[train_idx], X[val_idx]
                 y_train, y_val = y[train_idx], y[val_idx]
-                model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+                model = xgb.XGBRegressor(**best)
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_val, y_val)],
+                    verbose=False,
+                )
                 preds = model.predict(X_val)
                 maes.append(mean_absolute_error(y_val, preds))
                 rmses.append(np.sqrt(mean_squared_error(y_val, preds)))
 
-            # Final fit on all data
-            model.fit(X, y, verbose=False)
+            # ── Final fit on all data (with 80/20 holdout for early stopping)
+            split_idx = int(len(X) * 0.85)
+            X_fit, X_hold = X[:split_idx], X[split_idx:]
+            y_fit, y_hold = y[:split_idx], y[split_idx:]
+            final_params = dict(best)
+            model = xgb.XGBRegressor(**final_params)
+            model.fit(
+                X_fit,
+                y_fit,
+                eval_set=[(X_hold, y_hold)],
+                verbose=False,
+            )
             self.models[model_name] = model
 
             # Save model
@@ -113,9 +215,36 @@ class ModelTrainer:
             metrics[f"{model_name}_rmse"] = avg_rmse
             logger.info("%s — MAE: %.2f, RMSE: %.2f", model_name, avg_mae, avg_rmse)
 
+        # ── Calibrated probability coefficients (Platt scaling) ──
+        if "model_home_fg" in self.models and "model_away_fg" in self.models:
+            home_preds = self.models["model_home_fg"].predict(X)
+            away_preds = self.models["model_away_fg"].predict(X)
+            fg_margins = home_preds - away_preds
+            fg_actuals = (
+                df["home_score_fg"].values > df["away_score_fg"].values
+            ).astype(float)
+            fg_coef, fg_intercept = _calibrate_probabilities(fg_margins, fg_actuals)
+            metrics["calibration_fg_coef"] = fg_coef
+            metrics["calibration_fg_intercept"] = fg_intercept
+
+        if "model_home_1h" in self.models and "model_away_1h" in self.models:
+            h1_home = self.models["model_home_1h"].predict(X)
+            h1_away = self.models["model_away_1h"].predict(X)
+            h1_margins = h1_home - h1_away
+            h1_actuals = (
+                df["home_score_1h"].values > df["away_score_1h"].values
+            ).astype(float)
+            h1_coef, h1_intercept = _calibrate_probabilities(h1_margins, h1_actuals)
+            metrics["calibration_1h_coef"] = h1_coef
+            metrics["calibration_1h_intercept"] = h1_intercept
+
         # Save metrics
         metrics_path = ARTIFACTS_DIR / "metrics.json"
         metrics_path.write_text(json.dumps(metrics, indent=2))
+
+        # Save best hyperparams
+        params_path = ARTIFACTS_DIR / "best_params.json"
+        params_path.write_text(json.dumps(best_params_all, indent=2))
 
         # Save feature importance
         if self.models:

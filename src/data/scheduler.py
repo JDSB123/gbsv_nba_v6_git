@@ -134,6 +134,73 @@ async def sync_events_to_games() -> None:
         logger.exception("Error syncing events")
 
 
+async def fill_clv() -> None:
+    """Fill closing-line value for predictions whose games have finished."""
+    logger.info("Filling CLV for finished games...")
+    try:
+        from sqlalchemy import and_
+
+        from src.db.models import OddsSnapshot, Prediction
+
+        async with async_session_factory() as db:
+            # Predictions that lack a closing spread and belong to finished games
+            result = await db.execute(
+                select(Prediction)
+                .join(Game, Prediction.game_id == Game.id)
+                .where(
+                    and_(
+                        Game.status == "FT",
+                        Prediction.closing_spread.is_(None),
+                    )
+                )
+            )
+            preds = result.scalars().all()
+            if not preds:
+                return
+
+            for pred in preds:
+                # Latest odds snapshot for this game
+                odds_q = await db.execute(
+                    select(OddsSnapshot)
+                    .where(OddsSnapshot.game_id == pred.game_id)
+                    .order_by(OddsSnapshot.captured_at.desc())
+                    .limit(100)
+                )
+                snapshots = odds_q.scalars().all()
+                if not snapshots:
+                    continue
+
+                import numpy as np
+
+                spreads = [
+                    s.point
+                    for s in snapshots
+                    if s.market == "spreads" and s.point is not None
+                ]
+                totals = [
+                    s.point
+                    for s in snapshots
+                    if s.market == "totals" and s.point is not None
+                ]
+                if spreads:
+                    pred.closing_spread = round(float(np.mean(spreads)), 1)
+                    if pred.opening_spread is not None:
+                        pred.clv_spread = round(
+                            pred.closing_spread - pred.opening_spread, 1
+                        )
+                if totals:
+                    pred.closing_total = round(float(np.mean(totals)), 1)
+                    if pred.opening_total is not None:
+                        pred.clv_total = round(
+                            pred.closing_total - pred.opening_total, 1
+                        )
+
+            await db.commit()
+            logger.info("CLV filled for %d predictions", len(preds))
+    except Exception:
+        logger.exception("Error filling CLV")
+
+
 # ── Scheduler setup ────────────────────────────────────────────────
 
 
@@ -151,6 +218,7 @@ def create_scheduler() -> AsyncIOScheduler:
     )
     scheduler.add_job(poll_scores_and_box, "interval", minutes=60, id="poll_scores")
     scheduler.add_job(sync_events_to_games, "interval", minutes=60, id="sync_events")
+    scheduler.add_job(fill_clv, "interval", minutes=90, id="fill_clv")
     scheduler.add_job(
         daily_retrain, "cron", hour=settings.retrain_hour, minute=0, id="daily_retrain"
     )
