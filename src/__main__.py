@@ -14,6 +14,7 @@ import asyncio
 import logging
 
 from src.config import get_settings
+from src.data.seasons import current_nba_season
 
 
 def _setup_logging() -> None:
@@ -96,7 +97,7 @@ def cmd_predict(args: argparse.Namespace) -> None:
     asyncio.run(_run_predict())
 
 
-async def _run_backfill(season: str, days_back: int) -> None:
+async def _run_backfill(season: str | None, days_back: int) -> None:
     from src.data.backfill import run_backfill
 
     await run_backfill(season=season, days_back=days_back)
@@ -146,7 +147,11 @@ def main() -> None:
 
     # backfill
     p_back = sub.add_parser("backfill", help="Backfill historical data")
-    p_back.add_argument("--season", default="2024-2025")
+    p_back.add_argument(
+        "--season",
+        default=None,
+        help=f"Season to backfill (default: {current_nba_season()})",
+    )
     p_back.add_argument("--days", type=int, default=90, help="Days of game history")
     p_back.set_defaults(func=cmd_backfill)
 

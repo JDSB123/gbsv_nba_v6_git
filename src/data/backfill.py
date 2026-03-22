@@ -9,20 +9,21 @@ ensuring a single source of truth for data ingestion logic.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, cast
 
 from sqlalchemy import select
 
 from src.data.basketball_client import BasketballClient
 from src.data.odds_client import OddsClient
+from src.data.seasons import resolve_backfill_window
 from src.db.models import Game, Team
 from src.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 
 
-async def run_backfill(season: str = "2024-2025", days_back: int = 90) -> None:
+async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
     """Run the full backfill pipeline.
 
     Steps (in order):
@@ -36,10 +37,14 @@ async def run_backfill(season: str = "2024-2025", days_back: int = 90) -> None:
     bball = BasketballClient()
     odds = OddsClient()
 
+    resolved_season, start_date, end_date = resolve_backfill_window(season, days_back)
+
     async with async_session_factory() as db:
         # ── 1. Teams from standings ────────────────────────────
-        logger.info("Step 1/6: Fetching standings for season %s ...", season)
-        standings = await bball.fetch_standings(season=season)
+        logger.info(
+            "Step 1/6: Fetching standings for season %s ...", resolved_season
+        )
+        standings = await bball.fetch_standings(season=resolved_season)
         if standings:
             await bball.persist_teams(standings, db)
             logger.info("  Upserted teams from standings")
@@ -47,12 +52,16 @@ async def run_backfill(season: str = "2024-2025", days_back: int = 90) -> None:
             logger.warning("  No standings data returned")
 
         # ── 2. Games day-by-day ────────────────────────────────
-        logger.info("Step 2/6: Fetching games for last %d days ...", days_back)
-        today = date.today()
+        logger.info(
+            "Step 2/6: Fetching games from %s through %s for season %s ...",
+            start_date.isoformat(),
+            end_date.isoformat(),
+            resolved_season,
+        )
         total_games = 0
-        for offset in range(days_back, -1, -1):
-            game_date = today - timedelta(days=offset)
-            games = await bball.fetch_games(game_date=game_date, season=season)
+        for offset in range((end_date - start_date).days + 1):
+            game_date = start_date + timedelta(days=offset)
+            games = await bball.fetch_games(game_date=game_date, season=resolved_season)
             if games:
                 count = await bball.persist_games(games, db)
                 total_games += count
@@ -63,9 +72,14 @@ async def run_backfill(season: str = "2024-2025", days_back: int = 90) -> None:
         result = await db.execute(select(Team.id))
         team_ids = [row[0] for row in result.fetchall()]
         for team_id in team_ids:
-            stats = await bball.fetch_team_stats(team_id, season=season)
+            stats = await bball.fetch_team_stats(team_id, season=resolved_season)
             if stats:
-                await bball.persist_team_season_stats(team_id, stats, season, db)
+                await bball.persist_team_season_stats(
+                    team_id,
+                    stats,
+                    resolved_season,
+                    db,
+                )
         logger.info("  Stats fetched for %d teams", len(team_ids))
 
         # ── 4. Player box scores for finished games ────────────

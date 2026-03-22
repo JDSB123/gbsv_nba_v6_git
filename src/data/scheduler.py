@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 
 from src.config import get_settings
+from src.data.seasons import current_nba_season
 from src.db.models import Game, Team
 from src.db.session import async_session_factory
 
@@ -57,19 +58,18 @@ async def poll_stats() -> None:
         from src.data.basketball_client import BasketballClient
 
         client = BasketballClient()
+        season = current_nba_season()
         async with async_session_factory() as db:
-            games = await client.fetch_games(game_date=date.today())
+            games = await client.fetch_games(game_date=date.today(), season=season)
             if games:
                 await client.persist_games(games, db)
 
             result = await db.execute(select(Team.id))
             team_ids = [row[0] for row in result.fetchall()]
             for team_id in team_ids:
-                stats = await client.fetch_team_stats(team_id)
+                stats = await client.fetch_team_stats(team_id, season=season)
                 if stats:
-                    await client.persist_team_season_stats(
-                        team_id, stats, "2024-2025", db
-                    )
+                    await client.persist_team_season_stats(team_id, stats, season, db)
     except Exception:
         logger.exception("Error polling stats")
 

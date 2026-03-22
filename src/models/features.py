@@ -7,6 +7,7 @@ import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.data.seasons import season_for_date
 from src.db.models import (
     Game,
     Injury,
@@ -154,7 +155,10 @@ async def build_feature_vector(
     """
     home_id = int(cast(Any, game.home_team_id))
     away_id = int(cast(Any, game.away_team_id))
-    season = _as_str(cast(Any, game.season), "2024-2025")
+    season = _as_str(
+        cast(Any, game.season),
+        season_for_date(cast(Any, game.commence_time)),
+    )
 
     features: dict[str, float] = {}
 

@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
+from src.data.seasons import current_nba_season
 from src.db.models import (
     Game,
     Player,
@@ -18,6 +19,14 @@ from src.db.models import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def normalize_team_stats(stats: Any) -> dict[str, Any] | None:
+    if isinstance(stats, dict):
+        return stats
+    if isinstance(stats, list) and stats and isinstance(stats[0], dict):
+        return stats[0]
+    return None
 
 
 class BasketballClient:
@@ -31,9 +40,10 @@ class BasketballClient:
     def _headers(self) -> dict[str, str]:
         return {"x-apisports-key": self.api_key}
 
-    async def _get(
-        self, endpoint: str, params: dict | None = None
-    ) -> list[dict[str, Any]]:
+    def _resolve_season(self, season: str | None) -> str:
+        return season or current_nba_season()
+
+    async def _get(self, endpoint: str, params: dict | None = None) -> Any:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self.base_url}/{endpoint}",
@@ -48,19 +58,26 @@ class BasketballClient:
     # ── Raw API calls ──────────────────────────────────────────────
 
     async def fetch_games(
-        self, game_date: date | None = None, season: str = "2024-2025"
+        self, game_date: date | None = None, season: str | None = None
     ) -> list[dict]:
-        params: dict[str, Any] = {"league": self.league_id, "season": season}
+        params: dict[str, Any] = {
+            "league": self.league_id,
+            "season": self._resolve_season(season),
+        }
         if game_date:
             params["date"] = game_date.isoformat()
         return await self._get("games", params)
 
     async def fetch_team_stats(
-        self, team_id: int, season: str = "2024-2025"
-    ) -> list[dict]:
+        self, team_id: int, season: str | None = None
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         return await self._get(
             "statistics",
-            {"team": team_id, "league": self.league_id, "season": season},
+            {
+                "team": team_id,
+                "league": self.league_id,
+                "season": self._resolve_season(season),
+            },
         )
 
     async def fetch_player_stats(self, game_id: int) -> list[dict]:
@@ -69,19 +86,25 @@ class BasketballClient:
     async def fetch_team_game_stats(self, game_id: int) -> list[dict]:
         return await self._get("games/statistics/teams", {"id": game_id})
 
-    async def fetch_standings(self, season: str = "2024-2025") -> list[dict]:
+    async def fetch_standings(self, season: str | None = None) -> list[dict]:
         return await self._get(
-            "standings", {"league": self.league_id, "season": season}
+            "standings",
+            {"league": self.league_id, "season": self._resolve_season(season)},
         )
 
     async def fetch_h2h(self, team1_id: int, team2_id: int) -> list[dict]:
         return await self._get("games/h2h", {"h2h": f"{team1_id}-{team2_id}"})
 
     async def fetch_players(
-        self, team_id: int, season: str = "2024-2025"
+        self, team_id: int, season: str | None = None
     ) -> list[dict]:
         return await self._get(
-            "players", {"team": team_id, "league": self.league_id, "season": season}
+            "players",
+            {
+                "team": team_id,
+                "league": self.league_id,
+                "season": self._resolve_season(season),
+            },
         )
 
     # ── Persistence helpers ────────────────────────────────────────
@@ -189,12 +212,23 @@ class BasketballClient:
         return count
 
     async def persist_team_season_stats(
-        self, team_id: int, stats: list[dict], season: str, db: AsyncSession
+        self,
+        team_id: int,
+        stats: dict[str, Any] | list[dict[str, Any]],
+        season: str,
+        db: AsyncSession,
     ) -> None:
         """Upsert team season stats."""
         if not stats:
             return
-        s = stats[0]
+        s = normalize_team_stats(stats)
+        if s is None:
+            logger.warning(
+                "Skipping unexpected team stats payload for team %s: %s",
+                team_id,
+                type(stats).__name__,
+            )
+            return
         games_data = s.get("games", {})
         points = s.get("points", {})
 
