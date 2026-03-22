@@ -1,0 +1,23 @@
+name: nba-gbsv-v6
+metadata:
+  template: nba-gbsv-v6@0.0.1
+
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+services:
+  api:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile
+
+  worker:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile
