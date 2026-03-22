@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -178,7 +179,30 @@ class Prediction(Base):
 
     game = relationship("Game", back_populates="predictions")
 
-    __table_args__ = (Index("ix_pred_game_version", "game_id", "model_version"),)
+    __table_args__ = (
+        Index("ix_pred_game_version", "game_id", "model_version"),
+        UniqueConstraint(
+            "game_id",
+            "model_version",
+            name="uq_predictions_game_model_version",
+        ),
+    )
+
+
+class ModelRegistry(Base):
+    __tablename__ = "model_registry"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    model_version = Column(String(64), nullable=False, unique=True)
+    is_active = Column(Boolean, nullable=False, default=False)
+    promoted_at = Column(DateTime)
+    retired_at = Column(DateTime)
+    promotion_reason = Column(String(255))
+    metrics_json = Column(Text)
+    params_json = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (Index("ix_model_registry_is_active", "is_active"),)
 
 
 class Injury(Base):

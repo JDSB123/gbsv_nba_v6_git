@@ -48,9 +48,21 @@ class Settings(BaseSettings):
     odds_1h_interval: int = 30
     stats_interval: int = 120
     retrain_hour: int = 6  # 6am ET daily retrain
+    predictions_interval: int = 30
+
+    # ── Teams delivery ─────────────────────────────────────────
+    teams_webhook_url: str = ""
+    teams_max_games_per_message: int = 8
 
     # ── Quota management ──────────────────────────────────────────
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
+
+    # ── Model governance / promotion gates ─────────────────────
+    model_gate_min_rows: int = 200
+    model_gate_max_mae_fg: float = 13.0
+    model_gate_max_mae_1h: float = 8.0
+    model_gate_max_rmse_fg: float = 16.0
+    model_gate_max_rmse_1h: float = 10.0
 
     # ── Azure (production) ────────────────────────────────────────
     azure_key_vault_url: str = ""

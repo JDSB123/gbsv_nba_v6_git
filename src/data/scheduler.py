@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
@@ -208,6 +209,50 @@ async def fill_clv() -> None:
         logger.exception("Error filling CLV")
 
 
+async def generate_predictions_and_publish() -> None:
+    """Generate upcoming predictions and publish formatted output to Teams."""
+    logger.info("Generating predictions and publishing to Teams...")
+    try:
+        from src.models.predictor import Predictor
+        from src.notifications.teams import build_teams_text, send_text_to_teams
+
+        predictor = Predictor()
+        if not predictor.is_ready:
+            logger.warning("Models not ready; skipping prediction publish")
+            return
+
+        async with async_session_factory() as db:
+            predictions = await predictor.predict_upcoming(db)
+            if not predictions:
+                logger.info("No upcoming games to publish")
+                return
+
+            game_ids = [int(cast(Any, p.game_id)) for p in predictions]
+            game_result = await db.execute(
+                select(Game)
+                .options(selectinload(Game.home_team), selectinload(Game.away_team))
+                .where(Game.id.in_(game_ids))
+                .order_by(Game.commence_time)
+            )
+            games = game_result.scalars().all()
+            game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+            rows: list[tuple[Any, Game]] = []
+            for pred in predictions:
+                game = game_by_id.get(int(cast(Any, pred.game_id)))
+                if game is not None:
+                    rows.append((pred, game))
+
+            if settings.teams_webhook_url and rows:
+                text = build_teams_text(rows, settings.teams_max_games_per_message)
+                await send_text_to_teams(settings.teams_webhook_url, text)
+                logger.info("Published %d predictions to Teams", len(rows))
+            else:
+                logger.info("Teams webhook not configured or no rows to publish")
+    except Exception:
+        logger.exception("Error generating/publishing predictions")
+
+
 # ── Scheduler setup ────────────────────────────────────────────────
 
 
@@ -225,6 +270,12 @@ def create_scheduler() -> AsyncIOScheduler:
     )
     scheduler.add_job(poll_scores_and_box, "interval", minutes=60, id="poll_scores")
     scheduler.add_job(sync_events_to_games, "interval", minutes=60, id="sync_events")
+    scheduler.add_job(
+        generate_predictions_and_publish,
+        "interval",
+        minutes=settings.predictions_interval,
+        id="predict_publish",
+    )
     scheduler.add_job(fill_clv, "interval", minutes=90, id="fill_clv")
     scheduler.add_job(
         daily_retrain, "cron", hour=settings.retrain_hour, minute=0, id="daily_retrain"

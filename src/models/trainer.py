@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,20 +15,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.models import Game
+from src.config import get_settings
+from src.db.models import Game, ModelRegistry
 from src.models.features import (
     build_feature_vector,
     get_feature_columns,
     reset_elo_cache,
 )
+from src.models.versioning import MODEL_VERSION
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 ARTIFACTS_DIR.mkdir(exist_ok=True)
-
-MODEL_VERSION = "v6.1.0"
 
 # Target columns: what each model predicts
 TARGETS = ["home_score_fg", "away_score_fg", "home_score_1h", "away_score_1h"]
@@ -50,6 +51,35 @@ DEFAULT_XGB_PARAMS = {
 
 # Optuna search bounds
 OPTUNA_N_TRIALS = 30
+
+
+def _evaluate_promotion(metrics: dict[str, float], row_count: int) -> tuple[bool, str]:
+    settings = get_settings()
+    if row_count < settings.model_gate_min_rows:
+        return False, f"insufficient rows: {row_count} < {settings.model_gate_min_rows}"
+
+    checks = {
+        "model_home_fg_mae": settings.model_gate_max_mae_fg,
+        "model_away_fg_mae": settings.model_gate_max_mae_fg,
+        "model_home_1h_mae": settings.model_gate_max_mae_1h,
+        "model_away_1h_mae": settings.model_gate_max_mae_1h,
+        "model_home_fg_rmse": settings.model_gate_max_rmse_fg,
+        "model_away_fg_rmse": settings.model_gate_max_rmse_fg,
+        "model_home_1h_rmse": settings.model_gate_max_rmse_1h,
+        "model_away_1h_rmse": settings.model_gate_max_rmse_1h,
+    }
+    failures: list[str] = []
+    for key, threshold in checks.items():
+        value = metrics.get(key)
+        if value is None:
+            failures.append(f"{key} missing")
+            continue
+        if value > threshold:
+            failures.append(f"{key}={value:.3f} > {threshold:.3f}")
+
+    if failures:
+        return False, "; ".join(failures)
+    return True, "all gate checks passed"
 
 
 def _optuna_objective(
@@ -107,6 +137,53 @@ class ModelTrainer:
         self.feature_cols = get_feature_columns()
         self.models: dict[str, xgb.XGBRegressor] = {}
         self.run_optuna = run_optuna
+
+    async def _sync_model_registry(
+        self,
+        db: AsyncSession,
+        metrics: dict[str, Any],
+        best_params_all: dict[str, dict],
+        should_promote: bool,
+        promotion_reason: str,
+    ) -> None:
+        result = await db.execute(
+            select(ModelRegistry).where(ModelRegistry.model_version == MODEL_VERSION)
+        )
+        current = result.scalar_one_or_none()
+
+        now = datetime.utcnow()
+        metrics_json = json.dumps(metrics)
+        params_json = json.dumps(best_params_all)
+
+        if current is None:
+            current = ModelRegistry(
+                model_version=MODEL_VERSION,
+                created_at=now,
+            )
+            db.add(current)
+
+        current.metrics_json = metrics_json
+        current.params_json = params_json
+        current.promotion_reason = promotion_reason
+
+        if should_promote:
+            active = await db.execute(
+                select(ModelRegistry).where(
+                    ModelRegistry.is_active.is_(True),
+                    ModelRegistry.model_version != MODEL_VERSION,
+                )
+            )
+            for row in active.scalars().all():
+                row.is_active = False
+                row.retired_at = now
+
+            current.is_active = True
+            current.promoted_at = now
+            current.retired_at = None
+        elif current.is_active is None:
+            current.is_active = False
+
+        await db.commit()
 
     async def _build_dataset(self, db: AsyncSession) -> pd.DataFrame:
         """Build training dataset from completed games."""
@@ -262,6 +339,10 @@ class ModelTrainer:
         params_path = ARTIFACTS_DIR / "best_params.json"
         params_path.write_text(json.dumps(best_params_all, indent=2))
 
+        should_promote, promotion_reason = _evaluate_promotion(metrics, len(df))
+        metrics["row_count"] = float(len(df))
+        metrics["promoted"] = 1.0 if should_promote else 0.0
+
         # Save feature importance
         if self.models:
             first_model = next(iter(self.models.values()))
@@ -275,5 +356,20 @@ class ModelTrainer:
             imp_path = ARTIFACTS_DIR / "feature_importance.json"
             imp_path.write_text(json.dumps(importance, indent=2))
 
-        logger.info("Training complete. Models saved to %s", ARTIFACTS_DIR)
+        await self._sync_model_registry(
+            db,
+            metrics=metrics,
+            best_params_all=best_params_all,
+            should_promote=should_promote,
+            promotion_reason=promotion_reason,
+        )
+
+        metrics_path.write_text(json.dumps(metrics, indent=2))
+
+        logger.info(
+            "Training complete. Models saved to %s. promoted=%s reason=%s",
+            ARTIFACTS_DIR,
+            should_promote,
+            promotion_reason,
+        )
         return metrics

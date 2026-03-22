@@ -12,14 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.models import Game, Prediction
+from src.db.models import Game, ModelRegistry, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
+from src.models.versioning import MODEL_VERSION
 
 logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
-MODEL_VERSION = "v6.1.0"
 
 
 def _margin_to_prob(
@@ -75,8 +75,23 @@ class Predictor:
         self.feature_cols = get_feature_columns()
         self.models: dict[str, xgb.XGBRegressor] = {}
         self._calibration: dict[str, float] = {}
+        self.model_version = MODEL_VERSION
         self._load_models()
         self._load_calibration()
+
+    async def _resolve_model_version(self, db: AsyncSession) -> str:
+        result = await db.execute(
+            select(ModelRegistry.model_version)
+            .where(ModelRegistry.is_active.is_(True))
+            .order_by(ModelRegistry.promoted_at.desc())
+            .limit(1)
+        )
+        active_version = result.scalar_one_or_none()
+        if active_version:
+            self.model_version = active_version
+        else:
+            self.model_version = MODEL_VERSION
+        return self.model_version
 
     def _load_models(self) -> None:
         for name in MODEL_NAMES:
@@ -236,9 +251,38 @@ class Predictor:
         if pred_dict is None:
             return None
 
+        model_version = await self._resolve_model_version(db)
+
+        existing_result = await db.execute(
+            select(Prediction).where(
+                Prediction.game_id == game.id,
+                Prediction.model_version == model_version,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+
+        if existing is not None:
+            existing.predicted_home_fg = pred_dict["predicted_home_fg"]
+            existing.predicted_away_fg = pred_dict["predicted_away_fg"]
+            existing.predicted_home_1h = pred_dict["predicted_home_1h"]
+            existing.predicted_away_1h = pred_dict["predicted_away_1h"]
+            existing.fg_spread = pred_dict["fg_spread"]
+            existing.fg_total = pred_dict["fg_total"]
+            existing.fg_home_ml_prob = pred_dict["fg_home_ml_prob"]
+            existing.h1_spread = pred_dict["h1_spread"]
+            existing.h1_total = pred_dict["h1_total"]
+            existing.h1_home_ml_prob = pred_dict["h1_home_ml_prob"]
+            existing.opening_spread = pred_dict.get("opening_spread")
+            existing.opening_total = pred_dict.get("opening_total")
+            existing.predicted_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(existing)
+            logger.info("Prediction updated for game %d", game.id)
+            return existing
+
         prediction = Prediction(
             game_id=game.id,
-            model_version=MODEL_VERSION,
+            model_version=model_version,
             predicted_home_fg=pred_dict["predicted_home_fg"],
             predicted_away_fg=pred_dict["predicted_away_fg"],
             predicted_home_1h=pred_dict["predicted_home_1h"],

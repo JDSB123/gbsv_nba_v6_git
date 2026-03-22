@@ -6,11 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.api.dependencies import get_predictor
+from src.config import get_settings
 from src.db.models import Game, OddsSnapshot, Prediction
 from src.db.session import get_db
 from src.models.predictor import Predictor
+from src.notifications.teams import build_teams_text, send_text_to_teams
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
+settings = get_settings()
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -187,3 +190,39 @@ async def get_prediction(
             )
 
     return result
+
+
+@router.post("/publish/teams")
+async def publish_predictions_to_teams(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Generate latest predictions and send formatted payload to Teams."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+    if not settings.teams_webhook_url:
+        raise HTTPException(status_code=400, detail="Teams webhook is not configured")
+
+    predictions = await predictor.predict_upcoming(db)
+    if not predictions:
+        return {"status": "ok", "published": 0, "detail": "No upcoming games"}
+
+    game_ids = [int(cast(Any, p.game_id)) for p in predictions]
+    game_result = await db.execute(
+        select(Game)
+        .options(selectinload(Game.home_team), selectinload(Game.away_team))
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    rows: list[tuple[Prediction, Game]] = []
+    for pred in predictions:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game is not None:
+            rows.append((pred, game))
+
+    text = build_teams_text(rows, settings.teams_max_games_per_message)
+    await send_text_to_teams(settings.teams_webhook_url, text)
+    return {"status": "ok", "published": len(rows)}

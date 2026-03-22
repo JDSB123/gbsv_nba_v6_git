@@ -5,6 +5,7 @@ Usage:
     python -m src work         # Start the background scheduler (worker)
     python -m src train        # Run a one-shot model training
     python -m src predict      # Run predictions for all upcoming games (fresh odds)
+    python -m src publish-teams # Generate predictions and publish to Teams
     python -m src backfill     # Backfill historical data from APIs
     python -m src migrate      # Run Alembic migrations (head)
 """
@@ -101,6 +102,24 @@ def cmd_predict(args: argparse.Namespace) -> None:
     asyncio.run(_run_predict())
 
 
+async def _run_publish_teams() -> None:
+    from src.config import get_settings
+    from src.data.scheduler import generate_predictions_and_publish
+
+    settings = get_settings()
+    if not settings.teams_webhook_url:
+        print("TEAMS_WEBHOOK_URL is not configured.")
+        return
+    await generate_predictions_and_publish()
+    print("Prediction publish job executed.")
+
+
+def cmd_publish_teams(args: argparse.Namespace) -> None:
+    """Generate predictions and publish formatted output to Teams."""
+    _setup_logging()
+    asyncio.run(_run_publish_teams())
+
+
 async def _run_backfill(season: str | None, days_back: int) -> None:
     from src.data.backfill import run_backfill
 
@@ -148,6 +167,12 @@ def main() -> None:
     # predict
     p_pred = sub.add_parser("predict", help="Predict upcoming games (fresh odds)")
     p_pred.set_defaults(func=cmd_predict)
+
+    # publish-teams
+    p_pub = sub.add_parser(
+        "publish-teams", help="Generate predictions and publish to Teams"
+    )
+    p_pub.set_defaults(func=cmd_publish_teams)
 
     # backfill
     p_back = sub.add_parser("backfill", help="Backfill historical data")
