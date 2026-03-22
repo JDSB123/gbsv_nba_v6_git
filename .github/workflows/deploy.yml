@@ -34,6 +34,7 @@ env:
   RESOURCE_GROUP: nba_gbsv_v6_az
   API_APP: ca-nba-gbsv-v6-api
   WORKER_APP: ca-nba-gbsv-v6-worker
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read

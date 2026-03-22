@@ -12,15 +12,19 @@ Usage:
 import argparse
 import asyncio
 import logging
+import os
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season
 
 
-def _setup_logging() -> None:
-    settings = get_settings()
+def _setup_logging(log_level: str | None = None) -> None:
+    resolved_log_level = log_level
+    if resolved_log_level is None:
+        settings = get_settings()
+        resolved_log_level = settings.log_level
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        level=getattr(logging, resolved_log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
@@ -111,7 +115,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
 def cmd_migrate(args: argparse.Namespace) -> None:
     """Run Alembic migrations to head."""
-    _setup_logging()
+    _setup_logging(os.getenv("LOG_LEVEL", "INFO"))
     from alembic import command
     from alembic.config import Config
 
