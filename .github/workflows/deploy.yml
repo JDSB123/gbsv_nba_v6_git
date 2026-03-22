@@ -2,9 +2,26 @@ name: CI/CD
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   pull_request:
-    branches: [master]
+    branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      bootstrap_models:
+        description: "Run backfill+train before build and include artifacts in image"
+        required: true
+        default: true
+        type: boolean
+      backfill_season:
+        description: "Season used for backfill"
+        required: false
+        default: "2024-2025"
+        type: string
+      backfill_days:
+        description: "Days of historical data to backfill"
+        required: false
+        default: "120"
+        type: string
 
 # Prevent overlapping deployments; cancel in-flight runs on same ref
 concurrency:
@@ -69,18 +86,87 @@ jobs:
   # ── Build, Scan & Push ──────────────────────────────────────────
   build:
     needs: test
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write   # for uploading Trivy SARIF
+      security-events: write # for uploading Trivy SARIF
 
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
+        with:
+          python-version-file: ".python-version"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
       - uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Bootstrap models before build
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
+        run: |
+          set -euo pipefail
+
+          PG_SERVER_NAME=psql-nba-gbsv-v6-db
+          KV_NAME=kv-nba-gbsv-v6
+
+          RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
+          RULE_NAME=allow-gha-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+
+          cleanup() {
+            az postgres flexible-server firewall-rule delete \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name "$PG_SERVER_NAME" \
+              --rule-name "$RULE_NAME" --yes || true
+          }
+          trap cleanup EXIT
+
+          az postgres flexible-server firewall-rule create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "$PG_SERVER_NAME" \
+            --rule-name "$RULE_NAME" \
+            --start-ip-address "$RUNNER_IP" \
+            --end-ip-address "$RUNNER_IP"
+
+          PG_HOST=$(az postgres flexible-server show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "$PG_SERVER_NAME" \
+            --query fullyQualifiedDomainName -o tsv)
+
+          PG_PASSWORD=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name postgres-password \
+            --query value -o tsv)
+          ODDS_API_KEY=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name odds-api-key \
+            --query value -o tsv)
+          BASKETBALL_API_KEY=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name basketball-api-key \
+            --query value -o tsv)
+
+          export DATABASE_URL="postgresql+asyncpg://pgadmin:${PG_PASSWORD}@${PG_HOST}:5432/nba_gbsv?ssl=require"
+          export ODDS_API_KEY
+          export BASKETBALL_API_KEY
+          export APP_ENV=production
+          export LOG_LEVEL=INFO
+
+          pip install --no-cache-dir -r requirements.txt
+          python -m src backfill --season "${{ inputs.backfill_season }}" --days "${{ inputs.backfill_days }}"
+          python -m src train
+
+          test -f src/models/artifacts/model_home_fg.json
+          test -f src/models/artifacts/model_away_fg.json
+          test -f src/models/artifacts/model_home_1h.json
+          test -f src/models/artifacts/model_away_1h.json
+          test -f src/models/artifacts/metrics.json
 
       - name: Log in to ACR
         run: az acr login --name ${{ env.ACR_NAME }}
@@ -100,7 +186,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: sarif
@@ -116,6 +202,7 @@ jobs:
   # ── Deploy to Azure Container Apps ──────────────────────────────
   deploy:
     needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
 
@@ -132,26 +219,44 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Run database migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set -euo pipefail
+
+          PG_SERVER_NAME=psql-nba-gbsv-v6-db
+          KV_NAME=kv-nba-gbsv-v6
+
           # Temporarily allow GitHub runner through PostgreSQL firewall
           RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
+          RULE_NAME=allow-gha-${{ github.run_id }}-${{ github.run_attempt }}
+
+          cleanup() {
+            az postgres flexible-server firewall-rule delete \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name psql-nba-gbsv-v6-db \
+              --rule-name "$RULE_NAME" --yes || true
+          }
+          trap cleanup EXIT
+
           az postgres flexible-server firewall-rule create \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name psql-nba-gbsv-v6 \
-            --rule-name allow-gha-${{ github.run_id }} \
+            --name "$PG_SERVER_NAME" \
+            --rule-name "$RULE_NAME" \
             --start-ip-address "$RUNNER_IP" \
             --end-ip-address "$RUNNER_IP"
 
+          PG_HOST=$(az postgres flexible-server show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "$PG_SERVER_NAME" \
+            --query fullyQualifiedDomainName -o tsv)
+          PG_PASSWORD=$(az keyvault secret show \
+            --vault-name "$KV_NAME" \
+            --name postgres-password \
+            --query value -o tsv)
+
+          export DATABASE_URL="postgresql+asyncpg://pgadmin:${PG_PASSWORD}@${PG_HOST}:5432/nba_gbsv?ssl=require"
+
           pip install --no-cache-dir -r requirements.txt
           python -m src migrate
-
-          # Clean up firewall rule
-          az postgres flexible-server firewall-rule delete \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name psql-nba-gbsv-v6 \
-            --rule-name allow-gha-${{ github.run_id }} --yes
 
       - name: Deploy API to Container Apps
         run: |
@@ -186,3 +291,16 @@ jobs:
           done
           echo "❌ API did not become healthy within 120s"
           exit 1
+
+      - name: Verify model readiness
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
+        run: |
+          set -euo pipefail
+
+          API_FQDN=$(az containerapp show \
+            --name ${{ env.API_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          STATUS_JSON=$(curl -fsS "https://${API_FQDN}/model/status")
+            python -c "import json,sys; payload=json.loads(sys.argv[1]); assert payload.get('ready'), 'Model is not ready after bootstrap deploy'; print('Model readiness check passed')" "$STATUS_JSON"

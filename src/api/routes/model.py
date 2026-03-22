@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from src.api.dependencies import get_predictor
-from src.models.predictor import Predictor
+from src.models.predictor import MODEL_VERSION, Predictor
 
 router = APIRouter(prefix="/model", tags=["model"])
 
@@ -11,7 +11,7 @@ async def model_status(predictor: Predictor = Depends(get_predictor)):
     """Return model version, metrics, and feature importance."""
     return {
         "ready": predictor.is_ready,
-        "version": "v6.0.0",
+        "version": MODEL_VERSION,
         "metrics": predictor.get_metrics(),
         "feature_importance": predictor.get_feature_importance(),
     }

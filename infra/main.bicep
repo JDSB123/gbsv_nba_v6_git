@@ -3,6 +3,9 @@ targetScope = 'resourceGroup'
 @description('Location for all resources')
 param location string = resourceGroup().location
 
+@description('Location for PostgreSQL (use if primary region is restricted)')
+param postgresLocation string = location
+
 @description('Environment name')
 @allowed(['dev', 'prod'])
 param environment string = 'dev'
@@ -20,7 +23,6 @@ param oddsApiKey string
 param basketballApiKey string
 
 var prefix = 'nba-gbsv-v6'
-var uniqueSuffix = uniqueString(resourceGroup().id)
 
 // ── Log Analytics ────────────────────────────────────────────────
 
@@ -102,11 +104,11 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
 // ── PostgreSQL Flexible Server ───────────────────────────────────
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
-  name: 'psql-${prefix}'
-  location: location
+  name: 'psql-${prefix}-db'
+  location: postgresLocation
   sku: {
-    name: environment == 'prod' ? 'Standard_D2s_v3' : 'Standard_B1ms'
-    tier: environment == 'prod' ? 'GeneralPurpose' : 'Burstable'
+    name: 'Standard_B1ms'
+    tier: 'Burstable'
   }
   properties: {
     version: '16'

@@ -5,7 +5,6 @@ from fastapi import FastAPI
 
 from src.api.routes import health, model, odds, predictions
 from src.config import get_settings
-from src.data.scheduler import create_scheduler
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -19,15 +18,12 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Starting NBA GBSV v6 — env=%s", settings.app_env)
 
-    scheduler = create_scheduler()
-    scheduler.start()
-    logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
+    logger.info("API startup complete")
 
     yield
 
     # Shutdown
-    scheduler.shutdown(wait=False)
-    logger.info("Scheduler stopped")
+    logger.info("API shutdown complete")
 
 
 app = FastAPI(

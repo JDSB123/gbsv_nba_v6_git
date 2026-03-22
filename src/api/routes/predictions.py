@@ -3,8 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.api.dependencies import get_predictor
 from src.db.models import Game, OddsSnapshot, Prediction
 from src.db.session import get_db
+from src.models.predictor import Predictor
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
@@ -56,8 +58,14 @@ def _format_prediction(pred: Prediction, game: Game) -> dict:
 
 
 @router.get("")
-async def list_predictions(db: AsyncSession = Depends(get_db)):
+async def list_predictions(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
     """Get latest predictions for all upcoming games."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
     # Subquery: latest prediction per game
     result = await db.execute(
         select(Prediction)
@@ -90,8 +98,15 @@ async def list_predictions(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{game_id}")
-async def get_prediction(game_id: int, db: AsyncSession = Depends(get_db)):
+async def get_prediction(
+    game_id: int,
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
     """Get prediction detail for a specific game."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
     game_result = await db.execute(
         select(Game)
         .options(selectinload(Game.home_team), selectinload(Game.away_team))
