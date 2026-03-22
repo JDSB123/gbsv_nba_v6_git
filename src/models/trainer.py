@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.model_selection import TimeSeriesSplit
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,7 +84,7 @@ class ModelTrainer:
         X = df[self.feature_cols].fillna(0).values
         metrics: dict[str, float] = {}
 
-        for target, model_name in zip(TARGETS, MODEL_NAMES):
+        for target, model_name in zip(TARGETS, MODEL_NAMES, strict=True):
             y = df[target].values
             model = xgb.XGBRegressor(**XGB_PARAMS)
 
@@ -121,7 +121,7 @@ class ModelTrainer:
         if self.models:
             first_model = next(iter(self.models.values()))
             importance = dict(
-                zip(self.feature_cols, first_model.feature_importances_.tolist())
+                zip(self.feature_cols, first_model.feature_importances_.tolist(), strict=True)
             )
             imp_path = ARTIFACTS_DIR / "feature_importance.json"
             imp_path.write_text(json.dumps(importance, indent=2))

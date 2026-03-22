@@ -1,7 +1,7 @@
 import math
 
-from src.models.predictor import _margin_to_prob
 from src.models.features import get_feature_columns
+from src.models.predictor import _margin_to_prob
 
 
 def test_margin_to_prob_zero():

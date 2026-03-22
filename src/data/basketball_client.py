@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import get_settings
 from src.db.models import (
     Game,
-    Injury,
     Player,
     PlayerGameStats,
     Team,

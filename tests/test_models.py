@@ -1,4 +1,4 @@
-from src.db.models import Base, Team, Game, OddsSnapshot, Prediction
+from src.db.models import Base, Game
 
 
 def test_all_tables_defined():

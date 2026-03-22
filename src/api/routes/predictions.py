@@ -1,14 +1,11 @@
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.api.dependencies import get_predictor
 from src.db.models import Game, OddsSnapshot, Prediction
 from src.db.session import get_db
-from src.models.predictor import Predictor
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 

@@ -4,8 +4,9 @@ This file is kept only as a backwards-compatible shim so that existing
 Dockerfiles / scripts that reference ``src.worker`` continue to work.
 """
 
-from src.__main__ import cmd_work
 import argparse
+
+from src.__main__ import cmd_work
 
 
 def main() -> None:

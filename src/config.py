@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _check_required_secrets(self) -> "Settings":
+    def _check_required_secrets(self) -> Settings:
         """Fail fast if required secrets are missing outside test env."""
         if self.app_env == "test":
             return self

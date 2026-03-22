@@ -1,8 +1,7 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import numpy as np
-import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +9,6 @@ from src.db.models import (
     Game,
     Injury,
     OddsSnapshot,
-    Player,
     PlayerGameStats,
     TeamSeasonStats,
 )
