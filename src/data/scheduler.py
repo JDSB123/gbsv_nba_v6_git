@@ -114,29 +114,59 @@ async def daily_retrain() -> None:
 
 
 async def sync_events_to_games() -> None:
-    """Sync Odds API events to games table (map odds_api_id)."""
+    """Sync Odds API events to games table (map odds_api_id).
+
+    Matches by exact commence_time first, then falls back to matching
+    by home-team name within the same calendar day (UTC).  This handles
+    the common case where the Basketball API and Odds API report
+    slightly different tip-off times for the same game.
+    """
+    from datetime import timedelta
+
     logger.info("Syncing events to games...")
     try:
         from src.data.odds_client import OddsClient
 
         client = OddsClient()
         events = await client.fetch_events()
+        matched = 0
         async with async_session_factory() as db:
             for event in events:
                 odds_id = event["id"]
                 commence = event.get("commence_time")
-                if commence:
-                    ct = parse_api_datetime(commence)
+                home_team_name = event.get("home_team", "")
+                if not commence:
+                    continue
+
+                ct = parse_api_datetime(commence)
+
+                # 1) Exact commence_time match
+                result = await db.execute(
+                    select(Game).where(Game.commence_time == ct)
+                )
+                game = result.scalar_one_or_none()
+
+                # 2) Fallback: same home team within ±12 hours
+                if game is None and home_team_name:
+                    window_start = ct - timedelta(hours=12)
+                    window_end = ct + timedelta(hours=12)
                     result = await db.execute(
-                        select(Game).where(Game.commence_time == ct)
+                        select(Game)
+                        .join(Team, Game.home_team_id == Team.id)
+                        .where(
+                            Game.commence_time.between(window_start, window_end),
+                            Team.name == home_team_name,
+                        )
                     )
                     game = result.scalar_one_or_none()
-                    game_odds_api_id = (
-                        cast(Any, game.odds_api_id) if game is not None else None
-                    )
-                    if game is not None and game_odds_api_id is None:
+
+                if game is not None:
+                    game_odds_api_id = cast(Any, game.odds_api_id)
+                    if game_odds_api_id is None:
                         game.odds_api_id = odds_id
+                        matched += 1
             await db.commit()
+        logger.info("Synced %d events to games", matched)
     except Exception:
         logger.exception("Error syncing events")
 
