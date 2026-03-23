@@ -455,8 +455,8 @@ def _odds_source_block(odds_sourced: dict | None) -> list[dict]:
     ts_display = ""
     if ts_raw:
         try:
-            dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-            ts_display = f" (as of {dt.strftime('%I:%M %p').lstrip('0')} UTC)"
+            dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone(_CST)
+            ts_display = f" (as of {dt.strftime('%I:%M %p').lstrip('0')} CT)"
         except Exception:
             pass
     return [
@@ -483,9 +483,12 @@ def build_teams_card(
     Each row shows: pick label + fires, matchup with records,
     segment/market/model scores, and edge value.
     """
-    now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    now_cst = datetime.now(_CST)
+    now_str = now_cst.strftime("%Y-%m-%d %I:%M %p CT")
     odds_ts = (
-        odds_pulled_at.strftime("%Y-%m-%d %H:%M UTC") if odds_pulled_at else now_str
+        odds_pulled_at.astimezone(_CST).strftime("%Y-%m-%d %I:%M %p CT")
+        if odds_pulled_at
+        else now_str
     )
 
     # Extract picks from every prediction
@@ -623,7 +626,7 @@ def build_teams_card(
         card["actions"] = [
             {
                 "type": "Action.OpenUrl",
-                "title": "📥 Download Full Slate (CSV)",
+                "title": "📥 View Full Slate",
                 "url": download_url,
             }
         ]
@@ -791,11 +794,14 @@ def build_html_slate(
 
     Each element may be ``(pred, game)`` or ``(pred, game, odds_map)``.
     """
-    now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    now_cst = datetime.now(_CST)
+    now_str = now_cst.strftime("%Y-%m-%d %I:%M %p CT")
     odds_ts = (
-        odds_pulled_at.strftime("%Y-%m-%d %H:%M UTC") if odds_pulled_at else now_str
+        odds_pulled_at.astimezone(_CST).strftime("%Y-%m-%d %I:%M %p CT")
+        if odds_pulled_at
+        else now_str
     )
-    today_display = datetime.now(_CST).strftime("%A, %B %d, %Y")
+    today_display = now_cst.strftime("%A, %B %d, %Y")
 
     all_picks: list[Pick] = []
     game_ids: set[int] = set()
@@ -831,6 +837,41 @@ def build_html_slate(
 
     if not all_picks:
         return header + '<p style="color:#6b7280">No qualified picks today.</p>'
+
+    # Collect unique values for filter dropdowns
+    matchups = sorted({p.matchup for p in all_picks})
+    segments = sorted({p.segment for p in all_picks})
+    markets = sorted({p.market_type for p in all_picks})
+
+    # ── filter bar ─────────────────────────────────
+    sel_style = (
+        "padding:6px 10px;border:1px solid #dee2e6;border-radius:6px;"
+        "font-size:13px;background:#fff;color:#1a2332;cursor:pointer"
+    )
+    matchup_opts = "".join(
+        f'<option value="{_esc(m)}">{_esc(m)}</option>' for m in matchups
+    )
+    seg_opts = "".join(
+        f'<option value="{_esc(s)}">{_esc(s)}</option>' for s in segments
+    )
+    mkt_opts = "".join(
+        f'<option value="{_esc(m)}">{_esc(m)}</option>' for m in markets
+    )
+    filter_bar = (
+        '<div id="filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">'
+        f'<select id="fMatchup" style="{sel_style}" onchange="applyFilters()">'
+        f'<option value="">All Matchups</option>{matchup_opts}</select>'
+        f'<select id="fSeg" style="{sel_style}" onchange="applyFilters()">'
+        f'<option value="">All Segments</option>{seg_opts}</select>'
+        f'<select id="fMkt" style="{sel_style}" onchange="applyFilters()">'
+        f'<option value="">All Markets</option>{mkt_opts}</select>'
+        f'<input id="fEdge" type="number" step="0.5" min="0" placeholder="Min Edge" '
+        f'style="{sel_style};width:100px" oninput="applyFilters()">'
+        '<button onclick="resetFilters()" style="padding:6px 14px;border:none;'
+        'border-radius:6px;background:#1a2332;color:#d4af37;font-weight:600;'
+        'font-size:12px;cursor:pointer;letter-spacing:.5px">RESET</button>'
+        "</div>"
+    )
 
     # ── table ──────────────────────────────────────
     th_style = (
@@ -868,7 +909,9 @@ def build_html_slate(
             )
 
         rows_html.append(
-            f'<tr style="background:{bg}">'
+            f'<tr style="background:{bg}" data-matchup="{_esc(p.matchup)}" '
+            f'data-seg="{_esc(p.segment)}" data-mkt="{_esc(p.market_type)}" '
+            f'data-edge="{p.edge:.1f}">'
             f"<td {td}>{_esc(p.time_cst)}</td>"
             f"<td {td}>{matchup_cell}</td>"
             f"<td {td}>{_segment_pill(p.segment)}</td>"
@@ -885,7 +928,7 @@ def build_html_slate(
         )
 
     table = (
-        '<table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
+        '<table id="slate" style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
         "<thead><tr>"
         f'<th style="{th_style}">Time</th>'
         f'<th style="{th_style}">Matchup</th>'
@@ -957,8 +1000,8 @@ def build_html_slate(
             ts_display = ""
             if ts_raw:
                 try:
-                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                    ts_display = f" &middot; As of {dt.strftime('%I:%M %p').lstrip('0')} UTC"
+                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone(_CST)
+                    ts_display = f" &middot; As of {dt.strftime('%I:%M %p').lstrip('0')} CT"
                 except Exception:
                     pass
 
@@ -984,7 +1027,36 @@ def build_html_slate(
         f"GBSV NBA {_esc(MODEL_VERSION)} &middot; Sorted by edge descending</div>"
     )
 
-    return header + table + odds_section + footer
+    script = (
+        "<script>"
+        "function applyFilters(){"
+        "var m=document.getElementById('fMatchup').value,"
+        "s=document.getElementById('fSeg').value,"
+        "k=document.getElementById('fMkt').value,"
+        "e=parseFloat(document.getElementById('fEdge').value)||0;"
+        "var rows=document.querySelectorAll('#slate tbody tr');"
+        "var vis=0;"
+        "rows.forEach(function(r){"
+        "var show=true;"
+        "if(m&&r.dataset.matchup!==m)show=false;"
+        "if(s&&r.dataset.seg!==s)show=false;"
+        "if(k&&r.dataset.mkt!==k)show=false;"
+        "if(e&&parseFloat(r.dataset.edge)<e)show=false;"
+        "r.style.display=show?'':'none';"
+        "if(show){r.style.background=vis%2===0?'#ffffff':'#f8f9fa';vis++;}"
+        "});"
+        "}"
+        "function resetFilters(){"
+        "document.getElementById('fMatchup').value='';"
+        "document.getElementById('fSeg').value='';"
+        "document.getElementById('fMkt').value='';"
+        "document.getElementById('fEdge').value='';"
+        "applyFilters();"
+        "}"
+        "</script>"
+    )
+
+    return header + filter_bar + table + odds_section + footer + script
 
 
 # ── Legacy plain-text builder (kept for backward compat / tests) ──

@@ -99,7 +99,7 @@ def test_build_teams_card_has_adaptive_card_structure():
     card_str = json.dumps(card)
     assert MODEL_VERSION in card_str
     assert "Odds pulled" in card_str
-    assert "2026-03-22 18:00 UTC" in card_str
+    assert "CT" in card_str
     # Pick-based format markers
     assert "PICK" in card_str
     assert "EDGE" in card_str
@@ -298,6 +298,19 @@ def test_build_html_slate():
     # Should contain valid HTML table structure
     assert "<table" in html
     assert "<th" in html
+    # Filter controls
+    assert "fMatchup" in html
+    assert "fSeg" in html
+    assert "fMkt" in html
+    assert "fEdge" in html
+    assert "applyFilters" in html
+    # Timestamps should be CT, not UTC
+    assert "CT" in html
+    assert "UTC" not in html
+    # Data attributes for filtering
+    assert "data-matchup=" in html
+    assert "data-seg=" in html
+    assert "data-edge=" in html
 
 
 @pytest.mark.asyncio

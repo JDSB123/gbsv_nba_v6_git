@@ -352,7 +352,7 @@ async def publish_predictions_to_teams(
     odds_pulled_at = odds_ts_result.scalar_one_or_none()
 
     download_url = (
-        f"{settings.api_base_url}/predictions/slate.csv"
+        f"{settings.api_base_url}/predictions/slate.html"
         if settings.api_base_url
         else None
     )
