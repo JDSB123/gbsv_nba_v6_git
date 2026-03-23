@@ -799,11 +799,20 @@ def build_html_slate(
 
     all_picks: list[Pick] = []
     game_ids: set[int] = set()
+    odds_by_game: dict[int, dict] = {}
+    game_labels: dict[int, str] = {}
     for row in predictions_with_games:
         pred, game = row[0], row[1]
         om: dict[str, str] = row[2] if len(row) > 2 else {}  # type: ignore[index]
-        game_ids.add(getattr(game, "id", id(game)))
+        gid = getattr(game, "id", id(game))
+        game_ids.add(gid)
         all_picks.extend(extract_picks(pred, game, min_edge=min_edge, odds_map=om))
+        sourced = getattr(pred, "odds_sourced", None)
+        if sourced:
+            odds_by_game[gid] = sourced
+        home = game.home_team.name if game.home_team else "Home"
+        away = game.away_team.name if game.away_team else "Away"
+        game_labels[gid] = f"{away} @ {home}"
     all_picks.sort(key=lambda p: -p.edge)
 
     n_games = len(game_ids)
@@ -891,12 +900,91 @@ def build_html_slate(
         "</table>"
     )
 
+    # ── Per-game odds source breakdown ────────────────────────
+    odds_section = ""
+    if odds_by_game:
+        odds_rows: list[str] = []
+        oth = (
+            "background:#1a2332;color:#d4af37;font-weight:600;font-size:11px;"
+            "letter-spacing:1px;text-transform:uppercase;padding:6px 8px;"
+            "text-align:left;white-space:nowrap"
+        )
+        for gid, detail in odds_by_game.items():
+            label = game_labels.get(gid, "")
+            books = detail.get("books", {})
+            if not books:
+                continue
+            first = True
+            for bk, lines in sorted(books.items()):
+                pieces: list[str] = []
+                if "spread" in lines:
+                    price = f" ({lines['spread_price']:+d})" if lines.get("spread_price") else ""
+                    pieces.append(f"{lines['spread']:+.1f}{price}")
+                else:
+                    pieces.append("—")
+                if "total" in lines:
+                    price = f" ({lines['total_price']:+d})" if lines.get("total_price") else ""
+                    pieces.append(f"{lines['total']:.1f}{price}")
+                else:
+                    pieces.append("—")
+                if "home_ml" in lines:
+                    pieces.append(f"{lines['home_ml']:+d}")
+                else:
+                    pieces.append("—")
+                if "away_ml" in lines:
+                    pieces.append(f"{lines['away_ml']:+d}")
+                else:
+                    pieces.append("—")
+
+                otd = 'style="padding:4px 8px;border-bottom:1px solid #e9ecef;font-size:12px"'
+                matchup_cell = f"<td {otd}><b>{_esc(label)}</b></td>" if first else f'<td {otd}></td>'
+                odds_rows.append(
+                    f"<tr>"
+                    f"{matchup_cell}"
+                    f"<td {otd}><b>{_esc(bk)}</b></td>"
+                    f"<td {otd}>{_esc(pieces[0])}</td>"
+                    f"<td {otd}>{_esc(pieces[1])}</td>"
+                    f"<td {otd}>{_esc(pieces[2])}</td>"
+                    f"<td {otd}>{_esc(pieces[3])}</td>"
+                    f"</tr>"
+                )
+                first = False
+
+        if odds_rows:
+            # Timestamp from first game's detail
+            any_detail = next(iter(odds_by_game.values()), {})
+            ts_raw = any_detail.get("captured_at", "")
+            ts_display = ""
+            if ts_raw:
+                try:
+                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                    ts_display = f" &middot; As of {dt.strftime('%I:%M %p').lstrip('0')} UTC"
+                except Exception:
+                    pass
+
+            odds_section = (
+                '<div style="margin-top:16px">'
+                f'<div style="font-size:14px;font-weight:700;color:#1a2332;margin-bottom:4px">'
+                f"\U0001f4ca Odds Sources{ts_display}</div>"
+                '<table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
+                f"<thead><tr>"
+                f'<th style="{oth}">Game</th>'
+                f'<th style="{oth}">Book</th>'
+                f'<th style="{oth}">Spread</th>'
+                f'<th style="{oth}">Total</th>'
+                f'<th style="{oth}">Home ML</th>'
+                f'<th style="{oth}">Away ML</th>'
+                f"</tr></thead>"
+                f'<tbody>{"".join(odds_rows)}</tbody>'
+                "</table></div>"
+            )
+
     footer = (
         f'<div style="text-align:center;padding:8px;color:#9ca3af;font-size:11px">'
         f"GBSV NBA {_esc(MODEL_VERSION)} &middot; Sorted by edge descending</div>"
     )
 
-    return header + table + footer
+    return header + table + odds_section + footer
 
 
 # ── Legacy plain-text builder (kept for backward compat / tests) ──
