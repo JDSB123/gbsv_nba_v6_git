@@ -264,6 +264,7 @@ async def download_slate_html(
         '<div class="container">'
         '<div class="dl-bar">'
         f'<a class="dl-btn dl-btn-secondary" href="{csv_url}">&#x1f4e5; Download CSV</a>'
+        '<a class="dl-btn dl-btn-secondary" href="/performance/dashboard">&#x1f4ca; Performance</a>'
         "</div>"
         f"{slate_body}"
         "</div></body></html>"

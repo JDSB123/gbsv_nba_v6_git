@@ -166,6 +166,62 @@ def cmd_odds(args: argparse.Namespace) -> None:
     print("Odds poll complete.")
 
 
+async def _run_perf() -> None:
+    import json
+
+    from src.db.session import async_session_factory
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from src.db.models import Game, Prediction
+    from src.api.routes.performance import _grade_game, _build_stats, _score_accuracy, _clv_summary
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Prediction, Game)
+            .join(Game, Prediction.game_id == Game.id)
+            .options(selectinload(Game.home_team), selectinload(Game.away_team))
+            .where(Game.status == "FT")
+            .where(Game.home_score_fg.isnot(None))
+            .where(Game.away_score_fg.isnot(None))
+            .order_by(Game.commence_time)
+        )
+        rows = result.all()
+
+    if not rows:
+        print("No completed games with predictions yet.")
+        return
+
+    from typing import Any, cast
+
+    seen: dict[int, tuple[Any, Any]] = {}
+    for pred, game in rows:
+        gid = int(cast(Any, game.id))
+        existing = seen.get(gid)
+        if existing is None or pred.predicted_at > existing[0].predicted_at:
+            seen[gid] = (pred, game)
+    unique = list(seen.values())
+
+    graded = []
+    for pred, game in unique:
+        graded.extend(_grade_game(pred, game))
+
+    data = {
+        "games_graded": len(unique),
+        "picks_graded": len(graded),
+        "accuracy": _score_accuracy(unique),
+        "pick_performance": _build_stats(graded),
+        "clv": _clv_summary(unique),
+    }
+    print(json.dumps(data, indent=2))
+
+
+def cmd_perf(args: argparse.Namespace) -> None:
+    """Show performance metrics for completed game predictions."""
+    _setup_logging()
+    asyncio.run(_run_perf())
+
+
 def cmd_migrate(args: argparse.Namespace) -> None:
     """Run Alembic migrations to head."""
     _setup_logging(os.getenv("LOG_LEVEL", "INFO"))
@@ -229,6 +285,10 @@ def main() -> None:
     # odds
     p_odds = sub.add_parser("odds", help="Fetch and persist full-game odds")
     p_odds.set_defaults(func=cmd_odds)
+
+    # perf
+    p_perf = sub.add_parser("perf", help="Show performance metrics")
+    p_perf.set_defaults(func=cmd_perf)
 
     args = parser.parse_args()
     args.func(args)

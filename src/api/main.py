@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.api.routes import health, model, odds, predictions
+from src.api.routes import health, model, odds, performance, predictions
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -37,3 +37,4 @@ app.include_router(health.router)
 app.include_router(predictions.router)
 app.include_router(odds.router)
 app.include_router(model.router)
+app.include_router(performance.router)
