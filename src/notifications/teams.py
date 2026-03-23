@@ -429,6 +429,48 @@ def _pick_row(pick: Pick) -> dict:
     }
 
 
+def _odds_source_block(odds_sourced: dict | None) -> list[dict]:
+    """Build Adaptive Card elements showing per-book odds breakdown."""
+    if not odds_sourced:
+        return []
+    books = odds_sourced.get("books", {})
+    if not books:
+        return []
+    parts: list[str] = []
+    for bk, lines in sorted(books.items()):
+        pieces = []
+        if "spread" in lines:
+            price_str = f" ({lines['spread_price']:+d})" if lines.get("spread_price") else ""
+            pieces.append(f"Sprd {lines['spread']:+.1f}{price_str}")
+        if "total" in lines:
+            price_str = f" ({lines['total_price']:+d})" if lines.get("total_price") else ""
+            pieces.append(f"O/U {lines['total']:.1f}{price_str}")
+        if "home_ml" in lines:
+            pieces.append(f"ML {lines['home_ml']:+d}")
+        if pieces:
+            parts.append(f"**{bk}**: {' · '.join(pieces)}")
+    if not parts:
+        return []
+    ts_raw = odds_sourced.get("captured_at", "")
+    ts_display = ""
+    if ts_raw:
+        try:
+            dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            ts_display = f" (as of {dt.strftime('%I:%M %p').lstrip('0')} UTC)"
+        except Exception:
+            pass
+    return [
+        {
+            "type": "TextBlock",
+            "text": f"📊 {' | '.join(parts)}{ts_display}",
+            "size": "Small",
+            "isSubtle": True,
+            "wrap": True,
+            "spacing": "None",
+        }
+    ]
+
+
 def build_teams_card(
     predictions_with_games: list[tuple[Any, Any]],
     max_games: int,
@@ -449,9 +491,18 @@ def build_teams_card(
     # Extract picks from every prediction
     all_picks: list[Pick] = []
     game_ids: set[int] = set()
+    odds_by_game: dict[int, dict] = {}
+    game_labels: dict[int, str] = {}
     for pred, game in predictions_with_games:
-        game_ids.add(getattr(game, "id", id(game)))
+        gid = getattr(game, "id", id(game))
+        game_ids.add(gid)
         all_picks.extend(extract_picks(pred, game, min_edge=min_edge))
+        sourced = getattr(pred, "odds_sourced", None)
+        if sourced:
+            odds_by_game[gid] = sourced
+        home = game.home_team.name if game.home_team else "Home"
+        away = game.away_team.name if game.away_team else "Away"
+        game_labels[gid] = f"{away} @ {home}"
 
     # Sort by edge descending
     all_picks.sort(key=lambda p: -p.edge)
@@ -534,6 +585,33 @@ def build_teams_card(
             }
         )
 
+    # ── Per-game odds source breakdown ────────────────────────
+    if odds_by_game:
+        body.append(
+            {
+                "type": "TextBlock",
+                "text": "📊 **Odds Sources**",
+                "size": "Small",
+                "weight": "Bolder",
+                "spacing": "Large",
+                "separator": True,
+            }
+        )
+        for gid, detail in odds_by_game.items():
+            label = game_labels.get(gid, "")
+            blocks = _odds_source_block(detail)
+            if blocks and label:
+                body.append(
+                    {
+                        "type": "TextBlock",
+                        "text": f"**{label}**",
+                        "size": "Small",
+                        "spacing": "Small",
+                        "wrap": True,
+                    }
+                )
+                body.extend(blocks)
+
     card: dict[str, Any] = {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -572,15 +650,22 @@ def build_slate_csv(
     """Build a CSV string of the full slate with all columns.
 
     Columns: Time (CT),Matchup,Home Record,Away Record,Segment,Market,
-             Line,Pick,Odds,Model Scores,Edge,Rating
+             Line,Pick,Odds,Model Scores,Edge,Rating,Odds Source,Odds Pulled
 
     Each element may be ``(pred, game)`` or ``(pred, game, odds_map)``.
     """
     all_picks: list[Pick] = []
+    # Build matchup → odds_sourced lookup
+    odds_by_matchup: dict[str, dict] = {}
     for row in predictions_with_games:
         pred, game = row[0], row[1]
         om: dict[str, str] = row[2] if len(row) > 2 else {}  # type: ignore[index]
         all_picks.extend(extract_picks(pred, game, min_edge=min_edge, odds_map=om))
+        sourced = getattr(pred, "odds_sourced", None)
+        if sourced:
+            home = game.home_team.name if game.home_team else "Home"
+            away = game.away_team.name if game.away_team else "Away"
+            odds_by_matchup[f"{away} @ {home}"] = sourced
     all_picks.sort(key=lambda p: -p.edge)
 
     buf = io.StringIO()
@@ -599,9 +684,24 @@ def build_slate_csv(
             "Model Scores",
             "Edge",
             "Rating",
+            "Odds Source",
+            "Odds Pulled",
         ]
     )
     for p in all_picks:
+        sourced = odds_by_matchup.get(p.matchup, {})
+        books = sourced.get("books", {})
+        source_parts = []
+        for bk, lines in sorted(books.items()):
+            pieces = []
+            if "spread" in lines:
+                pieces.append(f"S:{lines['spread']:+.1f}")
+            if "total" in lines:
+                pieces.append(f"T:{lines['total']:.1f}")
+            if pieces:
+                source_parts.append(f"{bk}({'/'.join(pieces)})")
+        odds_source_str = "; ".join(source_parts)
+        odds_pulled_str = sourced.get("captured_at", "")
         writer.writerow(
             [
                 p.time_cst,
@@ -616,6 +716,8 @@ def build_slate_csv(
                 p.model_scores,
                 p.edge,
                 "\U0001f525" * p.confidence,
+                odds_source_str,
+                odds_pulled_str,
             ]
         )
     return buf.getvalue()

@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -175,6 +176,7 @@ class Prediction(Base):
     closing_total = Column(Float)
     clv_spread = Column(Float)
     clv_total = Column(Float)
+    odds_sourced = Column(JSON)  # per-book odds snapshot at prediction time
     predicted_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     game = relationship("Game", back_populates="predictions")

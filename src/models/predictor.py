@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -105,6 +106,62 @@ class Predictor:
             return json.loads(imp_path.read_text())
         return {}
 
+    @staticmethod
+    def _latest_snapshots(
+        snapshots: list[OddsSnapshot],
+    ) -> tuple[list[OddsSnapshot], datetime | None]:
+        """Keep only the most-recent capture per bookmaker+market+outcome.
+
+        Returns the deduplicated list and the newest ``captured_at``.
+        """
+        best: dict[tuple[str, str, str], OddsSnapshot] = {}
+        newest: datetime | None = None
+        for s in snapshots:
+            key = (
+                cast(Any, s.bookmaker),
+                cast(Any, s.market),
+                cast(Any, s.outcome_name),
+            )
+            existing = best.get(key)
+            s_ts = cast(Any, s.captured_at)
+            if existing is None or s_ts > cast(Any, existing.captured_at):
+                best[key] = s
+            if newest is None or s_ts > newest:
+                newest = s_ts
+        return list(best.values()), newest
+
+    @staticmethod
+    def _build_odds_detail(
+        snapshots: list[OddsSnapshot],
+        home_name: str,
+        away_name: str,
+        odds_ts: datetime | None,
+    ) -> dict:
+        """Build per-book odds breakdown for transparency."""
+        books: dict[str, dict[str, Any]] = defaultdict(dict)
+        for s in snapshots:
+            bk = cast(Any, s.bookmaker)
+            mkt = cast(Any, s.market)
+            outcome = cast(Any, s.outcome_name)
+            price = cast(Any, s.price)
+            point = cast(Any, s.point)
+            if mkt == "spreads" and outcome == home_name and point is not None:
+                books[bk]["spread"] = float(point)
+                books[bk]["spread_price"] = int(price) if price else None
+            elif mkt == "totals" and point is not None:
+                if outcome in ("Over", home_name):
+                    books[bk]["total"] = float(point)
+                    books[bk]["total_price"] = int(price) if price else None
+            elif mkt == "h2h":
+                if outcome == home_name:
+                    books[bk]["home_ml"] = int(price) if price else None
+                elif outcome == away_name:
+                    books[bk]["away_ml"] = int(price) if price else None
+        return {
+            "captured_at": odds_ts.isoformat() + "Z" if odds_ts else None,
+            "books": dict(books),
+        }
+
     async def predict_game(
         self,
         game: Game,
@@ -112,8 +169,8 @@ class Predictor:
     ) -> dict | None:
         """Generate predictions for a single game using stored DB odds.
 
-        Odds are refreshed by background polling jobs (every 15/30 min)
-        and read from the ``odds_snapshots`` table here.
+        Uses only the latest capture per bookmaker+market+outcome so
+        predictions always reflect the most-recent odds.
         """
         if not self.is_ready:
             logger.warning("Models not loaded, cannot predict")
@@ -126,7 +183,14 @@ class Predictor:
             .order_by(OddsSnapshot.captured_at.desc())
             .limit(500)
         )
-        stored_snapshots = list(result.scalars().all())
+        raw_snapshots = list(result.scalars().all())
+        stored_snapshots, odds_ts = self._latest_snapshots(raw_snapshots)
+
+        home_name = game.home_team.name if game.home_team else ""
+        away_name = game.away_team.name if game.away_team else ""
+        odds_detail = self._build_odds_detail(
+            stored_snapshots, home_name, away_name, odds_ts
+        )
 
         features = await build_feature_vector(game, db, odds_snapshots=stored_snapshots)
         if features is None:
@@ -158,7 +222,6 @@ class Predictor:
         # Spreads use betting convention (negative = home favorite).
         opening_spread = None
         opening_total = None
-        home_name = game.home_team.name if game.home_team else ""
         if stored_snapshots:
             mkt_spreads = [
                 float(cast(Any, s.point))
@@ -189,6 +252,7 @@ class Predictor:
             "h1_home_ml_prob": round(h1_prob, 3),
             "opening_spread": opening_spread,
             "opening_total": opening_total,
+            "odds_detail": odds_detail,
         }
 
     async def predict_and_store(
@@ -224,6 +288,7 @@ class Predictor:
             existing.h1_home_ml_prob = pred_dict["h1_home_ml_prob"]
             existing.opening_spread = pred_dict.get("opening_spread")
             existing.opening_total = pred_dict.get("opening_total")
+            existing.odds_sourced = pred_dict.get("odds_detail")
             existing.predicted_at = datetime.utcnow()
             await db.commit()
             await db.refresh(existing)
@@ -245,6 +310,7 @@ class Predictor:
             h1_home_ml_prob=pred_dict["h1_home_ml_prob"],
             opening_spread=pred_dict.get("opening_spread"),
             opening_total=pred_dict.get("opening_total"),
+            odds_sourced=pred_dict.get("odds_detail"),
             predicted_at=datetime.utcnow(),
         )
         db.add(prediction)
