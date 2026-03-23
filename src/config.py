@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # ── API base URLs ─────────────────────────────────────────────
     odds_api_base: str = "https://api.the-odds-api.com/v4"
     basketball_api_base: str = "https://v1.basketball.api-sports.io"
+    nba_api_base: str = "https://v2.nba.api-sports.io"
 
     # ── NBA constants ─────────────────────────────────────────────
     odds_api_sport_key: str = "basketball_nba"
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
     odds_fg_interval: int = 15
     odds_1h_interval: int = 30
     stats_interval: int = 120
+    injuries_interval: int = 120
     retrain_hour: int = 6  # 6am ET daily retrain
     morning_slate_hour: int = 10  # 10am ET = 9am CST daily publish
     pregame_lead_minutes: int = 60  # publish this many min before first tip

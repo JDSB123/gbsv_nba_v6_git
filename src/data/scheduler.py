@@ -110,11 +110,7 @@ async def poll_scores_and_box() -> None:
         client = BasketballClient()
         async with async_session_factory() as db:
             # Find finished games that have NO player_game_stats rows yet
-            subq = (
-                select(PlayerGameStats.game_id)
-                .distinct()
-                .scalar_subquery()
-            )
+            subq = select(PlayerGameStats.game_id).distinct().scalar_subquery()
             result = await db.execute(
                 select(Game.id)
                 .where(
@@ -130,14 +126,19 @@ async def poll_scores_and_box() -> None:
             if not missing_ids:
                 logger.info("All finished games already have box scores")
                 return
-            logger.info("Fetching box scores for %d games missing player stats", len(missing_ids))
+            logger.info(
+                "Fetching box scores for %d games missing player stats",
+                len(missing_ids),
+            )
             for game_id in missing_ids:
                 try:
                     stats = await client.fetch_player_stats(game_id)
                     if stats:
                         await client.persist_player_game_stats(game_id, stats, db)
                 except Exception:
-                    logger.warning("Failed to fetch box score for game %d", game_id, exc_info=True)
+                    logger.warning(
+                        "Failed to fetch box score for game %d", game_id, exc_info=True
+                    )
     except Exception:
         logger.exception("Error polling scores/box scores")
 
@@ -154,6 +155,24 @@ async def daily_retrain() -> None:
         logger.info("Daily retrain completed")
     except Exception:
         logger.exception("Error during daily retrain")
+
+
+async def poll_injuries() -> None:
+    """Fetch current injury report (NBA API) every 2 hours."""
+    logger.info("Polling injury report...")
+    try:
+        from src.data.basketball_client import BasketballClient
+
+        client = BasketballClient()
+        injuries = await client.fetch_injuries()
+        if injuries:
+            async with async_session_factory() as db:
+                count = await client.persist_injuries(injuries, db)
+                logger.info("Refreshed %d injuries", count)
+        else:
+            logger.info("No injury data returned")
+    except Exception:
+        logger.exception("Error polling injuries")
 
 
 async def sync_events_to_games() -> None:
@@ -184,9 +203,7 @@ async def sync_events_to_games() -> None:
                 ct = parse_api_datetime(commence)
 
                 # 1) Exact commence_time match
-                result = await db.execute(
-                    select(Game).where(Game.commence_time == ct)
-                )
+                result = await db.execute(select(Game).where(Game.commence_time == ct))
                 game = result.scalar_one_or_none()
 
                 # 2) Fallback: same home team within ±12 hours
@@ -227,9 +244,7 @@ async def fill_clv() -> None:
             result = await db.execute(
                 select(Prediction)
                 .join(Game, Prediction.game_id == Game.id)
-                .options(
-                    selectinload(Prediction.game).selectinload(Game.home_team)
-                )
+                .options(selectinload(Prediction.game).selectinload(Game.home_team))
                 .where(
                     and_(
                         Game.status == "FT",
@@ -247,9 +262,7 @@ async def fill_clv() -> None:
                 pred_any = cast(Any, pred)
                 game_obj = cast(Any, pred).game
                 home_name = (
-                    game_obj.home_team.name
-                    if game_obj and game_obj.home_team
-                    else ""
+                    game_obj.home_team.name if game_obj and game_obj.home_team else ""
                 )
                 # Latest odds snapshot for this game
                 odds_q = await db.execute(
@@ -434,9 +447,7 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(
         poll_1h_odds, "interval", minutes=settings.odds_1h_interval, id="poll_1h_odds"
     )
-    scheduler.add_job(
-        poll_player_props, "interval", minutes=30, id="poll_player_props"
-    )
+    scheduler.add_job(poll_player_props, "interval", minutes=30, id="poll_player_props")
     scheduler.add_job(
         poll_stats, "interval", minutes=settings.stats_interval, id="poll_stats"
     )
@@ -449,12 +460,16 @@ def create_scheduler() -> AsyncIOScheduler:
         minute=0,
         id="morning_slate",
     )
-    scheduler.add_job(
-        pregame_check, "interval", minutes=5, id="pregame_check"
-    )
+    scheduler.add_job(pregame_check, "interval", minutes=5, id="pregame_check")
     scheduler.add_job(fill_clv, "interval", minutes=90, id="fill_clv")
     scheduler.add_job(
         daily_retrain, "cron", hour=settings.retrain_hour, minute=0, id="daily_retrain"
+    )
+    scheduler.add_job(
+        poll_injuries,
+        "interval",
+        minutes=settings.injuries_interval,
+        id="poll_injuries",
     )
 
     return scheduler

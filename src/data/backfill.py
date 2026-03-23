@@ -33,6 +33,7 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
     4. Player box scores for finished games
     5. Odds API event sync (map odds_api_id)
     6. Current odds snapshot for upcoming games
+    7. Injury report
     """
     bball = BasketballClient()
     odds = OddsClient()
@@ -142,6 +143,20 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
         except Exception:
             logger.exception(
                 "Odds fetch failed during backfill; continuing without odds snapshots"
+            )
+
+        # ── 7. Injury report ──────────────────────────────────────
+        logger.info("Step 7/7: Fetching injury report ...")
+        try:
+            injuries = await bball.fetch_injuries(season=resolved_season)
+            if injuries:
+                count = await bball.persist_injuries(injuries, db)
+                logger.info("  Loaded %d injuries", count)
+            else:
+                logger.info("  No injury data available")
+        except Exception:
+            logger.exception(
+                "Injury fetch failed during backfill; continuing without injury data"
             )
 
     logger.info("Backfill complete.")

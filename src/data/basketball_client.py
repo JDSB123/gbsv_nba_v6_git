@@ -3,7 +3,7 @@ from datetime import date
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
 from src.db.models import (
     Game,
+    Injury,
     Player,
     PlayerGameStats,
     Team,
@@ -39,6 +40,107 @@ def normalize_team_stats(stats: Any) -> dict[str, Any] | None:
     if isinstance(stats, list) and stats and isinstance(stats[0], dict):
         return stats[0]
     return None
+
+
+# NBA API injury status types → our schema status values
+INJURY_STATUS_MAP: dict[str, str] = {
+    "out": "out",
+    "out for season": "out",
+    "out indefinitely": "out",
+    "doubtful": "doubtful",
+    "day-to-day": "questionable",
+    "questionable": "questionable",
+    "probable": "probable",
+}
+
+
+def _pct_to_decimal(value: Any) -> float | None:
+    """Convert a percentage value from the API to a 0-1 decimal.
+
+    The Basketball API may return percentages as strings like ``"46.5"``
+    (meaning 46.5%) or as decimals like ``"0.465"``.  Values > 1 are
+    treated as whole-number percentages and divided by 100.
+    """
+    f = _as_float(value)
+    if f is None or f <= 0:
+        return None
+    return f / 100 if f > 1 else f
+
+
+def _compute_advanced_stats(
+    s: dict[str, Any],
+    games_played: int,
+    ppg: float | None,
+    oppg: float | None,
+) -> tuple[float | None, float | None, float | None]:
+    """Derive pace, off_rating, and def_rating from API stats.
+
+    Uses the Dean Oliver possession estimate when the API provides
+    field-goal, free-throw, rebound, and turnover aggregates.  Falls
+    back to a PPG/OPPG-based approximation otherwise.
+
+    Returns (pace, off_rating, def_rating).
+    """
+    if not games_played or games_played <= 0:
+        return None, None, None
+
+    field_goals = s.get("field_goals", {}) or {}
+    free_throws = s.get("free_throws", {}) or {}
+    rebounds = s.get("rebounds", {}) or {}
+    turnovers = s.get("turnovers", {}) or {}
+
+    fg_made = _as_float(field_goals.get("total", {}).get("all"))
+    fg_pct = _pct_to_decimal(field_goals.get("percentage", {}).get("all"))
+    ft_made = _as_float(free_throws.get("total", {}).get("all"))
+    ft_pct = _pct_to_decimal(free_throws.get("percentage", {}).get("all"))
+    # Offensive rebounds may appear under various keys
+    off_reb = (
+        _as_float(rebounds.get("offReb", {}).get("all"))
+        or _as_float(rebounds.get("off", {}).get("all"))
+        or _as_float(rebounds.get("offensive", {}).get("all"))
+    )
+    tov = _as_float(turnovers.get("total", {}).get("all"))
+
+    total_pts_for = _as_float(
+        s.get("points", {}).get("for", {}).get("total", {}).get("all")
+    )
+    total_pts_against = _as_float(
+        s.get("points", {}).get("against", {}).get("total", {}).get("all")
+    )
+
+    # ── Primary path: Dean Oliver possession estimate ──────────
+    if fg_made and fg_pct and ft_made and ft_pct and tov is not None:
+        fga = fg_made / fg_pct        # field goals attempted
+        fta = ft_made / ft_pct        # free throws attempted
+        orb = off_reb or 0.0
+        total_poss = fga + 0.44 * fta - orb + tov
+        if total_poss > 0:
+            pace = total_poss / games_played
+            off_rating = (
+                100.0 * total_pts_for / total_poss
+                if total_pts_for
+                else None
+            )
+            def_rating = (
+                100.0 * total_pts_against / total_poss
+                if total_pts_against
+                else None
+            )
+            return pace, off_rating, def_rating
+
+    # ── Fallback: estimate from PPG / OPPG ─────────────────────
+    if ppg and oppg and ppg > 0 and oppg > 0:
+        # Average scoring ≈ proxy for pace (higher scoring → faster game)
+        avg_scoring = (ppg + oppg) / 2.0
+        # NBA league-average is ~112 ppg scoring and ~100 possessions;
+        # scale proportionally for a stable per-100-possession rating.
+        est_poss_per_game = avg_scoring / 1.12
+        pace = est_poss_per_game
+        off_rating = 100.0 * ppg / est_poss_per_game
+        def_rating = 100.0 * oppg / est_poss_per_game
+        return pace, off_rating, def_rating
+
+    return None, None, None
 
 
 class BasketballClient:
@@ -118,6 +220,90 @@ class BasketballClient:
                 "season": self._resolve_season(season),
             },
         )
+
+    # ── Injury data (NBA API v2, shares same api-sports key) ─────
+
+    async def fetch_injuries(self, season: str | None = None) -> list[dict]:
+        """Fetch current injury report from the NBA API.
+
+        Uses ``v2.nba.api-sports.io`` which shares the same api-sports
+        API key and provides a dedicated ``/players/injuries`` endpoint
+        not available in the Basketball API v1.
+        """
+        resolved = self._resolve_season(season)
+        # NBA API uses just the start year, e.g. "2024" not "2024-2025"
+        nba_season = resolved.split("-")[0]
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.nba_api_base}/players/injuries",
+                headers=self._headers(),
+                params={"league": "standard", "season": nba_season},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("response", [])
+
+    async def persist_injuries(
+        self, injuries_data: list[dict], db: AsyncSession
+    ) -> int:
+        """Replace current injury data with a fresh report.
+
+        Clears the entire ``injuries`` table then re-populates from the
+        latest API response.  Only players already tracked in the
+        ``players`` table are linked; unknown players are skipped so the
+        downstream feature code can look up their ``PlayerGameStats``.
+        """
+        await db.execute(delete(Injury))
+
+        count = 0
+        for entry in injuries_data:
+            team_info = entry.get("team") or {}
+            player_info = entry.get("player") or {}
+            status_info = entry.get("status") or {}
+
+            team_name = team_info.get("name", "")
+            first = player_info.get("firstname", "")
+            last = player_info.get("lastname", "")
+            full_name = f"{first} {last}".strip()
+            if not team_name or not full_name:
+                continue
+
+            raw_status = (status_info.get("type") or "").lower()
+            mapped_status = INJURY_STATUS_MAP.get(raw_status, "questionable")
+            description = status_info.get("description", "")
+
+            # Look up team by name
+            team_result = await db.execute(
+                select(Team.id).where(Team.name == team_name)
+            )
+            team_id_row = team_result.scalar_one_or_none()
+            if team_id_row is None:
+                continue
+
+            # Look up player by name (case-insensitive) within team
+            player_result = await db.execute(
+                select(Player.id).where(
+                    Player.team_id == team_id_row,
+                    func.lower(Player.name) == full_name.lower(),
+                )
+            )
+            player_id_row = player_result.scalar_one_or_none()
+            if player_id_row is None:
+                continue
+
+            injury = Injury(
+                player_id=player_id_row,
+                team_id=team_id_row,
+                status=mapped_status,
+                description=description[:255] if description else None,
+            )
+            db.add(injury)
+            count += 1
+
+        await db.commit()
+        logger.info("Refreshed %d injuries", count)
+        return count
 
     # ── Persistence helpers ────────────────────────────────────────
 
@@ -244,38 +430,42 @@ class BasketballClient:
         games_data = s.get("games", {})
         points = s.get("points", {})
 
+        games_played = _as_int(games_data.get("played", {}).get("all"))
+        ppg = _as_float(points.get("for", {}).get("average", {}).get("all"))
+        oppg = _as_float(
+            points.get("against", {}).get("average", {}).get("all")
+        )
+
+        # Compute pace, off_rating, def_rating from box-score aggregates
+        pace, off_rating, def_rating = _compute_advanced_stats(
+            s, games_played, ppg, oppg
+        )
+
+        values = dict(
+            team_id=team_id,
+            season=season,
+            games_played=games_played,
+            wins=_as_int(games_data.get("wins", {}).get("all", {}).get("total")),
+            losses=_as_int(
+                games_data.get("loses", {}).get("all", {}).get("total")
+            ),
+            ppg=ppg,
+            oppg=oppg,
+            pace=pace,
+            off_rating=off_rating,
+            def_rating=def_rating,
+        )
+
+        update_fields = {
+            k: v for k, v in values.items() if k not in ("team_id", "season")
+        }
+
         stmt = (
             pg_insert(TeamSeasonStats)
-            .values(
-                team_id=team_id,
-                season=season,
-                games_played=_as_int(games_data.get("played", {}).get("all")),
-                wins=_as_int(games_data.get("wins", {}).get("all", {}).get("total")),
-                losses=_as_int(
-                    games_data.get("loses", {}).get("all", {}).get("total")
-                ),
-                ppg=_as_float(points.get("for", {}).get("average", {}).get("all")),
-                oppg=_as_float(
-                    points.get("against", {}).get("average", {}).get("all")
-                ),
-            )
+            .values(**values)
             .on_conflict_do_update(
                 constraint="uq_team_season",
-                set_={
-                    "games_played": _as_int(games_data.get("played", {}).get("all")),
-                    "wins": _as_int(
-                        games_data.get("wins", {}).get("all", {}).get("total")
-                    ),
-                    "losses": _as_int(
-                        games_data.get("loses", {}).get("all", {}).get("total")
-                    ),
-                    "ppg": _as_float(
-                        points.get("for", {}).get("average", {}).get("all")
-                    ),
-                    "oppg": _as_float(
-                        points.get("against", {}).get("average", {}).get("all")
-                    ),
-                },
+                set_=update_fields,
             )
         )
         await db.execute(stmt)

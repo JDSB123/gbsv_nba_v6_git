@@ -366,12 +366,19 @@ async def build_feature_vector(
             all_reb = [_as_float(cast(Any, p.rebounds)) for p in pgs_rows]
             all_tov = [_as_float(cast(Any, p.turnovers)) for p in pgs_rows]
             all_pm = [_as_float(cast(Any, p.plus_minus)) for p in pgs_rows]
-            all_fg = [_as_float(cast(Any, p.fg_pct)) for p in pgs_rows if p.fg_pct is not None]
-            all_3pt = [_as_float(cast(Any, p.three_pct)) for p in pgs_rows if p.three_pct is not None]
+            all_fg = [
+                _as_float(cast(Any, p.fg_pct)) for p in pgs_rows if p.fg_pct is not None
+            ]
+            all_3pt = [
+                _as_float(cast(Any, p.three_pct))
+                for p in pgs_rows
+                if p.three_pct is not None
+            ]
             all_min = [_as_float(cast(Any, p.minutes)) for p in pgs_rows]
 
             # Per-game aggregation: starters (top-5 by minutes) vs bench
             from collections import defaultdict
+
             by_game: dict[int, list[Any]] = defaultdict(list)
             for p in pgs_rows:
                 by_game[int(cast(Any, p.game_id))].append(p)
@@ -379,33 +386,59 @@ async def build_feature_vector(
             starter_pts_list = []
             bench_pts_list = []
             for _gid, players in by_game.items():
-                sorted_p = sorted(players, key=lambda x: _as_float(cast(Any, x.minutes)), reverse=True)
+                sorted_p = sorted(
+                    players, key=lambda x: _as_float(cast(Any, x.minutes)), reverse=True
+                )
                 starters = sorted_p[:5]
                 bench = sorted_p[5:]
-                starter_pts_list.append(sum(_as_float(cast(Any, s.points)) for s in starters))
-                bench_pts_list.append(sum(_as_float(cast(Any, b.points)) for b in bench))
+                starter_pts_list.append(
+                    sum(_as_float(cast(Any, s.points)) for s in starters)
+                )
+                bench_pts_list.append(
+                    sum(_as_float(cast(Any, b.points)) for b in bench)
+                )
 
             features[f"{prefix}_player_pts_avg"] = float(np.mean(all_pts))
             features[f"{prefix}_player_ast_avg"] = float(np.mean(all_ast))
             features[f"{prefix}_player_reb_avg"] = float(np.mean(all_reb))
             features[f"{prefix}_player_tov_avg"] = float(np.mean(all_tov))
             features[f"{prefix}_player_pm_avg"] = float(np.mean(all_pm))
-            features[f"{prefix}_player_fg_pct"] = float(np.mean(all_fg)) if all_fg else 0.0
-            features[f"{prefix}_player_3pt_pct"] = float(np.mean(all_3pt)) if all_3pt else 0.0
-            features[f"{prefix}_starter_pts_avg"] = float(np.mean(starter_pts_list)) if starter_pts_list else 0.0
-            features[f"{prefix}_bench_pts_avg"] = float(np.mean(bench_pts_list)) if bench_pts_list else 0.0
-            features[f"{prefix}_bench_ratio"] = (
-                features[f"{prefix}_bench_pts_avg"]
-                / max(features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"], 1.0)
+            features[f"{prefix}_player_fg_pct"] = (
+                float(np.mean(all_fg)) if all_fg else 0.0
+            )
+            features[f"{prefix}_player_3pt_pct"] = (
+                float(np.mean(all_3pt)) if all_3pt else 0.0
+            )
+            features[f"{prefix}_starter_pts_avg"] = (
+                float(np.mean(starter_pts_list)) if starter_pts_list else 0.0
+            )
+            features[f"{prefix}_bench_pts_avg"] = (
+                float(np.mean(bench_pts_list)) if bench_pts_list else 0.0
+            )
+            features[f"{prefix}_bench_ratio"] = features[
+                f"{prefix}_bench_pts_avg"
+            ] / max(
+                features[f"{prefix}_starter_pts_avg"]
+                + features[f"{prefix}_bench_pts_avg"],
+                1.0,
             )
             # Minutes concentration: std of minutes shows roster depth
-            features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else 0.0
+            features[f"{prefix}_min_std"] = (
+                float(np.std(all_min)) if len(all_min) > 1 else 0.0
+            )
         else:
             for k in [
-                "player_pts_avg", "player_ast_avg", "player_reb_avg",
-                "player_tov_avg", "player_pm_avg", "player_fg_pct",
-                "player_3pt_pct", "starter_pts_avg", "bench_pts_avg",
-                "bench_ratio", "min_std",
+                "player_pts_avg",
+                "player_ast_avg",
+                "player_reb_avg",
+                "player_tov_avg",
+                "player_pm_avg",
+                "player_fg_pct",
+                "player_3pt_pct",
+                "starter_pts_avg",
+                "bench_pts_avg",
+                "bench_ratio",
+                "min_std",
             ]:
                 features[f"{prefix}_{k}"] = 0.0
 
@@ -455,9 +488,7 @@ async def build_feature_vector(
         )
         prop_snaps = prop_snap_result.scalars().all()
     else:
-        prop_snaps = [
-            s for s in odds_snapshots if _as_str(s.market) in prop_markets
-        ]
+        prop_snaps = [s for s in odds_snapshots if _as_str(s.market) in prop_markets]
 
     if prop_snaps:
         # Deduplicate: keep latest per bookmaker+market+description+outcome
@@ -470,7 +501,9 @@ async def build_feature_vector(
                 _as_str(s.outcome_name),
             )
             existing = _prop_best.get(key)
-            if existing is None or cast(Any, s.captured_at) > cast(Any, existing.captured_at):
+            if existing is None or cast(Any, s.captured_at) > cast(
+                Any, existing.captured_at
+            ):
                 _prop_best[key] = s
         deduped_props = list(_prop_best.values())
 
@@ -483,7 +516,9 @@ async def build_feature_vector(
             and s.point is not None
         ]
         features["prop_pts_lines_count"] = float(len(pts_over_lines))
-        features["prop_pts_avg_line"] = float(np.mean(pts_over_lines)) if pts_over_lines else 0.0
+        features["prop_pts_avg_line"] = (
+            float(np.mean(pts_over_lines)) if pts_over_lines else 0.0
+        )
 
         # Assists props
         ast_over_lines = [
@@ -493,7 +528,9 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_ast_avg_line"] = float(np.mean(ast_over_lines)) if ast_over_lines else 0.0
+        features["prop_ast_avg_line"] = (
+            float(np.mean(ast_over_lines)) if ast_over_lines else 0.0
+        )
 
         # Rebounds props
         reb_over_lines = [
@@ -503,7 +540,9 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_reb_avg_line"] = float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
+        features["prop_reb_avg_line"] = (
+            float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
+        )
 
         # Sharp vs square prop divergence (points market)
         sharp_pts = [
@@ -522,8 +561,12 @@ async def build_feature_vector(
             and s.point is not None
             and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
         ]
-        sharp_avg = float(np.mean(sharp_pts)) if sharp_pts else features["prop_pts_avg_line"]
-        square_avg = float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
+        sharp_avg = (
+            float(np.mean(sharp_pts)) if sharp_pts else features["prop_pts_avg_line"]
+        )
+        square_avg = (
+            float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
+        )
         features["prop_sharp_square_diff"] = sharp_avg - square_avg
     else:
         features["prop_pts_lines_count"] = 0.0
@@ -712,15 +755,13 @@ async def build_feature_vector(
         totals = [
             _as_float(s.point)
             for s in snapshots
-            if _as_str(s.market) == "totals"
-            and s.point is not None
+            if _as_str(s.market) == "totals" and s.point is not None
         ]
         h1_spreads = _home_spreads(snapshots, home_name, "spreads_h1")
         h1_totals = [
             _as_float(s.point)
             for s in snapshots
-            if _as_str(s.market) == "totals_h1"
-            and s.point is not None
+            if _as_str(s.market) == "totals_h1" and s.point is not None
         ]
 
         features["mkt_spread_avg"] = float(np.mean(spreads)) if spreads else 0.0
