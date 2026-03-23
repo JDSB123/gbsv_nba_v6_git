@@ -606,7 +606,7 @@ async def build_feature_vector(
             and _as_str(s.bookmaker).lower() in SHARP_BOOKS
             and (
                 "home" in _as_str(s.outcome_name).lower()
-                or _as_str(s.outcome_name) == home_team_name
+                or _as_str(s.outcome_name) == home_name
             )
         ]
         square_h2h = [
@@ -616,7 +616,7 @@ async def build_feature_vector(
             and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
             and (
                 "home" in _as_str(s.outcome_name).lower()
-                or _as_str(s.outcome_name) == home_team_name
+                or _as_str(s.outcome_name) == home_name
             )
         ]
 

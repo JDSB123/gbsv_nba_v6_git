@@ -207,10 +207,7 @@ def extract_picks(
     if mkt_spread is not None:
         home_edge = mkt_spread + fg_spread
         if abs(home_edge) >= min_edge:
-            if home_edge > 0:
-                label = f"{home} {mkt_spread:+.1f}"
-            else:
-                label = f"{away} {-mkt_spread:+.1f}"
+            label = f"{home} {mkt_spread:+.1f}" if home_edge > 0 else f"{away} {-mkt_spread:+.1f}"
             e = round(abs(home_edge), 1)
             picks.append(
                 Pick(
@@ -230,10 +227,7 @@ def extract_picks(
             )
     elif abs(fg_spread) >= min_edge:
         # No market line — convert model margin to betting convention
-        if fg_spread > 0:
-            label = f"{home} {-fg_spread:+.1f}"
-        else:
-            label = f"{away} {fg_spread:+.1f}"
+        label = f"{home} {-fg_spread:+.1f}" if fg_spread > 0 else f"{away} {fg_spread:+.1f}"
         e = round(abs(fg_spread), 1)
         picks.append(
             Pick(
