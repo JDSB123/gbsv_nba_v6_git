@@ -50,16 +50,22 @@ def cmd_work(args: argparse.Namespace) -> None:
     logger = logging.getLogger("src.worker")
     logger.info("Starting worker (scheduler)...")
 
-    from src.data.scheduler import create_scheduler
+    async def _run() -> None:
+        from src.data.scheduler import create_scheduler
 
-    scheduler = create_scheduler()
-    scheduler.start()
+        scheduler = create_scheduler()
+        scheduler.start()
+        logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            scheduler.shutdown(wait=False)
+            logger.info("Worker shut down")
 
-    try:
-        asyncio.get_event_loop().run_forever()
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown(wait=False)
-        logger.info("Worker shut down")
+    asyncio.run(_run())
 
 
 async def _run_train() -> None:
