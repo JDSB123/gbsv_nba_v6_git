@@ -12,6 +12,7 @@ from src.db.models import Game, OddsSnapshot, Prediction
 from src.db.session import get_db
 from src.models.predictor import Predictor
 from src.notifications.teams import (
+    build_html_slate,
     build_slate_csv,
     build_teams_card,
     send_card_to_teams,
@@ -253,6 +254,61 @@ async def download_slate_csv(
             "Content-Disposition": f'attachment; filename="nba_slate_{today}.csv"'
         },
     )
+
+
+@router.get("/slate.html")
+async def download_slate_html(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Download the full daily slate as a styled HTML page."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    from sqlalchemy import func as sa_func
+
+    result = await db.execute(
+        select(Prediction)
+        .join(Game)
+        .where(Game.status == "NS")
+        .order_by(Game.commence_time, Prediction.predicted_at.desc())
+    )
+    predictions = result.scalars().all()
+
+    seen: set[int] = set()
+    latest: list[Prediction] = []
+    for pred in predictions:
+        game_id = int(cast(Any, pred.game_id))
+        if game_id not in seen:
+            seen.add(game_id)
+            latest.append(pred)
+
+    game_ids = [int(cast(Any, p.game_id)) for p in latest]
+    game_result = await db.execute(
+        select(Game)
+        .options(
+            selectinload(Game.home_team),
+            selectinload(Game.away_team),
+        )
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    rows = []
+    for pred in latest:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game:
+            rows.append((pred, game))
+
+    odds_ts_result = await db.execute(
+        select(sa_func.max(OddsSnapshot.captured_at))
+    )
+    odds_pulled_at = odds_ts_result.scalar_one_or_none()
+
+    html_content = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+    return Response(content=html_content, media_type="text/html")
 
 
 @router.post("/publish/teams")

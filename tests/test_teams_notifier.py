@@ -6,6 +6,7 @@ import pytest
 
 from src.models.versioning import MODEL_VERSION
 from src.notifications.teams import (
+    build_html_slate,
     build_slate_csv,
     build_teams_card,
     build_teams_text,
@@ -255,6 +256,48 @@ def test_build_slate_csv():
     # Data rows should contain team names
     data = "\n".join(lines[1:])
     assert "Celtics" in data or "Heat" in data
+
+
+def test_build_html_slate():
+    game = SimpleNamespace(
+        id=1,
+        home_team_id=10,
+        away_team_id=20,
+        commence_time=datetime(2026, 3, 22, 19, 30, tzinfo=UTC),
+        home_team=SimpleNamespace(name="Celtics", wins=42, losses=18),
+        away_team=SimpleNamespace(name="Heat", wins=30, losses=30),
+    )
+    pred = SimpleNamespace(
+        game_id=1,
+        fg_spread=8.0,
+        fg_total=232.0,
+        fg_home_ml_prob=0.75,
+        h1_spread=4.0,
+        h1_total=116.0,
+        opening_spread=None,
+        predicted_home_fg=120.0,
+        predicted_away_fg=112.0,
+        predicted_home_1h=60.0,
+        predicted_away_1h=56.0,
+        odds_sourced={
+            "captured_at": "2026-03-22T18:00:00Z",
+            "books": {
+                "fanduel": {"spread": -8.0, "spread_price": -110, "total": 232.0, "total_price": -110, "home_ml": -350, "away_ml": 280},
+                "draftkings": {"spread": -7.5, "spread_price": -105, "total": 231.5, "total_price": -110, "home_ml": -340, "away_ml": 270},
+            },
+        },
+    )
+    html = build_html_slate([(pred, game)])
+    assert "NBA Daily Slate" in html
+    assert "Celtics" in html
+    assert "Heat" in html
+    # Odds source table should be present
+    assert "Odds Sources" in html
+    assert "fanduel" in html
+    assert "draftkings" in html
+    # Should contain valid HTML table structure
+    assert "<table" in html
+    assert "<th" in html
 
 
 @pytest.mark.asyncio

@@ -275,11 +275,9 @@ async def generate_predictions_and_publish() -> None:
         from src.db.models import OddsSnapshot
         from src.models.predictor import Predictor
         from src.notifications.teams import (
-            build_slate_csv,
             build_teams_card,
             send_card_to_teams,
             send_card_via_graph,
-            upload_csv_to_channel,
         )
 
         predictor = Predictor()
@@ -321,18 +319,9 @@ async def generate_predictions_and_publish() -> None:
             if rows:
                 download_url: str | None = None
 
-                # Upload CSV to Teams channel Files tab if Graph API is configured
-                if settings.teams_team_id and settings.teams_channel_id:
-                    csv_content = build_slate_csv(rows)
-                    today_str = date.today().isoformat()
-                    download_url = await upload_csv_to_channel(
-                        settings.teams_team_id,
-                        settings.teams_channel_id,
-                        f"nba_slate_{today_str}.csv",
-                        csv_content,
-                    )
-                elif settings.api_base_url:
-                    download_url = f"{settings.api_base_url}/predictions/slate.csv"
+                # Link to the HTML slate if the API is reachable
+                if settings.api_base_url:
+                    download_url = f"{settings.api_base_url}/predictions/slate.html"
 
                 payload = build_teams_card(
                     rows,
