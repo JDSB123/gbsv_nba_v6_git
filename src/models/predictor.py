@@ -3,7 +3,6 @@ import logging
 import math
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -12,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.models import Game, ModelRegistry, Prediction
+from src.db.models import Game, ModelRegistry, OddsSnapshot, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
 from src.models.versioning import MODEL_VERSION
 
@@ -38,36 +37,6 @@ def _margin_to_prob(
         return 1.0 / (1.0 + math.exp(-z))
     return 1.0 / (1.0 + math.exp(-margin / scale))
 
-
-def _odds_response_to_snapshots(odds_data: list[dict], game: Game) -> list:
-    """Convert raw Odds API JSON into OddsSnapshot-like objects.
-
-    Returns lightweight SimpleNamespace objects that quack like
-    OddsSnapshot (same attribute names).  This keeps the feature
-    builder's downstream code identical for both fresh and cached data.
-    """
-    now = datetime.utcnow()
-    snapshots: list = []
-    for event in odds_data:
-        if event.get("id") != game.odds_api_id:
-            continue
-        for bookmaker in event.get("bookmakers", []):
-            bk_name = bookmaker["key"]
-            for market in bookmaker.get("markets", []):
-                market_key = market["key"]
-                for outcome in market.get("outcomes", []):
-                    snapshots.append(
-                        SimpleNamespace(
-                            game_id=game.id,
-                            bookmaker=bk_name,
-                            market=market_key,
-                            outcome_name=outcome["name"],
-                            price=outcome["price"],
-                            point=outcome.get("point"),
-                            captured_at=now,
-                        )
-                    )
-    return snapshots
 
 
 class Predictor:
@@ -140,45 +109,26 @@ class Predictor:
         self,
         game: Game,
         db: AsyncSession,
-        prefetched_fg_odds: list[dict] | None = None,
     ) -> dict | None:
-        """Generate predictions for a single game using *fresh* live odds.
+        """Generate predictions for a single game using stored DB odds.
 
-        Args:
-            game: The Game ORM object.
-            db: Async database session.
-            prefetched_fg_odds: If provided, skip the bulk FG odds fetch
-                (used by ``predict_upcoming`` to avoid redundant API calls).
+        Odds are refreshed by background polling jobs (every 15/30 min)
+        and read from the ``odds_snapshots`` table here.
         """
         if not self.is_ready:
             logger.warning("Models not loaded, cannot predict")
             return None
 
-        # ── Fetch fresh odds (single source of truth) ──────────
-        fresh_snapshots: list = []
-        odds_api_id = cast(Any, game.odds_api_id)
-        if odds_api_id is not None:
-            try:
-                from src.data.odds_client import OddsClient
+        # ── Use stored odds from DB (refreshed by polling jobs) ──
+        result = await db.execute(
+            select(OddsSnapshot)
+            .where(OddsSnapshot.game_id == game.id)
+            .order_by(OddsSnapshot.captured_at.desc())
+            .limit(500)
+        )
+        stored_snapshots = list(result.scalars().all())
 
-                client = OddsClient()
-                # Full-game odds — use prefetched if available
-                if prefetched_fg_odds is not None:
-                    fg_data = prefetched_fg_odds
-                else:
-                    fg_data = await client.fetch_odds()
-                fresh_snapshots.extend(_odds_response_to_snapshots(fg_data, game))
-                # 1st-half odds for this event
-                h1_data = await client.fetch_event_odds(str(odds_api_id))
-                if h1_data and h1_data.get("bookmakers"):
-                    fresh_snapshots.extend(_odds_response_to_snapshots([h1_data], game))
-            except Exception:
-                logger.exception(
-                    "Failed to fetch fresh odds for game %s; using empty odds",
-                    game.odds_api_id,
-                )
-
-        features = await build_feature_vector(game, db, odds_snapshots=fresh_snapshots)
+        features = await build_feature_vector(game, db, odds_snapshots=stored_snapshots)
         if features is None:
             return None
 
@@ -204,22 +154,22 @@ class Predictor:
             scale=5.0,
         )
 
-        # Extract opening market lines from fresh odds for CLV tracking.
+        # Extract opening market lines from stored odds for CLV tracking.
         # Spreads use betting convention (negative = home favorite).
         opening_spread = None
         opening_total = None
         home_name = game.home_team.name if game.home_team else ""
-        if fresh_snapshots:
+        if stored_snapshots:
             mkt_spreads = [
-                float(s.point)
-                for s in fresh_snapshots
-                if s.market == "spreads" and s.point is not None
-                and s.outcome_name == home_name
+                float(cast(Any, s.point))
+                for s in stored_snapshots
+                if cast(Any, s.market) == "spreads" and s.point is not None
+                and cast(Any, s.outcome_name) == home_name
             ]
             mkt_totals = [
-                s.point
-                for s in fresh_snapshots
-                if s.market == "totals" and s.point is not None
+                float(cast(Any, s.point))
+                for s in stored_snapshots
+                if cast(Any, s.market) == "totals" and s.point is not None
             ]
             if mkt_spreads:
                 opening_spread = round(float(np.mean(mkt_spreads)), 1)
@@ -245,12 +195,9 @@ class Predictor:
         self,
         game: Game,
         db: AsyncSession,
-        prefetched_fg_odds: list[dict] | None = None,
     ) -> Prediction | None:
         """Predict and persist to database."""
-        pred_dict = await self.predict_game(
-            game, db, prefetched_fg_odds=prefetched_fg_odds
-        )
+        pred_dict = await self.predict_game(game, db)
         if pred_dict is None:
             return None
 
@@ -309,8 +256,8 @@ class Predictor:
     async def predict_upcoming(self, db: AsyncSession) -> list[Prediction]:
         """Predict all upcoming (NS) games and store.
 
-        Fetches full-game odds *once* and passes the data to each
-        ``predict_game`` call so we don't hammer the API per game.
+        Uses stored odds from the database (refreshed by background
+        polling jobs) instead of hitting the Odds API at prediction time.
         """
         result = await db.execute(
             select(Game)
@@ -322,19 +269,9 @@ class Predictor:
         if not games:
             return []
 
-        # Fetch FG odds once for all games
-        fg_odds: list[dict] = []
-        try:
-            from src.data.odds_client import OddsClient
-
-            client = OddsClient()
-            fg_odds = await client.fetch_odds()
-        except Exception:
-            logger.exception("Failed to prefetch FG odds for upcoming games")
-
         predictions = []
         for game in games:
-            pred = await self.predict_and_store(game, db, prefetched_fg_odds=fg_odds)
+            pred = await self.predict_and_store(game, db)
             if pred:
                 predictions.append(pred)
         return predictions

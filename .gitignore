@@ -52,3 +52,4 @@ _*.json
 
 # Azure
 .azure/
+.env.bak.old

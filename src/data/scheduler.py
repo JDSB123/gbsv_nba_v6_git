@@ -1,6 +1,7 @@
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
@@ -13,6 +14,9 @@ from src.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Dedup flag: tracks the date for which pregame publish already fired
+_pregame_published_date: date | None = None
 
 
 # ── Scheduled jobs ─────────────────────────────────────────────────
@@ -221,6 +225,47 @@ async def fill_clv() -> None:
         logger.exception("Error filling CLV")
 
 
+async def pregame_check() -> None:
+    """Publish predictions once, ~1 hour before the first game of the day."""
+    global _pregame_published_date
+
+    et = ZoneInfo("US/Eastern")
+    now = datetime.now(et)
+    today = now.date()
+
+    if _pregame_published_date == today:
+        return  # already published pregame today
+
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(Game.commence_time)
+                .where(Game.status == "NS")
+                .order_by(Game.commence_time)
+                .limit(1)
+            )
+            first_ct = result.scalar_one_or_none()
+
+        if first_ct is None:
+            return
+
+        # commence_time is stored as naive UTC
+        first_et = first_ct.replace(tzinfo=ZoneInfo("UTC")).astimezone(et)
+        if first_et.date() != today:
+            return
+
+        minutes_until = (first_et - now).total_seconds() / 60
+        if 0 < minutes_until <= settings.pregame_lead_minutes:
+            logger.info(
+                "Pregame window: %d min until first game, publishing...",
+                int(minutes_until),
+            )
+            await generate_predictions_and_publish()
+            _pregame_published_date = today
+    except Exception:
+        logger.exception("Error in pregame check")
+
+
 async def generate_predictions_and_publish() -> None:
     """Generate upcoming predictions and publish formatted output to Teams."""
     logger.info("Generating predictions and publishing to Teams...")
@@ -334,9 +379,13 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(sync_events_to_games, "interval", minutes=60, id="sync_events")
     scheduler.add_job(
         generate_predictions_and_publish,
-        "interval",
-        minutes=settings.predictions_interval,
-        id="predict_publish",
+        "cron",
+        hour=settings.morning_slate_hour,
+        minute=0,
+        id="morning_slate",
+    )
+    scheduler.add_job(
+        pregame_check, "interval", minutes=5, id="pregame_check"
     )
     scheduler.add_job(fill_clv, "interval", minutes=90, id="fill_clv")
     scheduler.add_job(

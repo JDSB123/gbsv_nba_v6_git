@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     odds_1h_interval: int = 30
     stats_interval: int = 120
     retrain_hour: int = 6  # 6am ET daily retrain
-    predictions_interval: int = 30
+    morning_slate_hour: int = 10  # 10am ET = 9am CST daily publish
+    pregame_lead_minutes: int = 60  # publish this many min before first tip
 
     # ── Teams delivery ─────────────────────────────────────────
     teams_webhook_url: str = ""
