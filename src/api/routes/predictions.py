@@ -128,6 +128,213 @@ async def list_predictions(
     return {"predictions": output, "count": len(output)}
 
 
+# ── Static routes MUST come before /{game_id} to avoid 422 ────────
+
+
+@router.get("/slate.csv")
+async def download_slate_csv(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Download the full daily slate as a CSV file."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    result = await db.execute(
+        select(Prediction)
+        .join(Game)
+        .where(Game.status == "NS")
+        .order_by(Game.commence_time, Prediction.predicted_at.desc())
+    )
+    predictions = result.scalars().all()
+
+    seen: set[int] = set()
+    latest: list[Prediction] = []
+    for pred in predictions:
+        game_id = int(cast(Any, pred.game_id))
+        if game_id not in seen:
+            seen.add(game_id)
+            latest.append(pred)
+
+    game_ids = [int(cast(Any, p.game_id)) for p in latest]
+    game_result = await db.execute(
+        select(Game)
+        .options(
+            selectinload(Game.home_team),
+            selectinload(Game.away_team),
+        )
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    rows = []
+    for pred in latest:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game:
+            rows.append((pred, game))
+
+    from datetime import UTC, datetime
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    csv_content = build_slate_csv(rows)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="nba_slate_{today}.csv"'
+        },
+    )
+
+
+@router.get("/slate.html")
+async def download_slate_html(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Serve the full daily slate as an interactive HTML page."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    from sqlalchemy import func as sa_func
+
+    result = await db.execute(
+        select(Prediction)
+        .join(Game)
+        .where(Game.status == "NS")
+        .order_by(Game.commence_time, Prediction.predicted_at.desc())
+    )
+    predictions = result.scalars().all()
+
+    seen: set[int] = set()
+    latest: list[Prediction] = []
+    for pred in predictions:
+        game_id = int(cast(Any, pred.game_id))
+        if game_id not in seen:
+            seen.add(game_id)
+            latest.append(pred)
+
+    game_ids = [int(cast(Any, p.game_id)) for p in latest]
+    game_result = await db.execute(
+        select(Game)
+        .options(
+            selectinload(Game.home_team),
+            selectinload(Game.away_team),
+        )
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    rows = []
+    for pred in latest:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game:
+            rows.append((pred, game))
+
+    odds_ts_result = await db.execute(
+        select(sa_func.max(OddsSnapshot.captured_at))
+    )
+    odds_pulled_at = odds_ts_result.scalar_one_or_none()
+
+    slate_body = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+    csv_url = f"{settings.api_base_url}/predictions/slate.csv" if settings.api_base_url else "/predictions/slate.csv"
+    html_page = (
+        "<!DOCTYPE html>"
+        '<html lang="en"><head>'
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        "<title>NBA Daily Slate | GBSV</title>"
+        "<style>"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+        "margin:0;padding:16px;background:#f5f5f5;color:#1a2332}"
+        ".container{max-width:1200px;margin:0 auto;background:#fff;"
+        "border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08)}"
+        "table{font-size:13px}"
+        "@media(max-width:768px){.container{padding:10px;border-radius:0}"
+        "table{font-size:11px}th,td{padding:4px 3px!important}}"
+        ".dl-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}"
+        ".dl-btn{padding:8px 18px;border:none;border-radius:6px;font-weight:600;"
+        "font-size:13px;cursor:pointer;text-decoration:none;display:inline-block}"
+        ".dl-btn-primary{background:#1a2332;color:#d4af37}"
+        ".dl-btn-secondary{background:#e9ecef;color:#1a2332}"
+        "</style></head><body>"
+        '<div class="container">'
+        '<div class="dl-bar">'
+        f'<a class="dl-btn dl-btn-secondary" href="{csv_url}">&#x1f4e5; Download CSV</a>'
+        "</div>"
+        f"{slate_body}"
+        "</div></body></html>"
+    )
+    return Response(content=html_page, media_type="text/html")
+
+
+@router.post("/publish/teams")
+async def publish_predictions_to_teams(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Generate latest predictions and send formatted payload to Teams."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+    if (
+        not (settings.teams_team_id and settings.teams_channel_id)
+        and not settings.teams_webhook_url
+    ):
+        raise HTTPException(status_code=400, detail="Teams delivery is not configured")
+
+    predictions = await predictor.predict_upcoming(db)
+    if not predictions:
+        return {"status": "ok", "published": 0, "detail": "No upcoming games"}
+
+    game_ids = [int(cast(Any, p.game_id)) for p in predictions]
+    game_result = await db.execute(
+        select(Game)
+        .options(selectinload(Game.home_team), selectinload(Game.away_team))
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    rows: list[tuple[Prediction, Game]] = []
+    for pred in predictions:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game is not None:
+            rows.append((pred, game))
+
+    # Latest odds pull timestamp
+    from sqlalchemy import func as sa_func
+
+    odds_ts_result = await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
+    odds_pulled_at = odds_ts_result.scalar_one_or_none()
+
+    download_url = (
+        f"{settings.api_base_url}/predictions/slate.html"
+        if settings.api_base_url
+        else None
+    )
+
+    payload = build_teams_card(
+        rows,
+        settings.teams_max_games_per_message,
+        odds_pulled_at=odds_pulled_at,
+        download_url=download_url,
+    )
+    if settings.teams_team_id and settings.teams_channel_id:
+        await send_card_via_graph(
+            settings.teams_team_id, settings.teams_channel_id, payload
+        )
+    else:
+        await send_card_to_teams(settings.teams_webhook_url, payload)
+    return {"status": "ok", "published": len(rows)}
+
+
+# ── Dynamic route MUST come after all static routes ──────────────
+
+
 @router.get("/{game_id}")
 async def get_prediction(
     game_id: int,
@@ -197,176 +404,3 @@ async def get_prediction(
             )
 
     return result
-
-
-@router.get("/slate.csv")
-async def download_slate_csv(
-    db: AsyncSession = Depends(get_db),
-    predictor: Predictor = Depends(get_predictor),
-):
-    """Download the full daily slate as a CSV file."""
-    if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
-
-    result = await db.execute(
-        select(Prediction)
-        .join(Game)
-        .where(Game.status == "NS")
-        .order_by(Game.commence_time, Prediction.predicted_at.desc())
-    )
-    predictions = result.scalars().all()
-
-    seen: set[int] = set()
-    latest: list[Prediction] = []
-    for pred in predictions:
-        game_id = int(cast(Any, pred.game_id))
-        if game_id not in seen:
-            seen.add(game_id)
-            latest.append(pred)
-
-    game_ids = [int(cast(Any, p.game_id)) for p in latest]
-    game_result = await db.execute(
-        select(Game)
-        .options(
-            selectinload(Game.home_team),
-            selectinload(Game.away_team),
-        )
-        .where(Game.id.in_(game_ids))
-        .order_by(Game.commence_time)
-    )
-    games = game_result.scalars().all()
-    game_by_id = {int(cast(Any, g.id)): g for g in games}
-
-    rows = []
-    for pred in latest:
-        game = game_by_id.get(int(cast(Any, pred.game_id)))
-        if game:
-            rows.append((pred, game))
-
-    from datetime import UTC, datetime
-
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    csv_content = build_slate_csv(rows)
-    return Response(
-        content=csv_content,
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="nba_slate_{today}.csv"'
-        },
-    )
-
-
-@router.get("/slate.html")
-async def download_slate_html(
-    db: AsyncSession = Depends(get_db),
-    predictor: Predictor = Depends(get_predictor),
-):
-    """Download the full daily slate as a styled HTML page."""
-    if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
-
-    from sqlalchemy import func as sa_func
-
-    result = await db.execute(
-        select(Prediction)
-        .join(Game)
-        .where(Game.status == "NS")
-        .order_by(Game.commence_time, Prediction.predicted_at.desc())
-    )
-    predictions = result.scalars().all()
-
-    seen: set[int] = set()
-    latest: list[Prediction] = []
-    for pred in predictions:
-        game_id = int(cast(Any, pred.game_id))
-        if game_id not in seen:
-            seen.add(game_id)
-            latest.append(pred)
-
-    game_ids = [int(cast(Any, p.game_id)) for p in latest]
-    game_result = await db.execute(
-        select(Game)
-        .options(
-            selectinload(Game.home_team),
-            selectinload(Game.away_team),
-        )
-        .where(Game.id.in_(game_ids))
-        .order_by(Game.commence_time)
-    )
-    games = game_result.scalars().all()
-    game_by_id = {int(cast(Any, g.id)): g for g in games}
-
-    rows = []
-    for pred in latest:
-        game = game_by_id.get(int(cast(Any, pred.game_id)))
-        if game:
-            rows.append((pred, game))
-
-    odds_ts_result = await db.execute(
-        select(sa_func.max(OddsSnapshot.captured_at))
-    )
-    odds_pulled_at = odds_ts_result.scalar_one_or_none()
-
-    html_content = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
-    return Response(content=html_content, media_type="text/html")
-
-
-@router.post("/publish/teams")
-async def publish_predictions_to_teams(
-    db: AsyncSession = Depends(get_db),
-    predictor: Predictor = Depends(get_predictor),
-):
-    """Generate latest predictions and send formatted payload to Teams."""
-    if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
-    if (
-        not (settings.teams_team_id and settings.teams_channel_id)
-        and not settings.teams_webhook_url
-    ):
-        raise HTTPException(status_code=400, detail="Teams delivery is not configured")
-
-    predictions = await predictor.predict_upcoming(db)
-    if not predictions:
-        return {"status": "ok", "published": 0, "detail": "No upcoming games"}
-
-    game_ids = [int(cast(Any, p.game_id)) for p in predictions]
-    game_result = await db.execute(
-        select(Game)
-        .options(selectinload(Game.home_team), selectinload(Game.away_team))
-        .where(Game.id.in_(game_ids))
-        .order_by(Game.commence_time)
-    )
-    games = game_result.scalars().all()
-    game_by_id = {int(cast(Any, g.id)): g for g in games}
-
-    rows: list[tuple[Prediction, Game]] = []
-    for pred in predictions:
-        game = game_by_id.get(int(cast(Any, pred.game_id)))
-        if game is not None:
-            rows.append((pred, game))
-
-    # Latest odds pull timestamp
-    from sqlalchemy import func as sa_func
-
-    odds_ts_result = await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
-    odds_pulled_at = odds_ts_result.scalar_one_or_none()
-
-    download_url = (
-        f"{settings.api_base_url}/predictions/slate.html"
-        if settings.api_base_url
-        else None
-    )
-
-    payload = build_teams_card(
-        rows,
-        settings.teams_max_games_per_message,
-        odds_pulled_at=odds_pulled_at,
-        download_url=download_url,
-    )
-    if settings.teams_team_id and settings.teams_channel_id:
-        await send_card_via_graph(
-            settings.teams_team_id, settings.teams_channel_id, payload
-        )
-    else:
-        await send_card_to_teams(settings.teams_webhook_url, payload)
-    return {"status": "ok", "published": len(rows)}
