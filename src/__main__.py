@@ -140,6 +140,32 @@ def cmd_backfill(args: argparse.Namespace) -> None:
     asyncio.run(_run_backfill(season=args.season, days_back=args.days))
 
 
+async def _run_sync() -> None:
+    from src.data.scheduler import sync_events_to_games
+
+    await sync_events_to_games()
+
+
+def cmd_sync(args: argparse.Namespace) -> None:
+    """Sync Odds API events to games table (map odds_api_id)."""
+    _setup_logging()
+    asyncio.run(_run_sync())
+    print("Sync complete.")
+
+
+async def _run_odds() -> None:
+    from src.data.scheduler import poll_fg_odds
+
+    await poll_fg_odds()
+
+
+def cmd_odds(args: argparse.Namespace) -> None:
+    """Fetch and persist full-game odds."""
+    _setup_logging()
+    asyncio.run(_run_odds())
+    print("Odds poll complete.")
+
+
 def cmd_migrate(args: argparse.Namespace) -> None:
     """Run Alembic migrations to head."""
     _setup_logging(os.getenv("LOG_LEVEL", "INFO"))
@@ -195,6 +221,14 @@ def main() -> None:
     # migrate
     p_mig = sub.add_parser("migrate", help="Run Alembic migrations")
     p_mig.set_defaults(func=cmd_migrate)
+
+    # sync
+    p_sync = sub.add_parser("sync", help="Sync Odds API events to games")
+    p_sync.set_defaults(func=cmd_sync)
+
+    # odds
+    p_odds = sub.add_parser("odds", help="Fetch and persist full-game odds")
+    p_odds.set_defaults(func=cmd_odds)
 
     args = parser.parse_args()
     args.func(args)
