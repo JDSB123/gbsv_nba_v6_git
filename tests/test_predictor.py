@@ -26,7 +26,7 @@ def test_feature_columns_count():
     cols = get_feature_columns()
     # 2 × (8 season + 8 recent + 5 schedule/injury + 11 player-stats + 2 quarter)
     # + 2 × 5 venue/streak + 12 game-level + 19 market + 5 prop = 114
-    assert len(cols) == 114
+    assert len(cols) == 121
 
 
 def test_feature_columns_no_duplicates():

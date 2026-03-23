@@ -475,7 +475,14 @@ async def build_feature_vector(
     # ── Player prop consensus signals ───────────────────────────
     # Aggregate player prop lines into team-level signals that capture
     # bookmaker expectations about individual performance.
-    prop_markets = ["player_points", "player_rebounds", "player_assists"]
+    prop_markets = [
+        "player_points", "player_rebounds", "player_assists",
+        "player_threes", "player_blocks", "player_steals",
+        "player_turnovers", "player_points_rebounds_assists",
+        "player_points_rebounds", "player_points_assists",
+        "player_rebounds_assists", "player_double_double",
+        "player_triple_double",
+    ]
     if odds_snapshots is None:
         prop_snap_result = await db.execute(
             select(OddsSnapshot)
@@ -544,6 +551,85 @@ async def build_feature_vector(
             float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
         )
 
+        # Threes props — 3-point shooting volume expectation
+        threes_over = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_threes"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_threes_avg_line"] = (
+            float(np.mean(threes_over)) if threes_over else 0.0
+        )
+
+        # Blocks props — rim protection expectation
+        blk_over = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_blocks"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_blk_avg_line"] = (
+            float(np.mean(blk_over)) if blk_over else 0.0
+        )
+
+        # Steals props — defensive activity expectation
+        stl_over = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_steals"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_stl_avg_line"] = (
+            float(np.mean(stl_over)) if stl_over else 0.0
+        )
+
+        # Turnovers props — ball security / pace signal
+        tov_over = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_turnovers"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_tov_avg_line"] = (
+            float(np.mean(tov_over)) if tov_over else 0.0
+        )
+
+        # PRA combo — star workload signal (top-end player expectation)
+        pra_over = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_points_rebounds_assists"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_pra_avg_line"] = (
+            float(np.mean(pra_over)) if pra_over else 0.0
+        )
+
+        # Double-double & triple-double lines available count
+        # These markets don't have point lines; count of "Yes" outcomes
+        # signals how many star-caliber players the books are pricing.
+        dd_yes = [
+            s
+            for s in deduped_props
+            if _as_str(s.market) == "player_double_double"
+            and _as_str(s.outcome_name) == "Yes"
+        ]
+        features["prop_dd_count"] = float(len(dd_yes))
+
+        td_yes = [
+            s
+            for s in deduped_props
+            if _as_str(s.market) == "player_triple_double"
+            and _as_str(s.outcome_name) == "Yes"
+        ]
+        features["prop_td_count"] = float(len(td_yes))
+
         # Sharp vs square prop divergence (points market)
         sharp_pts = [
             _as_float(s.point)
@@ -573,6 +659,13 @@ async def build_feature_vector(
         features["prop_pts_avg_line"] = 0.0
         features["prop_ast_avg_line"] = 0.0
         features["prop_reb_avg_line"] = 0.0
+        features["prop_threes_avg_line"] = 0.0
+        features["prop_blk_avg_line"] = 0.0
+        features["prop_stl_avg_line"] = 0.0
+        features["prop_tov_avg_line"] = 0.0
+        features["prop_pra_avg_line"] = 0.0
+        features["prop_dd_count"] = 0.0
+        features["prop_td_count"] = 0.0
         features["prop_sharp_square_diff"] = 0.0
 
     # ── Expected game pace (interaction) ────────────────────────
@@ -773,6 +866,29 @@ async def build_feature_vector(
         )
         features["mkt_1h_total_avg"] = float(np.mean(h1_totals)) if h1_totals else 0.0
 
+        # 1st-half moneyline implied probability
+        h2h_h1 = [
+            s for s in snapshots
+            if _as_str(s.market) == "h2h_h1"
+            and (
+                "home" in _as_str(s.outcome_name).lower()
+                or _as_str(s.outcome_name) == home_name
+            )
+        ]
+        if h2h_h1:
+            h1_prices = [_as_float(s.price) for s in h2h_h1]
+            avg_h1_price = np.mean(h1_prices)
+            if avg_h1_price < 0:
+                features["mkt_1h_home_ml_prob"] = float(
+                    abs(avg_h1_price) / (abs(avg_h1_price) + 100)
+                )
+            else:
+                features["mkt_1h_home_ml_prob"] = float(
+                    100 / (avg_h1_price + 100)
+                )
+        else:
+            features["mkt_1h_home_ml_prob"] = 0.5
+
         # Moneyline implied probability (overall)
         h2h = [s for s in snapshots if _as_str(s.market) == "h2h"]
         if h2h:
@@ -941,6 +1057,7 @@ async def build_feature_vector(
             "mkt_total_std",
             "mkt_1h_spread_avg",
             "mkt_1h_total_avg",
+            "mkt_1h_home_ml_prob",
             "mkt_home_ml_prob",
             "sharp_spread",
             "square_spread",
@@ -1078,6 +1195,13 @@ def get_feature_columns() -> list[str]:
             "prop_pts_avg_line",
             "prop_ast_avg_line",
             "prop_reb_avg_line",
+            "prop_threes_avg_line",
+            "prop_blk_avg_line",
+            "prop_stl_avg_line",
+            "prop_tov_avg_line",
+            "prop_pra_avg_line",
+            "prop_dd_count",
+            "prop_td_count",
             "prop_sharp_square_diff",
         ]
     )
