@@ -102,7 +102,7 @@ async def poll_scores_and_box() -> None:
     """Fetch box scores for finished games that don't have player stats yet."""
     logger.info("Polling scores and box scores...")
     try:
-        from sqlalchemy import and_, func as sa_func
+        from sqlalchemy import and_
 
         from src.data.basketball_client import BasketballClient
         from src.db.models import PlayerGameStats

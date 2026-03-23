@@ -378,7 +378,7 @@ async def build_feature_vector(
 
             starter_pts_list = []
             bench_pts_list = []
-            for gid, players in by_game.items():
+            for _gid, players in by_game.items():
                 sorted_p = sorted(players, key=lambda x: _as_float(cast(Any, x.minutes)), reverse=True)
                 starters = sorted_p[:5]
                 bench = sorted_p[5:]
