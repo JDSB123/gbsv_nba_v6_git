@@ -127,6 +127,45 @@ class OddsClient:
             self._track_quota(resp)
             return resp.json()
 
+    # ── Player props ───────────────────────────────────────────────
+
+    PLAYER_PROP_MARKETS = (
+        "player_points,player_rebounds,player_assists,player_threes,"
+        "player_blocks,player_steals,player_turnovers,"
+        "player_points_rebounds_assists,player_points_rebounds,"
+        "player_points_assists,player_rebounds_assists,"
+        "player_double_double,player_triple_double"
+    )
+
+    async def fetch_player_props(
+        self,
+        event_id: str,
+        markets: str | None = None,
+        regions: str = "us,us2",
+        odds_format: str = "american",
+    ) -> dict[str, Any]:
+        """Fetch player prop odds for a specific event.
+
+        Uses the per-event endpoint (required for non-featured markets).
+        Cost: ~6 credits per event per region.
+        """
+        if self._should_skip():
+            return {}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/sports/{self.sport}/events/{event_id}/odds",
+                params={
+                    "apiKey": self.api_key,
+                    "regions": regions,
+                    "markets": markets or self.PLAYER_PROP_MARKETS,
+                    "oddsFormat": odds_format,
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            self._track_quota(resp)
+            return resp.json()
+
     async def persist_odds(self, odds_data: list[dict], db: AsyncSession) -> int:
         """Parse odds response and insert OddsSnapshot rows. Returns count of inserted rows."""
         now = datetime.utcnow()
@@ -152,6 +191,7 @@ class OddsClient:
                             bookmaker=bk_name,
                             market=market_key,
                             outcome_name=outcome["name"],
+                            description=outcome.get("description"),
                             price=outcome["price"],
                             point=outcome.get("point"),
                             captured_at=now,

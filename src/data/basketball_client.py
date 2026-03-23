@@ -283,74 +283,100 @@ class BasketballClient:
 
     async def persist_player_game_stats(
         self, game_id: int, stats_data: list[dict], db: AsyncSession
-    ) -> None:
-        """Upsert player box score stats for a game."""
-        for team_stats in stats_data:
-            players = team_stats.get("players", [])
-            for p in players:
-                player_id = p.get("player", {}).get("id")
-                if not player_id:
-                    continue
+    ) -> int:
+        """Upsert player box score stats for a game.
 
-                # Ensure player exists
-                existing = await db.execute(
-                    select(Player.id).where(Player.id == player_id)
+        The Basketball API v1 ``/games/statistics/players`` endpoint returns a
+        **flat list** of per-player objects, each containing top-level keys:
+        ``player``, ``team``, ``game``, ``points``, ``assists``, ``rebounds``,
+        ``field_goals``, ``threepoint_goals``, ``freethrows_goals``, ``minutes``,
+        etc.
+        """
+        count = 0
+        for p in stats_data:
+            player_info = p.get("player", {})
+            player_id = player_info.get("id")
+            if not player_id:
+                continue
+
+            team_id = p.get("team", {}).get("id", 0)
+
+            # Ensure player exists
+            existing = await db.execute(
+                select(Player.id).where(Player.id == player_id)
+            )
+            if existing.scalar_one_or_none() is None:
+                player_obj = Player(
+                    id=player_id,
+                    team_id=team_id,
+                    name=player_info.get("name", "Unknown"),
                 )
-                if existing.scalar_one_or_none() is None:
-                    player_obj = Player(
-                        id=player_id,
-                        team_id=team_stats.get("team", {}).get("id", 0),
-                        name=p.get("player", {}).get("name", "Unknown"),
-                        position=p.get("pos"),
-                    )
-                    db.add(player_obj)
-                    await db.flush()
+                db.add(player_obj)
+                await db.flush()
 
-                def _safe_float(val: Any) -> float | None:
-                    if val is None or val == "":
-                        return None
-                    try:
-                        return float(str(val).replace("%", ""))
-                    except (ValueError, TypeError):
-                        return None
+            def _safe_float(val: Any) -> float | None:
+                if val is None or val == "":
+                    return None
+                try:
+                    return float(str(val).replace("%", ""))
+                except (ValueError, TypeError):
+                    return None
 
-                def _safe_int(val: Any) -> int | None:
-                    if val is None or val == "":
-                        return None
-                    try:
-                        return (
-                            int(str(val).split(":")[0]) if ":" in str(val) else int(val)
-                        )
-                    except (ValueError, TypeError):
-                        return None
+            def _safe_int(val: Any) -> int | None:
+                if val is None or val == "":
+                    return None
+                try:
+                    return (
+                        int(str(val).split(":")[0]) if ":" in str(val) else int(val)
+                    )
+                except (ValueError, TypeError):
+                    return None
 
-                stmt = (
-                    pg_insert(PlayerGameStats)
-                    .values(
-                        player_id=player_id,
-                        game_id=game_id,
-                        minutes=_safe_int(p.get("min")),
-                        points=_safe_int(p.get("points")),
-                        rebounds=_safe_int(p.get("totReb")),
-                        assists=_safe_int(p.get("assists")),
-                        steals=_safe_int(p.get("steals")),
-                        blocks=_safe_int(p.get("blocks")),
-                        turnovers=_safe_int(p.get("turnovers")),
-                        fg_pct=_safe_float(p.get("fgp")),
-                        three_pct=_safe_float(p.get("tpp")),
-                        ft_pct=_safe_float(p.get("ftp")),
-                        plus_minus=_safe_float(p.get("plusMinus")),
-                    )
-                    .on_conflict_do_update(
-                        constraint="uq_player_game",
-                        set_={
-                            "minutes": _safe_int(p.get("min")),
-                            "points": _safe_int(p.get("points")),
-                            "rebounds": _safe_int(p.get("totReb")),
-                            "assists": _safe_int(p.get("assists")),
-                        },
-                    )
+            # Parse minutes from "MM:SS" format
+            minutes = _safe_int(p.get("minutes"))
+
+            # Extract nested stat objects
+            fg = p.get("field_goals", {}) or {}
+            tp = p.get("threepoint_goals", {}) or {}
+            ft = p.get("freethrows_goals", {}) or {}
+            reb = p.get("rebounds", {}) or {}
+
+            stmt = (
+                pg_insert(PlayerGameStats)
+                .values(
+                    player_id=player_id,
+                    game_id=game_id,
+                    minutes=minutes,
+                    points=_safe_int(p.get("points")),
+                    rebounds=_safe_int(reb.get("total")),
+                    assists=_safe_int(p.get("assists")),
+                    steals=_safe_int(p.get("steals")),
+                    blocks=_safe_int(p.get("blocks")),
+                    turnovers=_safe_int(p.get("turnovers")),
+                    fg_pct=_safe_float(fg.get("percentage")),
+                    three_pct=_safe_float(tp.get("percentage")),
+                    ft_pct=_safe_float(ft.get("percentage")),
+                    plus_minus=_safe_float(p.get("plusMinus")),
                 )
-                await db.execute(stmt)
+                .on_conflict_do_update(
+                    constraint="uq_player_game",
+                    set_={
+                        "minutes": minutes,
+                        "points": _safe_int(p.get("points")),
+                        "rebounds": _safe_int(reb.get("total")),
+                        "assists": _safe_int(p.get("assists")),
+                        "steals": _safe_int(p.get("steals")),
+                        "blocks": _safe_int(p.get("blocks")),
+                        "turnovers": _safe_int(p.get("turnovers")),
+                        "fg_pct": _safe_float(fg.get("percentage")),
+                        "three_pct": _safe_float(tp.get("percentage")),
+                        "ft_pct": _safe_float(ft.get("percentage")),
+                        "plus_minus": _safe_float(p.get("plusMinus")),
+                    },
+                )
+            )
+            await db.execute(stmt)
+            count += 1
         await db.commit()
-        logger.info("Persisted player stats for game %d", game_id)
+        logger.info("Persisted %d player stats for game %d", count, game_id)
+        return count

@@ -138,8 +138,9 @@ class OddsSnapshot(Base):
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
     source = Column(String(30), nullable=False)  # "odds_api" or "basketball_api"
     bookmaker = Column(String(60), nullable=False)
-    market = Column(String(30), nullable=False)  # h2h, spreads, totals, *_1st_half
+    market = Column(String(60), nullable=False)  # h2h, spreads, totals, player_points, etc.
     outcome_name = Column(String(60), nullable=False)  # team name or "Over"/"Under"
+    description = Column(String(120))  # player name for prop bets
     price = Column(Float, nullable=False)
     point = Column(Float)  # spread or total line
     captured_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)

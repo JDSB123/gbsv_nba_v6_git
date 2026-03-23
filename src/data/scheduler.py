@@ -56,6 +56,25 @@ async def poll_1h_odds() -> None:
         logger.exception("Error polling 1H odds")
 
 
+async def poll_player_props() -> None:
+    """Fetch player prop odds for upcoming games every 30 minutes."""
+    logger.info("Polling player prop odds...")
+    try:
+        from src.data.odds_client import OddsClient
+
+        client = OddsClient()
+        events = await client.fetch_events()
+        async with async_session_factory() as db:
+            for event in events[:10]:
+                event_id = event.get("id")
+                if event_id:
+                    data = await client.fetch_player_props(event_id)
+                    if data and data.get("bookmakers"):
+                        await client.persist_odds([data], db)
+    except Exception:
+        logger.exception("Error polling player props")
+
+
 async def poll_stats() -> None:
     """Fetch team stats and recent games every 2 hours."""
     logger.info("Polling stats from Basketball API...")
@@ -80,21 +99,45 @@ async def poll_stats() -> None:
 
 
 async def poll_scores_and_box() -> None:
-    """Fetch completed game scores and box scores."""
+    """Fetch box scores for finished games that don't have player stats yet."""
     logger.info("Polling scores and box scores...")
     try:
+        from sqlalchemy import and_, func as sa_func
+
         from src.data.basketball_client import BasketballClient
+        from src.db.models import PlayerGameStats
 
         client = BasketballClient()
         async with async_session_factory() as db:
-            result = await db.execute(
-                select(Game.id).where(Game.status == "FT").limit(20)
+            # Find finished games that have NO player_game_stats rows yet
+            subq = (
+                select(PlayerGameStats.game_id)
+                .distinct()
+                .scalar_subquery()
             )
-            finished_ids = [row[0] for row in result.fetchall()]
-            for game_id in finished_ids:
-                stats = await client.fetch_player_stats(game_id)
-                if stats:
-                    await client.persist_player_game_stats(game_id, stats, db)
+            result = await db.execute(
+                select(Game.id)
+                .where(
+                    and_(
+                        Game.status.in_(["FT", "AOT"]),
+                        Game.id.notin_(subq),
+                    )
+                )
+                .order_by(Game.commence_time.desc())
+                .limit(25)
+            )
+            missing_ids = [row[0] for row in result.fetchall()]
+            if not missing_ids:
+                logger.info("All finished games already have box scores")
+                return
+            logger.info("Fetching box scores for %d games missing player stats", len(missing_ids))
+            for game_id in missing_ids:
+                try:
+                    stats = await client.fetch_player_stats(game_id)
+                    if stats:
+                        await client.persist_player_game_stats(game_id, stats, db)
+                except Exception:
+                    logger.warning("Failed to fetch box score for game %d", game_id, exc_info=True)
     except Exception:
         logger.exception("Error polling scores/box scores")
 
@@ -390,6 +433,9 @@ def create_scheduler() -> AsyncIOScheduler:
     )
     scheduler.add_job(
         poll_1h_odds, "interval", minutes=settings.odds_1h_interval, id="poll_1h_odds"
+    )
+    scheduler.add_job(
+        poll_player_props, "interval", minutes=30, id="poll_player_props"
     )
     scheduler.add_job(
         poll_stats, "interval", minutes=settings.stats_interval, id="poll_stats"
