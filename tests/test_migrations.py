@@ -86,9 +86,10 @@ async def _schema_snapshot(database: str) -> tuple[set[str], set[str], str]:
     return tables, prediction_columns, revision
 
 
+@pytest.mark.integration
 def test_alembic_upgrade_bootstraps_fresh_database(monkeypatch: pytest.MonkeyPatch):
     if not asyncio.run(_can_connect("postgres")):
-        pytest.skip("PostgreSQL is not available on localhost:5432")
+        pytest.fail("PostgreSQL is not reachable — check DATABASE_URL and server firewall")
 
     database = f"nba_gbsv_mig_{uuid.uuid4().hex[:8]}"
     target_url = (

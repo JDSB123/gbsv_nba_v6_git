@@ -49,6 +49,9 @@ src/db/migrations/versions/__pycache__/
 # Temp scripts
 _*.py
 _*.json
+_*.txt
+test_player_stats.py
+test_structure.py
 
 # Azure
 .azure/

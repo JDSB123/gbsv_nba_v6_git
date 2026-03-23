@@ -7,6 +7,13 @@ requires-python = ">=3.12"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: requires a live PostgreSQL server (deselected by default)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:dateutil",
+]
 
 [tool.ruff]
 target-version = "py312"

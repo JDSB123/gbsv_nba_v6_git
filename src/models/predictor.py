@@ -157,6 +157,19 @@ class Predictor:
                     books[bk]["home_ml"] = int(price) if price else None
                 elif outcome == away_name:
                     books[bk]["away_ml"] = int(price) if price else None
+            # ── 1H markets ──
+            elif mkt == "spreads_h1" and outcome == home_name and point is not None:
+                books[bk]["spread_h1"] = float(point)
+                books[bk]["spread_h1_price"] = int(price) if price else None
+            elif mkt == "totals_h1" and point is not None:
+                if outcome in ("Over", home_name):
+                    books[bk]["total_h1"] = float(point)
+                    books[bk]["total_h1_price"] = int(price) if price else None
+            elif mkt == "h2h_h1":
+                if outcome == home_name:
+                    books[bk]["home_ml_h1"] = int(price) if price else None
+                elif outcome == away_name:
+                    books[bk]["away_ml_h1"] = int(price) if price else None
         return {
             "captured_at": odds_ts.isoformat() + "Z" if odds_ts else None,
             "books": dict(books),
@@ -203,6 +216,10 @@ class Predictor:
         home_1h = float(self.models["model_home_1h"].predict(X)[0])
         away_1h = float(self.models["model_away_1h"].predict(X)[0])
 
+        # Clamp 1H ≤ FG: half-time score cannot exceed full-game score
+        home_1h = min(home_1h, home_fg)
+        away_1h = min(away_1h, away_fg)
+
         fg_margin = home_fg - away_fg
         h1_margin = home_1h - away_1h
 
@@ -238,6 +255,30 @@ class Predictor:
                 opening_spread = round(float(np.mean(mkt_spreads)), 1)
             if mkt_totals:
                 opening_total = round(float(np.mean(mkt_totals)), 1)
+
+        # ── 1H opening lines ──
+        opening_h1_spread = None
+        opening_h1_total = None
+        if stored_snapshots:
+            mkt_h1_spreads = [
+                float(cast(Any, s.point))
+                for s in stored_snapshots
+                if cast(Any, s.market) == "spreads_h1" and s.point is not None
+                and cast(Any, s.outcome_name) == home_name
+            ]
+            mkt_h1_totals = [
+                float(cast(Any, s.point))
+                for s in stored_snapshots
+                if cast(Any, s.market) == "totals_h1" and s.point is not None
+            ]
+            if mkt_h1_spreads:
+                opening_h1_spread = round(float(np.mean(mkt_h1_spreads)), 1)
+            if mkt_h1_totals:
+                opening_h1_total = round(float(np.mean(mkt_h1_totals)), 1)
+
+        # Embed 1H opening lines in odds_detail for downstream use
+        odds_detail["opening_h1_spread"] = opening_h1_spread
+        odds_detail["opening_h1_total"] = opening_h1_total
 
         return {
             "predicted_home_fg": round(home_fg, 1),

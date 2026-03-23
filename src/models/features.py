@@ -12,6 +12,7 @@ from src.db.models import (
     Game,
     Injury,
     OddsSnapshot,
+    Player,
     PlayerGameStats,
     TeamSeasonStats,
 )
@@ -329,6 +330,208 @@ async def build_feature_vector(
         features[f"{prefix}_injury_impact"] = injury_impact
         features[f"{prefix}_injured_count"] = float(injured_count)
 
+    # ── Player-stat aggregated team features ────────────────────
+    # Aggregate box-score data into team-level signals for each team's
+    # recent games so the model can capture roster depth and form.
+    for prefix, team_id in [("home", home_id), ("away", away_id)]:
+        # Get player stats from last 5 games for this team
+        recent_game_ids_result = await db.execute(
+            select(Game.id)
+            .where(
+                Game.status == "FT",
+                (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
+                Game.commence_time < game.commence_time,
+            )
+            .order_by(Game.commence_time.desc())
+            .limit(5)
+        )
+        recent_game_ids = [r[0] for r in recent_game_ids_result.fetchall()]
+
+        if recent_game_ids:
+            pgs_result = await db.execute(
+                select(PlayerGameStats)
+                .join(Player, PlayerGameStats.player_id == Player.id)
+                .where(
+                    PlayerGameStats.game_id.in_(recent_game_ids),
+                    Player.team_id == team_id,
+                )
+            )
+            pgs_rows = pgs_result.scalars().all()
+        else:
+            pgs_rows = []
+
+        if pgs_rows:
+            all_pts = [_as_float(cast(Any, p.points)) for p in pgs_rows]
+            all_ast = [_as_float(cast(Any, p.assists)) for p in pgs_rows]
+            all_reb = [_as_float(cast(Any, p.rebounds)) for p in pgs_rows]
+            all_tov = [_as_float(cast(Any, p.turnovers)) for p in pgs_rows]
+            all_pm = [_as_float(cast(Any, p.plus_minus)) for p in pgs_rows]
+            all_fg = [_as_float(cast(Any, p.fg_pct)) for p in pgs_rows if p.fg_pct is not None]
+            all_3pt = [_as_float(cast(Any, p.three_pct)) for p in pgs_rows if p.three_pct is not None]
+            all_min = [_as_float(cast(Any, p.minutes)) for p in pgs_rows]
+
+            # Per-game aggregation: starters (top-5 by minutes) vs bench
+            from collections import defaultdict
+            by_game: dict[int, list[Any]] = defaultdict(list)
+            for p in pgs_rows:
+                by_game[int(cast(Any, p.game_id))].append(p)
+
+            starter_pts_list = []
+            bench_pts_list = []
+            for gid, players in by_game.items():
+                sorted_p = sorted(players, key=lambda x: _as_float(cast(Any, x.minutes)), reverse=True)
+                starters = sorted_p[:5]
+                bench = sorted_p[5:]
+                starter_pts_list.append(sum(_as_float(cast(Any, s.points)) for s in starters))
+                bench_pts_list.append(sum(_as_float(cast(Any, b.points)) for b in bench))
+
+            features[f"{prefix}_player_pts_avg"] = float(np.mean(all_pts))
+            features[f"{prefix}_player_ast_avg"] = float(np.mean(all_ast))
+            features[f"{prefix}_player_reb_avg"] = float(np.mean(all_reb))
+            features[f"{prefix}_player_tov_avg"] = float(np.mean(all_tov))
+            features[f"{prefix}_player_pm_avg"] = float(np.mean(all_pm))
+            features[f"{prefix}_player_fg_pct"] = float(np.mean(all_fg)) if all_fg else 0.0
+            features[f"{prefix}_player_3pt_pct"] = float(np.mean(all_3pt)) if all_3pt else 0.0
+            features[f"{prefix}_starter_pts_avg"] = float(np.mean(starter_pts_list)) if starter_pts_list else 0.0
+            features[f"{prefix}_bench_pts_avg"] = float(np.mean(bench_pts_list)) if bench_pts_list else 0.0
+            features[f"{prefix}_bench_ratio"] = (
+                features[f"{prefix}_bench_pts_avg"]
+                / max(features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"], 1.0)
+            )
+            # Minutes concentration: std of minutes shows roster depth
+            features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else 0.0
+        else:
+            for k in [
+                "player_pts_avg", "player_ast_avg", "player_reb_avg",
+                "player_tov_avg", "player_pm_avg", "player_fg_pct",
+                "player_3pt_pct", "starter_pts_avg", "bench_pts_avg",
+                "bench_ratio", "min_std",
+            ]:
+                features[f"{prefix}_{k}"] = 0.0
+
+    # ── Quarter scoring tendencies ──────────────────────────────
+    for prefix, team_id in [("home", home_id), ("away", away_id)]:
+        result = await db.execute(
+            select(Game)
+            .where(
+                Game.status == "FT",
+                (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
+                Game.commence_time < game.commence_time,
+                Game.home_q1.is_not(None),
+            )
+            .order_by(Game.commence_time.desc())
+            .limit(10)
+        )
+        qtr_games = result.scalars().all()
+        if qtr_games:
+            q1_scored = []
+            q3_scored = []  # 2nd half opener
+            for g in qtr_games:
+                if int(cast(Any, g.home_team_id)) == team_id:
+                    q1_scored.append(_as_float(cast(Any, g.home_q1)))
+                    q3_scored.append(_as_float(cast(Any, g.home_q3)))
+                else:
+                    q1_scored.append(_as_float(cast(Any, g.away_q1)))
+                    q3_scored.append(_as_float(cast(Any, g.away_q3)))
+            features[f"{prefix}_q1_avg"] = float(np.mean(q1_scored))
+            features[f"{prefix}_q3_avg"] = float(np.mean(q3_scored))
+        else:
+            features[f"{prefix}_q1_avg"] = 0.0
+            features[f"{prefix}_q3_avg"] = 0.0
+
+    # ── Player prop consensus signals ───────────────────────────
+    # Aggregate player prop lines into team-level signals that capture
+    # bookmaker expectations about individual performance.
+    prop_markets = ["player_points", "player_rebounds", "player_assists"]
+    if odds_snapshots is None:
+        prop_snap_result = await db.execute(
+            select(OddsSnapshot)
+            .where(
+                OddsSnapshot.game_id == game.id,
+                OddsSnapshot.market.in_(prop_markets),
+            )
+            .order_by(OddsSnapshot.captured_at.desc())
+            .limit(500)
+        )
+        prop_snaps = prop_snap_result.scalars().all()
+    else:
+        prop_snaps = [
+            s for s in odds_snapshots if _as_str(s.market) in prop_markets
+        ]
+
+    if prop_snaps:
+        # Deduplicate: keep latest per bookmaker+market+description+outcome
+        _prop_best: dict[tuple[str, str, str, str], Any] = {}
+        for s in prop_snaps:
+            key = (
+                _as_str(s.bookmaker),
+                _as_str(s.market),
+                _as_str(getattr(s, "description", "")),
+                _as_str(s.outcome_name),
+            )
+            existing = _prop_best.get(key)
+            if existing is None or cast(Any, s.captured_at) > cast(Any, existing.captured_at):
+                _prop_best[key] = s
+        deduped_props = list(_prop_best.values())
+
+        # Points props: sum of Over lines = implied team total
+        pts_over_lines = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_points"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_pts_lines_count"] = float(len(pts_over_lines))
+        features["prop_pts_avg_line"] = float(np.mean(pts_over_lines)) if pts_over_lines else 0.0
+
+        # Assists props
+        ast_over_lines = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_assists"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_ast_avg_line"] = float(np.mean(ast_over_lines)) if ast_over_lines else 0.0
+
+        # Rebounds props
+        reb_over_lines = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_rebounds"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+        ]
+        features["prop_reb_avg_line"] = float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
+
+        # Sharp vs square prop divergence (points market)
+        sharp_pts = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_points"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+            and _as_str(s.bookmaker).lower() in SHARP_BOOKS
+        ]
+        square_pts = [
+            _as_float(s.point)
+            for s in deduped_props
+            if _as_str(s.market) == "player_points"
+            and _as_str(s.outcome_name) == "Over"
+            and s.point is not None
+            and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
+        ]
+        sharp_avg = float(np.mean(sharp_pts)) if sharp_pts else features["prop_pts_avg_line"]
+        square_avg = float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
+        features["prop_sharp_square_diff"] = sharp_avg - square_avg
+    else:
+        features["prop_pts_lines_count"] = 0.0
+        features["prop_pts_avg_line"] = 0.0
+        features["prop_ast_avg_line"] = 0.0
+        features["prop_reb_avg_line"] = 0.0
+        features["prop_sharp_square_diff"] = 0.0
+
     # ── Expected game pace (interaction) ────────────────────────
     home_pace = features.get("home_pace", 0.0)
     away_pace = features.get("away_pace", 0.0)
@@ -512,11 +715,11 @@ async def build_feature_vector(
             if _as_str(s.market) == "totals"
             and s.point is not None
         ]
-        h1_spreads = _home_spreads(snapshots, home_name, "spreads_1st_half")
+        h1_spreads = _home_spreads(snapshots, home_name, "spreads_h1")
         h1_totals = [
             _as_float(s.point)
             for s in snapshots
-            if _as_str(s.market) == "totals_1st_half"
+            if _as_str(s.market) == "totals_h1"
             and s.point is not None
         ]
 
@@ -750,6 +953,29 @@ def get_feature_columns() -> list[str]:
                 f"{prefix}_injured_count",
             ]
         )
+        # Player-stat aggregated features
+        cols.extend(
+            [
+                f"{prefix}_player_pts_avg",
+                f"{prefix}_player_ast_avg",
+                f"{prefix}_player_reb_avg",
+                f"{prefix}_player_tov_avg",
+                f"{prefix}_player_pm_avg",
+                f"{prefix}_player_fg_pct",
+                f"{prefix}_player_3pt_pct",
+                f"{prefix}_starter_pts_avg",
+                f"{prefix}_bench_pts_avg",
+                f"{prefix}_bench_ratio",
+                f"{prefix}_min_std",
+            ]
+        )
+        # Quarter scoring tendencies
+        cols.extend(
+            [
+                f"{prefix}_q1_avg",
+                f"{prefix}_q3_avg",
+            ]
+        )
     # ── New per-team features ───────────────────────────────────
     for prefix in ["home", "away"]:
         cols.extend(
@@ -802,6 +1028,16 @@ def get_feature_columns() -> list[str]:
             "spread_move",
             "total_move",
             "rlm_flag",
+        ]
+    )
+    # ── Player prop consensus signals ───────────────────────────
+    cols.extend(
+        [
+            "prop_pts_lines_count",
+            "prop_pts_avg_line",
+            "prop_ast_avg_line",
+            "prop_reb_avg_line",
+            "prop_sharp_square_diff",
         ]
     )
     return cols

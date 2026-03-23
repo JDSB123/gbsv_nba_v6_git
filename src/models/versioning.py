@@ -1,1 +1,1 @@
-MODEL_VERSION = "v6.1.0"
+MODEL_VERSION = "v6.2.0"
