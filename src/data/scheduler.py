@@ -251,7 +251,10 @@ async def generate_predictions_and_publish() -> None:
             game_ids = [int(cast(Any, p.game_id)) for p in predictions]
             game_result = await db.execute(
                 select(Game)
-                .options(selectinload(Game.home_team), selectinload(Game.away_team))
+                .options(
+                    selectinload(Game.home_team).selectinload(Team.season_stats),
+                    selectinload(Game.away_team).selectinload(Team.season_stats),
+                )
                 .where(Game.id.in_(game_ids))
                 .order_by(Game.commence_time)
             )

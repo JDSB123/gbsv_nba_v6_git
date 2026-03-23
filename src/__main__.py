@@ -107,8 +107,10 @@ async def _run_publish_teams() -> None:
     from src.data.scheduler import generate_predictions_and_publish
 
     settings = get_settings()
-    if not settings.teams_webhook_url:
-        print("TEAMS_WEBHOOK_URL is not configured.")
+    has_graph = settings.teams_team_id and settings.teams_channel_id
+    has_webhook = bool(settings.teams_webhook_url)
+    if not has_graph and not has_webhook:
+        print("Teams delivery not configured. Set TEAMS_WEBHOOK_URL or TEAMS_TEAM_ID + TEAMS_CHANNEL_ID.")
         return
     await generate_predictions_and_publish()
     print("Prediction publish job executed.")

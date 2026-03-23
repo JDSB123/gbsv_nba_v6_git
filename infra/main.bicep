@@ -22,6 +22,10 @@ param oddsApiKey string
 @description('Basketball API key')
 param basketballApiKey string
 
+@secure()
+@description('Teams webhook URL (Power Automate Workflow)')
+param teamsWebhookUrl string = ''
+
 var prefix = 'nba-gbsv-v6'
 
 // ── Log Analytics ────────────────────────────────────────────────
@@ -181,6 +185,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
         { name: 'database-url', value: dbConnectionString }
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
+        { name: 'teams-webhook-url', value: teamsWebhookUrl }
       ]
     }
     template: {
@@ -193,6 +198,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }
             { name: 'BASKETBALL_API_KEY', secretRef: 'basketball-api-key' }
+            { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
           ]
@@ -232,6 +238,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
         { name: 'database-url', value: dbConnectionString }
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
+        { name: 'teams-webhook-url', value: teamsWebhookUrl }
       ]
     }
     template: {
@@ -245,6 +252,8 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }
             { name: 'BASKETBALL_API_KEY', secretRef: 'basketball-api-key' }
+            { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
+            { name: 'API_BASE_URL', value: 'https://${apiApp.properties.configuration.ingress.fqdn}' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
           ]
