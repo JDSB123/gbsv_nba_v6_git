@@ -52,7 +52,12 @@ class Settings(BaseSettings):
 
     # ── Teams delivery ─────────────────────────────────────────
     teams_webhook_url: str = ""
+    teams_team_id: str = ""
+    teams_channel_id: str = ""
     teams_max_games_per_message: int = 8
+
+    # ── Public API base URL (used for download links in cards) ──
+    api_base_url: str = ""
 
     # ── Quota management ──────────────────────────────────────────
     odds_api_quota_min: int = 50  # skip fetches if remaining < this

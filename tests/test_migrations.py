@@ -91,9 +91,11 @@ def test_alembic_upgrade_bootstraps_fresh_database(monkeypatch: pytest.MonkeyPat
         pytest.skip("PostgreSQL is not available on localhost:5432")
 
     database = f"nba_gbsv_mig_{uuid.uuid4().hex[:8]}"
-    target_url = make_url(get_settings().database_url).set(
-        database=database
-    ).render_as_string(hide_password=False)
+    target_url = (
+        make_url(get_settings().database_url)
+        .set(database=database)
+        .render_as_string(hide_password=False)
+    )
 
     asyncio.run(_create_database(database))
     monkeypatch.setenv("DATABASE_URL", target_url)

@@ -87,13 +87,13 @@ class OddsClient:
     async def fetch_event_odds(
         self,
         event_id: str,
-        markets: str = "h2h_1st_half,spreads_1st_half,totals_1st_half",
+        markets: str = "h2h_h1,spreads_h1,totals_h1",
         regions: str = "us,us2",
         odds_format: str = "american",
     ) -> dict[str, Any]:
         """Fetch 1st-half odds for a specific event.
 
-        Uses us+us2 regions for sharp/square coverage.
+        Uses the per-event endpoint required for game-period markets.
         Cost: ~6 credits per event.
         """
         if self._should_skip():

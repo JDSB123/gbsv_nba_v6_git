@@ -475,4 +475,11 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
 
           STATUS_JSON=$(curl -fsS "https://${API_FQDN}/model/status")
-          python -c "import json,sys; payload=json.loads(sys.argv[1]); assert payload.get('ready'), 'Model is not ready after bootstrap deploy'; print('Model readiness check passed')" "$STATUS_JSON"
+          python - "$STATUS_JSON" <<'PY'
+          import json
+          import sys
+          payload = json.loads(sys.argv[1])
+          if not payload.get('ready'):
+              raise SystemExit("Model is not ready after bootstrap deploy")
+          print("Model readiness check passed")
+          PY

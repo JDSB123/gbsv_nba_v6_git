@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10,7 +11,12 @@ from src.config import get_settings
 from src.db.models import Game, OddsSnapshot, Prediction
 from src.db.session import get_db
 from src.models.predictor import Predictor
-from src.notifications.teams import build_teams_text, send_text_to_teams
+from src.notifications.teams import (
+    build_slate_csv,
+    build_teams_card,
+    send_card_to_teams,
+    send_card_via_graph,
+)
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 settings = get_settings()
@@ -192,6 +198,63 @@ async def get_prediction(
     return result
 
 
+@router.get("/slate.csv")
+async def download_slate_csv(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Download the full daily slate as a CSV file."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    result = await db.execute(
+        select(Prediction)
+        .join(Game)
+        .where(Game.status == "NS")
+        .order_by(Game.commence_time, Prediction.predicted_at.desc())
+    )
+    predictions = result.scalars().all()
+
+    seen: set[int] = set()
+    latest: list[Prediction] = []
+    for pred in predictions:
+        game_id = int(cast(Any, pred.game_id))
+        if game_id not in seen:
+            seen.add(game_id)
+            latest.append(pred)
+
+    game_ids = [int(cast(Any, p.game_id)) for p in latest]
+    game_result = await db.execute(
+        select(Game)
+        .options(
+            selectinload(Game.home_team),
+            selectinload(Game.away_team),
+        )
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    rows = []
+    for pred in latest:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game:
+            rows.append((pred, game))
+
+    from datetime import UTC, datetime
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    csv_content = build_slate_csv(rows)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="nba_slate_{today}.csv"'
+        },
+    )
+
+
 @router.post("/publish/teams")
 async def publish_predictions_to_teams(
     db: AsyncSession = Depends(get_db),
@@ -200,8 +263,11 @@ async def publish_predictions_to_teams(
     """Generate latest predictions and send formatted payload to Teams."""
     if not predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not loaded")
-    if not settings.teams_webhook_url:
-        raise HTTPException(status_code=400, detail="Teams webhook is not configured")
+    if (
+        not (settings.teams_team_id and settings.teams_channel_id)
+        and not settings.teams_webhook_url
+    ):
+        raise HTTPException(status_code=400, detail="Teams delivery is not configured")
 
     predictions = await predictor.predict_upcoming(db)
     if not predictions:
@@ -223,6 +289,28 @@ async def publish_predictions_to_teams(
         if game is not None:
             rows.append((pred, game))
 
-    text = build_teams_text(rows, settings.teams_max_games_per_message)
-    await send_text_to_teams(settings.teams_webhook_url, text)
+    # Latest odds pull timestamp
+    from sqlalchemy import func as sa_func
+
+    odds_ts_result = await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
+    odds_pulled_at = odds_ts_result.scalar_one_or_none()
+
+    download_url = (
+        f"{settings.api_base_url}/predictions/slate.csv"
+        if settings.api_base_url
+        else None
+    )
+
+    payload = build_teams_card(
+        rows,
+        settings.teams_max_games_per_message,
+        odds_pulled_at=odds_pulled_at,
+        download_url=download_url,
+    )
+    if settings.teams_team_id and settings.teams_channel_id:
+        await send_card_via_graph(
+            settings.teams_team_id, settings.teams_channel_id, payload
+        )
+    else:
+        await send_card_to_teams(settings.teams_webhook_url, payload)
     return {"status": "ok", "published": len(rows)}

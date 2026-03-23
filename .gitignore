@@ -44,5 +44,9 @@ htmlcov/
 # Alembic
 src/db/migrations/versions/__pycache__/
 
+# Temp scripts
+_*.py
+_*.json
+
 # Azure
 .azure/
