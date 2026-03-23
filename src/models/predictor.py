@@ -204,14 +204,17 @@ class Predictor:
             scale=5.0,
         )
 
-        # Extract opening market lines from fresh odds for CLV tracking
+        # Extract opening market lines from fresh odds for CLV tracking.
+        # Spreads use betting convention (negative = home favorite).
         opening_spread = None
         opening_total = None
+        home_name = game.home_team.name if game.home_team else ""
         if fresh_snapshots:
             mkt_spreads = [
-                s.point
+                float(s.point)
                 for s in fresh_snapshots
                 if s.market == "spreads" and s.point is not None
+                and s.outcome_name == home_name
             ]
             mkt_totals = [
                 s.point

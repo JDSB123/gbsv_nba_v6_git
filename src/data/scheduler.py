@@ -150,6 +150,9 @@ async def fill_clv() -> None:
             result = await db.execute(
                 select(Prediction)
                 .join(Game, Prediction.game_id == Game.id)
+                .options(
+                    selectinload(Prediction.game).selectinload(Game.home_team)
+                )
                 .where(
                     and_(
                         Game.status == "FT",
@@ -161,8 +164,16 @@ async def fill_clv() -> None:
             if not preds:
                 return
 
+            import numpy as np
+
             for pred in preds:
                 pred_any = cast(Any, pred)
+                game_obj = cast(Any, pred).game
+                home_name = (
+                    game_obj.home_team.name
+                    if game_obj and game_obj.home_team
+                    else ""
+                )
                 # Latest odds snapshot for this game
                 odds_q = await db.execute(
                     select(OddsSnapshot)
@@ -174,12 +185,13 @@ async def fill_clv() -> None:
                 if not snapshots:
                     continue
 
-                import numpy as np
-
+                # Spreads: betting convention (negative = home favorite)
                 spreads = [
                     float(cast(Any, s.point))
                     for s in snapshots
-                    if cast(Any, s.market) == "spreads" and s.point is not None
+                    if cast(Any, s.market) == "spreads"
+                    and s.point is not None
+                    and cast(Any, s.outcome_name) == home_name
                 ]
                 totals = [
                     float(cast(Any, s.point))
@@ -213,8 +225,17 @@ async def generate_predictions_and_publish() -> None:
     """Generate upcoming predictions and publish formatted output to Teams."""
     logger.info("Generating predictions and publishing to Teams...")
     try:
+        from sqlalchemy import func as sa_func
+
+        from src.db.models import OddsSnapshot
         from src.models.predictor import Predictor
-        from src.notifications.teams import build_teams_text, send_text_to_teams
+        from src.notifications.teams import (
+            build_slate_csv,
+            build_teams_card,
+            send_card_to_teams,
+            send_card_via_graph,
+            upload_csv_to_channel,
+        )
 
         predictor = Predictor()
         if not predictor.is_ready:
@@ -243,12 +264,50 @@ async def generate_predictions_and_publish() -> None:
                 if game is not None:
                     rows.append((pred, game))
 
-            if settings.teams_webhook_url and rows:
-                text = build_teams_text(rows, settings.teams_max_games_per_message)
-                await send_text_to_teams(settings.teams_webhook_url, text)
-                logger.info("Published %d predictions to Teams", len(rows))
-            else:
-                logger.info("Teams webhook not configured or no rows to publish")
+            # Latest odds pull timestamp
+            odds_ts_result = await db.execute(
+                select(sa_func.max(OddsSnapshot.captured_at))
+            )
+            odds_pulled_at = odds_ts_result.scalar_one_or_none()
+
+            if rows:
+                download_url: str | None = None
+
+                # Upload CSV to Teams channel Files tab if Graph API is configured
+                if settings.teams_team_id and settings.teams_channel_id:
+                    csv_content = build_slate_csv(rows)
+                    today_str = date.today().isoformat()
+                    download_url = await upload_csv_to_channel(
+                        settings.teams_team_id,
+                        settings.teams_channel_id,
+                        f"nba_slate_{today_str}.csv",
+                        csv_content,
+                    )
+                elif settings.api_base_url:
+                    download_url = f"{settings.api_base_url}/predictions/slate.csv"
+
+                payload = build_teams_card(
+                    rows,
+                    settings.teams_max_games_per_message,
+                    odds_pulled_at=odds_pulled_at,
+                    download_url=download_url,
+                )
+                if settings.teams_team_id and settings.teams_channel_id:
+                    await send_card_via_graph(
+                        settings.teams_team_id,
+                        settings.teams_channel_id,
+                        payload,
+                    )
+                    logger.info(
+                        "Published %d predictions to Teams (Graph API)", len(rows)
+                    )
+                elif settings.teams_webhook_url:
+                    await send_card_to_teams(settings.teams_webhook_url, payload)
+                    logger.info(
+                        "Published %d predictions to Teams (webhook)", len(rows)
+                    )
+                else:
+                    logger.info("No Teams delivery configured; skipping publish")
     except Exception:
         logger.exception("Error generating/publishing predictions")
 

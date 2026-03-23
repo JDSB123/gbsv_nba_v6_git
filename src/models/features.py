@@ -28,6 +28,40 @@ def _as_str(value: Any, default: str = "") -> str:
     return str(value) if value is not None else default
 
 
+def _home_spreads(
+    snapshots: Sequence[Any],
+    home_team_name: str,
+    market: str = "spreads",
+    books: frozenset[str] | None = None,
+) -> list[float]:
+    """Extract the home team's spread values from odds snapshots.
+
+    The Odds API returns two outcomes per bookmaker (one per team) with
+    opposite-signed point values.  Averaging both cancels to ~0 and
+    discards all directional information.
+
+    This function keeps only the home team's outcome, preserving the
+    standard betting convention::
+
+        negative  -> home favorite  (e.g. -5.5 means home gives 5.5)
+        positive  -> home underdog  (e.g. +3.0 means home gets 3)
+
+    Parameters
+    ----------
+    books : optional frozenset — only include bookmakers in this set.
+    """
+    result: list[float] = []
+    for s in snapshots:
+        if _as_str(s.market) != market or s.point is None:
+            continue
+        if _as_str(s.outcome_name) != home_team_name:
+            continue
+        if books is not None and _as_str(s.bookmaker).lower() not in books:
+            continue
+        result.append(_as_float(s.point))
+    return result
+
+
 # Injury status weights
 INJURY_WEIGHTS = {"out": 1.0, "doubtful": 0.75, "questionable": 0.25, "probable": 0.05}
 
@@ -471,24 +505,14 @@ async def build_feature_vector(
         # Prediction path: use fresh odds passed in by the caller
         snapshots = odds_snapshots
     if snapshots:
-        spreads = [
-            _as_float(s.point)
-            for s in snapshots
-            if _as_str(s.market) == "spreads"
-            and s.point is not None
-        ]
+        spreads = _home_spreads(snapshots, home_name)
         totals = [
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "totals"
             and s.point is not None
         ]
-        h1_spreads = [
-            _as_float(s.point)
-            for s in snapshots
-            if _as_str(s.market) == "spreads_1st_half"
-            and s.point is not None
-        ]
+        h1_spreads = _home_spreads(snapshots, home_name, "spreads_1st_half")
         h1_totals = [
             _as_float(s.point)
             for s in snapshots
@@ -528,8 +552,6 @@ async def build_feature_vector(
             features["mkt_home_ml_prob"] = 0.5
 
         # ── Sharp vs. Square book analysis ──────────────────────
-        home_team_name = game.home_team.name if game.home_team is not None else ""
-
         def _split_by_book_type(snaps: Sequence[Any], mkt: str, field: str = "point"):
             sharp_vals, square_vals = [], []
             for s in snaps:
@@ -551,8 +573,9 @@ async def build_feature_vector(
                 return abs(price_f) / (abs(price_f) + 100)
             return 100 / (price_f + 100)
 
-        # Spread: sharp vs square
-        sharp_spr, square_spr = _split_by_book_type(snapshots, "spreads")
+        # Spread: sharp vs square (home-margin convention)
+        sharp_spr = _home_spreads(snapshots, home_name, books=SHARP_BOOKS)
+        square_spr = _home_spreads(snapshots, home_name, books=SQUARE_BOOKS)
         features["sharp_spread"] = (
             float(np.mean(sharp_spr)) if sharp_spr else features["mkt_spread_avg"]
         )
@@ -622,6 +645,7 @@ async def build_feature_vector(
             if _as_str(s.market) == "spreads"
             and cast(Any, s.captured_at) == oldest_ts
             and s.point is not None
+            and _as_str(s.outcome_name) == home_name
         ]
         current_spreads = [
             _as_float(s.point)
@@ -629,6 +653,7 @@ async def build_feature_vector(
             if _as_str(s.market) == "spreads"
             and cast(Any, s.captured_at) == cast(Any, snapshots[0].captured_at)
             and s.point is not None
+            and _as_str(s.outcome_name) == home_name
         ]
         opening_totals = [
             _as_float(s.point)
@@ -654,16 +679,15 @@ async def build_feature_vector(
         features["total_move"] = curr_tot - open_tot
 
         # ── Reverse line movement (RLM) indicator ──────────────
-        # RLM = spread moved toward the sharp side despite public likely
-        # being on the other side.  Proxy: if the sharp-square spread
-        # divergence and the line movement direction disagree with what
-        # public action would cause, flag RLM.
-        # Positive sharp_square_spread_diff → sharps see home stronger.
-        # If spread ALSO moved toward home (more negative = home favored
-        # more), that aligns with sharp $, not public. Flag as RLM.
+        # All spread values use betting convention (negative = home fav).
+        # sharp_square_spread_diff = sharp - square.
+        #   Negative diff → sharps have home as bigger favorite.
+        #   Positive diff → sharps have away as bigger favorite.
+        # RLM = line moved in the same direction as the sharp-square
+        # divergence (i.e. toward the sharp side, against public).
         spread_moved_toward_sharp = (
-            features["sharp_square_spread_diff"] > 0 and features["spread_move"] < 0
-        ) or (features["sharp_square_spread_diff"] < 0 and features["spread_move"] > 0)
+            features["sharp_square_spread_diff"] > 0 and features["spread_move"] > 0
+        ) or (features["sharp_square_spread_diff"] < 0 and features["spread_move"] < 0)
         features["rlm_flag"] = 1.0 if spread_moved_toward_sharp else 0.0
     else:
         for k in [
