@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from src.api.dependencies import get_predictor
 from src.config import get_settings
-from src.db.models import Game, OddsSnapshot, Prediction
+from src.db.models import Game, OddsSnapshot, Prediction, Team
 from src.db.session import get_db
 from src.models.predictor import Predictor
 from src.notifications.teams import (
@@ -160,8 +160,8 @@ async def download_slate_csv(
     game_result = await db.execute(
         select(Game)
         .options(
-            selectinload(Game.home_team),
-            selectinload(Game.away_team),
+            selectinload(Game.home_team).selectinload(Team.season_stats),
+            selectinload(Game.away_team).selectinload(Team.season_stats),
         )
         .where(Game.id.in_(game_ids))
         .order_by(Game.commence_time)
@@ -219,8 +219,8 @@ async def download_slate_html(
     game_result = await db.execute(
         select(Game)
         .options(
-            selectinload(Game.home_team),
-            selectinload(Game.away_team),
+            selectinload(Game.home_team).selectinload(Team.season_stats),
+            selectinload(Game.away_team).selectinload(Team.season_stats),
         )
         .where(Game.id.in_(game_ids))
         .order_by(Game.commence_time)
@@ -292,7 +292,10 @@ async def publish_predictions_to_teams(
     game_ids = [int(cast(Any, p.game_id)) for p in predictions]
     game_result = await db.execute(
         select(Game)
-        .options(selectinload(Game.home_team), selectinload(Game.away_team))
+        .options(
+            selectinload(Game.home_team).selectinload(Team.season_stats),
+            selectinload(Game.away_team).selectinload(Team.season_stats),
+        )
         .where(Game.id.in_(game_ids))
         .order_by(Game.commence_time)
     )
