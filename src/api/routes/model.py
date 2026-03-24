@@ -30,9 +30,7 @@ async def model_status(predictor: Predictor = Depends(get_predictor)):
 
 @router.get("/registry")
 async def model_registry(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(ModelRegistry).order_by(ModelRegistry.created_at.desc())
-    )
+    result = await db.execute(select(ModelRegistry).order_by(ModelRegistry.created_at.desc()))
     rows = result.scalars().all()
     return {
         "models": [
@@ -92,12 +90,8 @@ async def model_performance(
         )
         slot["count"] = int(slot["count"]) + 1
 
-        slot["home_fg_abs"].append(
-            abs(float(pred.predicted_home_fg) - float(game.home_score_fg))
-        )
-        slot["away_fg_abs"].append(
-            abs(float(pred.predicted_away_fg) - float(game.away_score_fg))
-        )
+        slot["home_fg_abs"].append(abs(float(pred.predicted_home_fg) - float(game.home_score_fg)))
+        slot["away_fg_abs"].append(abs(float(pred.predicted_away_fg) - float(game.away_score_fg)))
 
         if game.home_score_1h is not None and game.away_score_1h is not None:
             slot["home_1h_abs"].append(

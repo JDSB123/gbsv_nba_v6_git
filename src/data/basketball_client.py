@@ -101,9 +101,7 @@ def _compute_advanced_stats(
     )
     tov = _as_float(turnovers.get("total", {}).get("all"))
 
-    total_pts_for = _as_float(
-        s.get("points", {}).get("for", {}).get("total", {}).get("all")
-    )
+    total_pts_for = _as_float(s.get("points", {}).get("for", {}).get("total", {}).get("all"))
     total_pts_against = _as_float(
         s.get("points", {}).get("against", {}).get("total", {}).get("all")
     )
@@ -117,9 +115,7 @@ def _compute_advanced_stats(
         if total_poss > 0:
             pace = total_poss / games_played
             off_rating = 100.0 * total_pts_for / total_poss if total_pts_for else None
-            def_rating = (
-                100.0 * total_pts_against / total_poss if total_pts_against else None
-            )
+            def_rating = 100.0 * total_pts_against / total_poss if total_pts_against else None
             return pace, off_rating, def_rating
 
     # ── Fallback: estimate from PPG / OPPG ─────────────────────
@@ -203,9 +199,7 @@ class BasketballClient:
     async def fetch_h2h(self, team1_id: int, team2_id: int) -> list[dict]:
         return await self._get("games/h2h", {"h2h": f"{team1_id}-{team2_id}"})
 
-    async def fetch_players(
-        self, team_id: int, season: str | None = None
-    ) -> list[dict]:
+    async def fetch_players(self, team_id: int, season: str | None = None) -> list[dict]:
         return await self._get(
             "players",
             {
@@ -238,9 +232,7 @@ class BasketballClient:
             data = resp.json()
             return data.get("response", [])
 
-    async def persist_injuries(
-        self, injuries_data: list[dict], db: AsyncSession
-    ) -> int:
+    async def persist_injuries(self, injuries_data: list[dict], db: AsyncSession) -> int:
         """Replace current injury data with a fresh report.
 
         Clears the entire ``injuries`` table then re-populates from the
@@ -268,9 +260,7 @@ class BasketballClient:
             description = status_info.get("description", "")
 
             # Look up team by name
-            team_result = await db.execute(
-                select(Team.id).where(Team.name == team_name)
-            )
+            team_result = await db.execute(select(Team.id).where(Team.name == team_name))
             team_id_row = team_result.scalar_one_or_none()
             if team_id_row is None:
                 continue
@@ -429,9 +419,7 @@ class BasketballClient:
         oppg = _as_float(points.get("against", {}).get("average", {}).get("all"))
 
         # Compute pace, off_rating, def_rating from box-score aggregates
-        pace, off_rating, def_rating = _compute_advanced_stats(
-            s, games_played, ppg, oppg
-        )
+        pace, off_rating, def_rating = _compute_advanced_stats(s, games_played, ppg, oppg)
 
         values = dict(
             team_id=team_id,
@@ -446,9 +434,7 @@ class BasketballClient:
             def_rating=def_rating,
         )
 
-        update_fields = {
-            k: v for k, v in values.items() if k not in ("team_id", "season")
-        }
+        update_fields = {k: v for k, v in values.items() if k not in ("team_id", "season")}
 
         stmt = (
             pg_insert(TeamSeasonStats)

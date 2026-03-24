@@ -147,9 +147,7 @@ class OddsSnapshot(Base):
 
     game = relationship("Game", back_populates="odds_snapshots")
 
-    __table_args__ = (
-        Index("ix_odds_game_market_captured", "game_id", "market", "captured_at"),
-    )
+    __table_args__ = (Index("ix_odds_game_market_captured", "game_id", "market", "captured_at"),)
 
 
 class Prediction(Base):

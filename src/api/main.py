@@ -13,9 +13,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO)
-    )
+    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
     logger.info("Starting NBA GBSV v6 — env=%s", settings.app_env)
 
     logger.info("API startup complete")

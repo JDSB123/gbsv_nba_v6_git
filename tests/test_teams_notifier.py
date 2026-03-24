@@ -282,8 +282,22 @@ def test_build_html_slate():
         odds_sourced={
             "captured_at": "2026-03-22T18:00:00Z",
             "books": {
-                "fanduel": {"spread": -8.0, "spread_price": -110, "total": 232.0, "total_price": -110, "home_ml": -350, "away_ml": 280},
-                "draftkings": {"spread": -7.5, "spread_price": -105, "total": 231.5, "total_price": -110, "home_ml": -340, "away_ml": 270},
+                "fanduel": {
+                    "spread": -8.0,
+                    "spread_price": -110,
+                    "total": 232.0,
+                    "total_price": -110,
+                    "home_ml": -350,
+                    "away_ml": 280,
+                },
+                "draftkings": {
+                    "spread": -7.5,
+                    "spread_price": -105,
+                    "total": 231.5,
+                    "total_price": -110,
+                    "home_ml": -340,
+                    "away_ml": 270,
+                },
             },
         },
     )

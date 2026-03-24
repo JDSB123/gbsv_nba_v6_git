@@ -39,7 +39,6 @@ def _margin_to_prob(
     return 1.0 / (1.0 + math.exp(-margin / scale))
 
 
-
 class Predictor:
     def __init__(self) -> None:
         self.feature_cols = get_feature_columns()
@@ -128,8 +127,7 @@ class Predictor:
             f"{name}={count}" for name, count in self._model_feature_counts.items()
         )
         self._last_error = (
-            "Model artifact feature shape mismatch: "
-            f"expected {expected_features}, got [{mismatch}]"
+            f"Model artifact feature shape mismatch: expected {expected_features}, got [{mismatch}]"
         )
         logger.error(self._last_error)
         self.models = {}
@@ -279,9 +277,7 @@ class Predictor:
 
         home_name = game.home_team.name if game.home_team else ""
         away_name = game.away_team.name if game.away_team else ""
-        odds_detail = self._build_odds_detail(
-            stored_snapshots, home_name, away_name, odds_ts
-        )
+        odds_detail = self._build_odds_detail(stored_snapshots, home_name, away_name, odds_ts)
 
         features = await build_feature_vector(game, db, odds_snapshots=stored_snapshots)
         if features is None:
@@ -326,7 +322,8 @@ class Predictor:
             mkt_spreads = [
                 float(cast(Any, s.point))
                 for s in stored_snapshots
-                if cast(Any, s.market) == "spreads" and s.point is not None
+                if cast(Any, s.market) == "spreads"
+                and s.point is not None
                 and cast(Any, s.outcome_name) == home_name
             ]
             mkt_totals = [
@@ -346,7 +343,8 @@ class Predictor:
             mkt_h1_spreads = [
                 float(cast(Any, s.point))
                 for s in stored_snapshots
-                if cast(Any, s.market) == "spreads_h1" and s.point is not None
+                if cast(Any, s.market) == "spreads_h1"
+                and s.point is not None
                 and cast(Any, s.outcome_name) == home_name
             ]
             mkt_h1_totals = [

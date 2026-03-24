@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,17 +40,60 @@ def _not_ready_detail(predictor: Predictor) -> Any:
     return "Models not loaded"
 
 
+def _parse_iso_utc(ts: Any) -> datetime | None:
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _odds_freshness_summary(
+    predictions: list[dict],
+    max_age_minutes: int,
+) -> dict[str, Any]:
+    now_utc = datetime.now(UTC)
+    ages_minutes: list[float] = []
+    missing_odds_sourced = 0
+    missing_captured_at = 0
+
+    for row in predictions:
+        odds_sourced = row.get("odds_sourced")
+        if not isinstance(odds_sourced, dict):
+            missing_odds_sourced += 1
+            continue
+
+        captured_at = _parse_iso_utc(odds_sourced.get("captured_at"))
+        if captured_at is None:
+            missing_captured_at += 1
+            continue
+
+        ages_minutes.append((now_utc - captured_at).total_seconds() / 60.0)
+
+    stale_count = sum(1 for age in ages_minutes if age > max_age_minutes)
+    usable = len(ages_minutes)
+    status = "ok"
+    if missing_odds_sourced or missing_captured_at or stale_count:
+        status = "warning"
+
+    return {
+        "status": status,
+        "max_allowed_age_minutes": max_age_minutes,
+        "evaluated_predictions": len(predictions),
+        "usable_captured_at_count": usable,
+        "missing_odds_sourced": missing_odds_sourced,
+        "missing_captured_at": missing_captured_at,
+        "stale_count": stale_count,
+        "freshest_age_minutes": round(min(ages_minutes), 2) if ages_minutes else None,
+        "stale_threshold_minutes": max_age_minutes,
+        "stale_ratio": round(stale_count / usable, 3) if usable else None,
+    }
+
+
 def _format_prediction(pred: Prediction, game: Game) -> dict:
-    home_name = (
-        game.home_team.name
-        if game.home_team is not None
-        else f"Team {game.home_team_id}"
-    )
-    away_name = (
-        game.away_team.name
-        if game.away_team is not None
-        else f"Team {game.away_team_id}"
-    )
+    home_name = game.home_team.name if game.home_team is not None else f"Team {game.home_team_id}"
+    away_name = game.away_team.name if game.away_team is not None else f"Team {game.away_team_id}"
     fg_home_ml_prob = _as_float(pred.fg_home_ml_prob, 0.5)
     h1_home_ml_prob = _as_float(pred.h1_home_ml_prob, 0.5)
     return {
@@ -85,9 +129,7 @@ def _format_prediction(pred: Prediction, game: Game) -> dict:
             },
         },
         "model_version": pred.model_version,
-        "predicted_at": (
-            pred.predicted_at.isoformat() if pred.predicted_at is not None else None
-        ),
+        "predicted_at": (pred.predicted_at.isoformat() if pred.predicted_at is not None else None),
         "odds_sourced": pred.odds_sourced,
         "clv": {
             "opening_spread": pred.opening_spread,
@@ -138,7 +180,8 @@ async def list_predictions(
         if game:
             output.append(_format_prediction(pred, game))
 
-    return {"predictions": output, "count": len(output)}
+    freshness = _odds_freshness_summary(output, settings.odds_freshness_max_age_minutes)
+    return {"predictions": output, "count": len(output), "freshness": freshness}
 
 
 # ── Static routes MUST come before /{game_id} to avoid 422 ────────
@@ -195,9 +238,7 @@ async def download_slate_csv(
     return Response(
         content=csv_content,
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="nba_slate_{today}.csv"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="nba_slate_{today}.csv"'},
     )
 
 
@@ -247,13 +288,15 @@ async def download_slate_html(
         if game:
             rows.append((pred, game))
 
-    odds_ts_result = await db.execute(
-        select(sa_func.max(OddsSnapshot.captured_at))
-    )
+    odds_ts_result = await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
     odds_pulled_at = odds_ts_result.scalar_one_or_none()
 
     slate_body = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
-    csv_url = f"{settings.api_base_url}/predictions/slate.csv" if settings.api_base_url else "/predictions/slate.csv"
+    csv_url = (
+        f"{settings.api_base_url}/predictions/slate.csv"
+        if settings.api_base_url
+        else "/predictions/slate.csv"
+    )
     html_page = (
         "<!DOCTYPE html>"
         '<html lang="en"><head>'
@@ -287,12 +330,23 @@ async def download_slate_html(
 
 @router.get("/refresh")
 async def refresh_predictions(
+    force_odds_pull: bool = True,
     db: AsyncSession = Depends(get_db),
     predictor: Predictor = Depends(get_predictor),
 ):
     """Regenerate predictions for all upcoming games using the current model."""
     if not predictor.is_ready:
         raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
+
+    odds_pull_warning: str | None = None
+    if force_odds_pull:
+        from src.data.scheduler import poll_fg_odds
+
+        try:
+            await poll_fg_odds()
+        except Exception as exc:
+            # Continue with best-effort refresh, but surface that odds pull failed.
+            odds_pull_warning = str(exc)
 
     try:
         predictions = await predictor.predict_upcoming(db)
@@ -307,7 +361,13 @@ async def refresh_predictions(
         ) from exc
 
     if not predictions:
-        return {"status": "ok", "refreshed": 0, "detail": "No upcoming games"}
+        return {
+            "status": "ok",
+            "refreshed": 0,
+            "detail": "No upcoming games",
+            "force_odds_pull": force_odds_pull,
+            "odds_pull_warning": odds_pull_warning,
+        }
 
     game_ids = [int(cast(Any, p.game_id)) for p in predictions]
     game_result = await db.execute(
@@ -328,10 +388,15 @@ async def refresh_predictions(
         if game:
             output.append(_format_prediction(pred, game))
 
+    freshness = _odds_freshness_summary(output, settings.odds_freshness_max_age_minutes)
+
     return {
         "status": "ok",
         "refreshed": len(output),
         "model_version": predictions[0].model_version if predictions else None,
+        "force_odds_pull": force_odds_pull,
+        "odds_pull_warning": odds_pull_warning,
+        "freshness": freshness,
         "predictions": output,
     }
 
@@ -380,9 +445,7 @@ async def publish_predictions_to_teams(
     odds_pulled_at = odds_ts_result.scalar_one_or_none()
 
     download_url = (
-        f"{settings.api_base_url}/predictions/slate.html"
-        if settings.api_base_url
-        else None
+        f"{settings.api_base_url}/predictions/slate.html" if settings.api_base_url else None
     )
 
     payload = build_teams_card(
@@ -392,9 +455,7 @@ async def publish_predictions_to_teams(
         download_url=download_url,
     )
     if settings.teams_team_id and settings.teams_channel_id:
-        await send_card_via_graph(
-            settings.teams_team_id, settings.teams_channel_id, payload
-        )
+        await send_card_via_graph(settings.teams_team_id, settings.teams_channel_id, payload)
     else:
         await send_card_to_teams(settings.teams_webhook_url, payload)
     return {"status": "ok", "published": len(rows)}
@@ -430,9 +491,7 @@ async def get_prediction(
     )
     pred = pred_result.scalar_one_or_none()
     if not pred:
-        raise HTTPException(
-            status_code=404, detail="No prediction available for this game"
-        )
+        raise HTTPException(status_code=404, detail="No prediction available for this game")
 
     result = _format_prediction(pred, game)
 
@@ -467,8 +526,6 @@ async def get_prediction(
         if totals:
             mkt_total = float(np.mean(totals))
             result["markets"]["fg_total"]["market_line"] = mkt_total
-            result["markets"]["fg_total"]["edge"] = round(
-                _as_float(pred.fg_total) - mkt_total, 1
-            )
+            result["markets"]["fg_total"]["edge"] = round(_as_float(pred.fg_total) - mkt_total, 1)
 
     return result

@@ -108,9 +108,7 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
                 ct = parse_api_datetime(commence)
                 result = await db.execute(select(Game).where(Game.commence_time == ct))
                 game = result.scalar_one_or_none()
-                game_odds_api_id = (
-                    cast(Any, game.odds_api_id) if game is not None else None
-                )
+                game_odds_api_id = cast(Any, game.odds_api_id) if game is not None else None
                 if game is not None and game_odds_api_id is None:
                     game.odds_api_id = event["id"]
                     mapped += 1
@@ -139,9 +137,7 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
                         h1_count += await odds.persist_odds([data], db)
             logger.info("  Persisted %d 1H odds snapshots", h1_count)
         except Exception:
-            logger.exception(
-                "Odds fetch failed during backfill; continuing without odds snapshots"
-            )
+            logger.exception("Odds fetch failed during backfill; continuing without odds snapshots")
 
         # ── 7. Injury report ──────────────────────────────────────
         logger.info("Step 7/7: Fetching injury report ...")
@@ -153,8 +149,6 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
             else:
                 logger.info("  No injury data available")
         except Exception:
-            logger.exception(
-                "Injury fetch failed during backfill; continuing without injury data"
-            )
+            logger.exception("Injury fetch failed during backfill; continuing without injury data")
 
     logger.info("Backfill complete.")

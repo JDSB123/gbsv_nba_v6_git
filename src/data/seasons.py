@@ -14,11 +14,7 @@ def format_season(start_year: int) -> str:
 
 def season_for_date(value: date | datetime) -> str:
     game_date = value.date() if isinstance(value, datetime) else value
-    start_year = (
-        game_date.year
-        if game_date.month >= NBA_SEASON_START_MONTH
-        else game_date.year - 1
-    )
+    start_year = game_date.year if game_date.month >= NBA_SEASON_START_MONTH else game_date.year - 1
     return format_season(start_year)
 
 

@@ -21,8 +21,7 @@ def _has_table(table_name: str) -> bool:
 
 def _has_index(table_name: str, index_name: str) -> bool:
     return any(
-        index["name"] == index_name
-        for index in sa.inspect(op.get_bind()).get_indexes(table_name)
+        index["name"] == index_name for index in sa.inspect(op.get_bind()).get_indexes(table_name)
     )
 
 
@@ -64,9 +63,7 @@ def _ensure_predictions_table() -> None:
     )
 
     if not _has_index("predictions", "ix_predictions_game_id"):
-        op.create_index(
-            "ix_predictions_game_id", "predictions", ["game_id"], unique=False
-        )
+        op.create_index("ix_predictions_game_id", "predictions", ["game_id"], unique=False)
     if not _has_index("predictions", "ix_predictions_predicted_at"):
         op.create_index(
             "ix_predictions_predicted_at",
@@ -93,8 +90,7 @@ def upgrade() -> None:
     _ensure_predictions_table()
 
     existing_columns = {
-        column["name"]
-        for column in sa.inspect(op.get_bind()).get_columns("predictions")
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("predictions")
     }
     columns_to_add = (
         ("opening_spread", sa.Float()),
@@ -117,8 +113,7 @@ def downgrade() -> None:
         return
 
     existing_columns = {
-        column["name"]
-        for column in sa.inspect(op.get_bind()).get_columns("predictions")
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("predictions")
     }
     for column_name in (
         "clv_total",

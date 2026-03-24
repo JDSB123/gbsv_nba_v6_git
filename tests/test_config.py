@@ -11,6 +11,7 @@ def test_settings_defaults():
     assert s.odds_1h_interval == 30
     assert s.stats_interval == 120
     assert s.retrain_hour == 6
+    assert s.odds_freshness_max_age_minutes == 30
 
 
 def test_settings_env_override(monkeypatch):
@@ -52,9 +53,6 @@ def test_resolve_database_url_prefers_env_without_api_keys(monkeypatch):
     get_settings.cache_clear()
 
     try:
-        assert (
-            resolve_database_url()
-            == "postgresql+asyncpg://user:pass@db.example:5432/nba"
-        )
+        assert resolve_database_url() == "postgresql+asyncpg://user:pass@db.example:5432/nba"
     finally:
         get_settings.cache_clear()

@@ -213,12 +213,8 @@ class ModelTrainer:
             row["away_score_fg"] = float(cast(Any, game.away_score_fg))
             home_score_1h = cast(Any, game.home_score_1h)
             away_score_1h = cast(Any, game.away_score_1h)
-            row["home_score_1h"] = (
-                float(home_score_1h) if home_score_1h is not None else 0.0
-            )
-            row["away_score_1h"] = (
-                float(away_score_1h) if away_score_1h is not None else 0.0
-            )
+            row["home_score_1h"] = float(home_score_1h) if home_score_1h is not None else 0.0
+            row["away_score_1h"] = float(away_score_1h) if away_score_1h is not None else 0.0
             row["commence_time"] = cast(Any, game.commence_time)
             rows.append(row)
 
@@ -245,9 +241,7 @@ class ModelTrainer:
 
             # ── Optuna hyperparameter search ────────────────────
             if self.run_optuna and len(df) >= 200:
-                logger.info(
-                    "Running Optuna for %s (%d trials)...", model_name, OPTUNA_N_TRIALS
-                )
+                logger.info("Running Optuna for %s (%d trials)...", model_name, OPTUNA_N_TRIALS)
                 study = optuna.create_study(direction="minimize")
                 study.optimize(
                     lambda trial, _X=X, _y=y: _optuna_objective(trial, _X, _y),
@@ -258,9 +252,7 @@ class ModelTrainer:
                 best["random_state"] = 42
                 best["early_stopping_rounds"] = 30
                 best_params_all[model_name] = best
-                logger.info(
-                    "%s best params: %s (MAE=%.2f)", model_name, best, study.best_value
-                )
+                logger.info("%s best params: %s (MAE=%.2f)", model_name, best, study.best_value)
             else:
                 best = dict(DEFAULT_XGB_PARAMS)
                 best_params_all[model_name] = best

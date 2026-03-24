@@ -28,11 +28,7 @@ def _get_model_modified_at() -> str:
     """Timestamp of the newest model artifact file."""
     try:
         latest = max(
-            (
-                f.stat().st_mtime
-                for f in _ARTIFACTS_DIR.glob("model_*.json")
-                if f.exists()
-            ),
+            (f.stat().st_mtime for f in _ARTIFACTS_DIR.glob("model_*.json") if f.exists()),
             default=0,
         )
         if latest > 0:
@@ -216,8 +212,12 @@ def extract_picks(
     # Extract 1H opening lines and consensus odds from stored odds detail
     odds_sourced = getattr(pred, "odds_sourced", None) or {}
     books = odds_sourced.get("books", {}) if isinstance(odds_sourced, dict) else {}
-    opening_h1_spread = odds_sourced.get("opening_h1_spread") if isinstance(odds_sourced, dict) else None
-    opening_h1_total = odds_sourced.get("opening_h1_total") if isinstance(odds_sourced, dict) else None
+    opening_h1_spread = (
+        odds_sourced.get("opening_h1_spread") if isinstance(odds_sourced, dict) else None
+    )
+    opening_h1_total = (
+        odds_sourced.get("opening_h1_total") if isinstance(odds_sourced, dict) else None
+    )
 
     # Build consensus American odds from per-book data if not supplied
     if not odds_map:
@@ -274,8 +274,16 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    label, e, t_cst, matchup, "FG", "SPREAD",
-                    f"{mkt_spread:+.1f}", fg_scores, h_rec, a_rec,
+                    label,
+                    e,
+                    t_cst,
+                    matchup,
+                    "FG",
+                    "SPREAD",
+                    f"{mkt_spread:+.1f}",
+                    fg_scores,
+                    h_rec,
+                    a_rec,
                     _fire_count(e),
                     odds=odds_map.get("FG_SPREAD", ""),
                     rationale=rationale,
@@ -290,8 +298,16 @@ def extract_picks(
         rationale = f"No market line · Model projects {side_name} by {e:.1f}pts"
         picks.append(
             Pick(
-                label, e, t_cst, matchup, "FG", "SPREAD",
-                f"{-fg_spread:+.1f}", fg_scores, h_rec, a_rec,
+                label,
+                e,
+                t_cst,
+                matchup,
+                "FG",
+                "SPREAD",
+                f"{-fg_spread:+.1f}",
+                fg_scores,
+                h_rec,
+                a_rec,
                 _fire_count(e),
                 odds=odds_map.get("FG_SPREAD", ""),
                 rationale=rationale,
@@ -311,9 +327,17 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    f"{direction} {mkt_total:.1f}", e, t_cst, matchup,
-                    "FG", "TOTAL", f"{mkt_total:.1f}", fg_scores,
-                    h_rec, a_rec, _fire_count(e),
+                    f"{direction} {mkt_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "FG",
+                    "TOTAL",
+                    f"{mkt_total:.1f}",
+                    fg_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
                     odds=odds_map.get("FG_TOTAL", ""),
                     rationale=rationale,
                 )
@@ -326,9 +350,17 @@ def extract_picks(
             rationale = f"Model total {fg_total:.1f} vs NBA avg {_NBA_AVG_TOTAL:.0f} → {e:.1f}pt {direction.lower()}"
             picks.append(
                 Pick(
-                    f"{direction} {fg_total:.1f}", e, t_cst, matchup,
-                    "FG", "TOTAL", f"{fg_total:.1f}", fg_scores,
-                    h_rec, a_rec, _fire_count(e),
+                    f"{direction} {fg_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "FG",
+                    "TOTAL",
+                    f"{fg_total:.1f}",
+                    fg_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
                     odds=odds_map.get("FG_TOTAL", ""),
                     rationale=rationale,
                 )
@@ -354,8 +386,16 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    label, e, t_cst, matchup, "1H", "SPREAD",
-                    f"{mkt_h1_spread:+.1f}", h1_scores, h_rec, a_rec,
+                    label,
+                    e,
+                    t_cst,
+                    matchup,
+                    "1H",
+                    "SPREAD",
+                    f"{mkt_h1_spread:+.1f}",
+                    h1_scores,
+                    h_rec,
+                    a_rec,
                     _fire_count(e),
                     odds=odds_map.get("1H_SPREAD", ""),
                     rationale=rationale,
@@ -370,8 +410,16 @@ def extract_picks(
         rationale = f"No 1H line · Model projects {side_name} 1H by {e:.1f}pts"
         picks.append(
             Pick(
-                label, e, t_cst, matchup, "1H", "SPREAD",
-                f"{-h1_spread:+.1f}", h1_scores, h_rec, a_rec,
+                label,
+                e,
+                t_cst,
+                matchup,
+                "1H",
+                "SPREAD",
+                f"{-h1_spread:+.1f}",
+                h1_scores,
+                h_rec,
+                a_rec,
                 _fire_count(e),
                 odds=odds_map.get("1H_SPREAD", ""),
                 rationale=rationale,
@@ -379,11 +427,7 @@ def extract_picks(
         )
 
     # ── 1H total ──────────────────────────────────────────────
-    mkt_h1_total = (
-        float(opening_h1_total)
-        if opening_h1_total is not None
-        else None
-    )
+    mkt_h1_total = float(opening_h1_total) if opening_h1_total is not None else None
     if mkt_h1_total is not None:
         h1_total_edge = abs(h1_total - mkt_h1_total)
         if h1_total_edge >= min_edge:
@@ -395,9 +439,17 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    f"{direction} {mkt_h1_total:.1f}", e, t_cst, matchup,
-                    "1H", "TOTAL", f"{mkt_h1_total:.1f}", h1_scores,
-                    h_rec, a_rec, _fire_count(e),
+                    f"{direction} {mkt_h1_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "1H",
+                    "TOTAL",
+                    f"{mkt_h1_total:.1f}",
+                    h1_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
                     odds=odds_map.get("1H_TOTAL", ""),
                     rationale=rationale,
                 )
@@ -408,12 +460,22 @@ def extract_picks(
         if h1_total_diff >= 4:
             direction = "OVER" if h1_total > h1_avg else "UNDER"
             e = round(h1_total_diff, 1)
-            rationale = f"1H Model total {h1_total:.1f} vs avg {h1_avg:.0f} → {e:.1f}pt {direction.lower()}"
+            rationale = (
+                f"1H Model total {h1_total:.1f} vs avg {h1_avg:.0f} → {e:.1f}pt {direction.lower()}"
+            )
             picks.append(
                 Pick(
-                    f"{direction} {h1_total:.1f}", e, t_cst, matchup,
-                    "1H", "TOTAL", f"{h1_total:.1f}", h1_scores,
-                    h_rec, a_rec, _fire_count(e),
+                    f"{direction} {h1_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "1H",
+                    "TOTAL",
+                    f"{h1_total:.1f}",
+                    h1_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
                     odds=odds_map.get("1H_TOTAL", ""),
                     rationale=rationale,
                 )
@@ -436,9 +498,17 @@ def extract_picks(
         )
         picks.append(
             Pick(
-                f"{side} ML", ml_pts_edge, t_cst, matchup,
-                "FG", "ML", ml_odds or _prob_to_american(win_prob),
-                fg_scores, h_rec, a_rec, _fire_count(ml_pts_edge),
+                f"{side} ML",
+                ml_pts_edge,
+                t_cst,
+                matchup,
+                "FG",
+                "ML",
+                ml_odds or _prob_to_american(win_prob),
+                fg_scores,
+                h_rec,
+                a_rec,
+                _fire_count(ml_pts_edge),
                 odds=ml_odds,
                 rationale=rationale,
             )
@@ -465,7 +535,9 @@ def _pick_row(pick: Pick) -> dict:
         matchup_line = f"{pick.matchup.split(' @ ')[0]} ({pick.away_record}) @ {pick.matchup.split(' @ ')[1]} ({pick.home_record})"
     else:
         matchup_line = pick.matchup
-    detail_line = f"{pick.segment} {pick.market_type} · Line: {pick.market_line} · Model: {pick.model_scores}"
+    detail_line = (
+        f"{pick.segment} {pick.market_type} · Line: {pick.market_line} · Model: {pick.model_scores}"
+    )
 
     items: list[dict] = [
         {
@@ -960,15 +1032,9 @@ def build_html_slate(
         "padding:6px 10px;border:1px solid #dee2e6;border-radius:6px;"
         "font-size:13px;background:#fff;color:#1a2332;cursor:pointer"
     )
-    matchup_opts = "".join(
-        f'<option value="{_esc(m)}">{_esc(m)}</option>' for m in matchups
-    )
-    seg_opts = "".join(
-        f'<option value="{_esc(s)}">{_esc(s)}</option>' for s in segments
-    )
-    mkt_opts = "".join(
-        f'<option value="{_esc(m)}">{_esc(m)}</option>' for m in markets
-    )
+    matchup_opts = "".join(f'<option value="{_esc(m)}">{_esc(m)}</option>' for m in matchups)
+    seg_opts = "".join(f'<option value="{_esc(s)}">{_esc(s)}</option>' for s in segments)
+    mkt_opts = "".join(f'<option value="{_esc(m)}">{_esc(m)}</option>' for m in markets)
     filter_bar = (
         '<div id="filters" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">'
         f'<select id="fMatchup" style="{sel_style}" onchange="applyFilters()">'
@@ -980,7 +1046,7 @@ def build_html_slate(
         f'<input id="fEdge" type="number" step="0.5" min="0" placeholder="Min Edge" '
         f'style="{sel_style};width:100px" oninput="applyFilters()">'
         '<button onclick="resetFilters()" style="padding:6px 14px;border:none;'
-        'border-radius:6px;background:#1a2332;color:#d4af37;font-weight:600;'
+        "border-radius:6px;background:#1a2332;color:#d4af37;font-weight:600;"
         'font-size:12px;cursor:pointer;letter-spacing:.5px">RESET</button>'
         "</div>"
     )
@@ -1002,10 +1068,14 @@ def build_html_slate(
         parts = p.matchup.split(" @ ")
         away_display = f'<span style="color:#2563eb">{_esc(parts[0])}</span>'
         if p.away_record:
-            away_display += f' <span style="font-size:11px;color:#9ca3af">({_esc(p.away_record)})</span>'
+            away_display += (
+                f' <span style="font-size:11px;color:#9ca3af">({_esc(p.away_record)})</span>'
+            )
         home_display = f'<span style="color:#16a34a;font-weight:700">{_esc(parts[1]) if len(parts) > 1 else ""}</span>'
         if p.home_record:
-            home_display += f' <span style="font-size:11px;color:#9ca3af">({_esc(p.home_record)})</span>'
+            home_display += (
+                f' <span style="font-size:11px;color:#9ca3af">({_esc(p.home_record)})</span>'
+            )
         matchup_cell = f"{away_display} @ {home_display}"
 
         td = 'style="padding:6px;border-bottom:1px solid #e9ecef;font-size:13px;vertical-align:middle"'
@@ -1059,7 +1129,7 @@ def build_html_slate(
         f'<th style="{th_style};text-align:center">Edge</th>'
         f'<th style="{th_style};text-align:center">Rating</th>'
         "</tr></thead>"
-        f'<tbody>{"".join(rows_html)}</tbody>'
+        f"<tbody>{''.join(rows_html)}</tbody>"
         "</table>"
     )
 
@@ -1100,18 +1170,24 @@ def build_html_slate(
                     pieces.append("—")
                 # 1H markets
                 if "spread_h1" in lines:
-                    price = f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
+                    price = (
+                        f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
+                    )
                     pieces.append(f"{lines['spread_h1']:+.1f}{price}")
                 else:
                     pieces.append("—")
                 if "total_h1" in lines:
-                    price = f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
+                    price = (
+                        f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
+                    )
                     pieces.append(f"{lines['total_h1']:.1f}{price}")
                 else:
                     pieces.append("—")
 
                 otd = 'style="padding:4px 8px;border-bottom:1px solid #e9ecef;font-size:12px"'
-                matchup_cell = f"<td {otd}><b>{_esc(label)}</b></td>" if first else f'<td {otd}></td>'
+                matchup_cell = (
+                    f"<td {otd}><b>{_esc(label)}</b></td>" if first else f"<td {otd}></td>"
+                )
                 odds_rows.append(
                     f"<tr>"
                     f"{matchup_cell}"
@@ -1153,7 +1229,7 @@ def build_html_slate(
                 f'<th style="{oth}">1H Spread</th>'
                 f'<th style="{oth}">1H Total</th>'
                 f"</tr></thead>"
-                f'<tbody>{"".join(odds_rows)}</tbody>'
+                f"<tbody>{''.join(odds_rows)}</tbody>"
                 "</table></div>"
             )
 
@@ -1198,20 +1274,10 @@ def build_html_slate(
 
 
 def _format_game_line(pred: Any, game: Any) -> str:
-    home_name = (
-        game.home_team.name
-        if game.home_team is not None
-        else f"Team {game.home_team_id}"
-    )
-    away_name = (
-        game.away_team.name
-        if game.away_team is not None
-        else f"Team {game.away_team_id}"
-    )
+    home_name = game.home_team.name if game.home_team is not None else f"Team {game.home_team_id}"
+    away_name = game.away_team.name if game.away_team is not None else f"Team {game.away_team_id}"
     kickoff = game.commence_time
-    kickoff_text = (
-        kickoff.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC") if kickoff else "TBD"
-    )
+    kickoff_text = kickoff.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC") if kickoff else "TBD"
 
     fg_prob = float(pred.fg_home_ml_prob or 0.5)
     away_prob = 1.0 - fg_prob
@@ -1223,9 +1289,7 @@ def _format_game_line(pred: Any, game: Any) -> str:
     )
 
 
-def build_teams_text(
-    predictions_with_games: list[tuple[Any, Any]], max_games: int
-) -> str:
+def build_teams_text(predictions_with_games: list[tuple[Any, Any]], max_games: int) -> str:
     lines = ["NBA Predictions Update", ""]
     lines.append(f"Games: {min(len(predictions_with_games), max_games)}")
     lines.append("")
@@ -1286,10 +1350,7 @@ async def send_card_via_graph(
         ],
     }
 
-    url = (
-        f"https://graph.microsoft.com/v1.0/teams/{team_id}"
-        f"/channels/{channel_id}/messages"
-    )
+    url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -1304,9 +1365,7 @@ async def send_card_via_graph(
         return response.json()
 
 
-async def send_html_via_graph(
-    team_id: str, channel_id: str, html_content: str
-) -> dict[str, Any]:
+async def send_html_via_graph(team_id: str, channel_id: str, html_content: str) -> dict[str, Any]:
     """Post an HTML message directly to a Teams channel via Microsoft Graph API.
 
     Renders as native HTML in Teams — no Adaptive Card, no login prompt.
@@ -1323,10 +1382,7 @@ async def send_html_via_graph(
         },
     }
 
-    url = (
-        f"https://graph.microsoft.com/v1.0/teams/{team_id}"
-        f"/channels/{channel_id}/messages"
-    )
+    url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -1365,8 +1421,7 @@ async def upload_csv_to_channel(
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Get the channel's files folder (SharePoint drive item)
         folder_url = (
-            f"https://graph.microsoft.com/v1.0/teams/{team_id}"
-            f"/channels/{channel_id}/filesFolder"
+            f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/filesFolder"
         )
         folder_resp = await client.get(folder_url, headers=headers)
         folder_resp.raise_for_status()

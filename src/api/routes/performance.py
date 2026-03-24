@@ -80,9 +80,7 @@ def _grade_ml(fg_spread: float, actual_home: int, actual_away: int) -> str:
     return "W" if actual_away > actual_home else "L"
 
 
-def _grade_1h_winner(
-    h1_spread: float, actual_home_1h: int, actual_away_1h: int
-) -> str:
+def _grade_1h_winner(h1_spread: float, actual_home_1h: int, actual_away_1h: int) -> str:
     """Grade a 1H spread pick (no market 1H line – graded as 1H winner)."""
     if actual_home_1h == actual_away_1h:
         return "P"
@@ -121,7 +119,9 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         if abs(home_edge) >= MIN_EDGE:
             result = _grade_spread_ats(home_edge, actual_home_fg, actual_away_fg, opening_spread)
             label = f"{home} ATS" if home_edge > 0 else f"{away} ATS"
-            picks.append(GradedPick("FG", "SPREAD", round(abs(home_edge), 1), result, matchup, label))
+            picks.append(
+                GradedPick("FG", "SPREAD", round(abs(home_edge), 1), result, matchup, label)
+            )
 
     # ── FG Total O/U ──────────────────────────────────────
     if opening_total is not None:
@@ -129,12 +129,30 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         if total_edge >= MIN_EDGE:
             direction = "OVER" if fg_total > opening_total else "UNDER"
             result = _grade_total(fg_total, opening_total, actual_home_fg, actual_away_fg)
-            picks.append(GradedPick("FG", "TOTAL", round(total_edge, 1), result, matchup, f"{direction} {opening_total:.1f}"))
+            picks.append(
+                GradedPick(
+                    "FG",
+                    "TOTAL",
+                    round(total_edge, 1),
+                    result,
+                    matchup,
+                    f"{direction} {opening_total:.1f}",
+                )
+            )
     elif abs(fg_total - _NBA_AVG_TOTAL) >= 5:
         total_edge = abs(fg_total - _NBA_AVG_TOTAL)
         direction = "OVER" if fg_total > _NBA_AVG_TOTAL else "UNDER"
         result = _grade_total(fg_total, _NBA_AVG_TOTAL, actual_home_fg, actual_away_fg)
-        picks.append(GradedPick("FG", "TOTAL", round(total_edge, 1), result, matchup, f"{direction} {_NBA_AVG_TOTAL:.1f}"))
+        picks.append(
+            GradedPick(
+                "FG",
+                "TOTAL",
+                round(total_edge, 1),
+                result,
+                matchup,
+                f"{direction} {_NBA_AVG_TOTAL:.1f}",
+            )
+        )
 
     # ── FG ML ─────────────────────────────────────────────
     ml_edge = abs(fg_spread)
@@ -148,7 +166,9 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         if abs(h1_spread) >= MIN_EDGE:
             result = _grade_1h_winner(h1_spread, actual_home_1h, actual_away_1h)
             side = home if h1_spread > 0 else away
-            picks.append(GradedPick("1H", "SPREAD", round(abs(h1_spread), 1), result, matchup, f"{side} 1H"))
+            picks.append(
+                GradedPick("1H", "SPREAD", round(abs(h1_spread), 1), result, matchup, f"{side} 1H")
+            )
 
         # ── 1H Total ─────────────────────────────────────
         half_avg = _NBA_AVG_TOTAL / 2
@@ -156,7 +176,16 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         if h1_total_edge >= 4:
             direction = "OVER" if h1_total > half_avg else "UNDER"
             result = _grade_total(h1_total, half_avg, actual_home_1h, actual_away_1h)
-            picks.append(GradedPick("1H", "TOTAL", round(h1_total_edge, 1), result, matchup, f"1H {direction} {h1_total:.1f}"))
+            picks.append(
+                GradedPick(
+                    "1H",
+                    "TOTAL",
+                    round(h1_total_edge, 1),
+                    result,
+                    matchup,
+                    f"1H {direction} {h1_total:.1f}",
+                )
+            )
 
     return picks
 
@@ -428,13 +457,15 @@ def _build_dashboard_html(
         + _card("Overall Record", f'<span class="big">{ov["record"]}</span>')
         + _card(
             "Win Rate",
-            f'<span class="big {_pct_class(ov["win_pct"])}">'
-            f'{ov["win_pct"]:.1f}%</span>' if ov["win_pct"] is not None else '<span class="big">—</span>',
+            f'<span class="big {_pct_class(ov["win_pct"])}">{ov["win_pct"]:.1f}%</span>'
+            if ov["win_pct"] is not None
+            else '<span class="big">—</span>',
         )
         + _card(
             "ROI (flat -110)",
-            f'<span class="big {_roi_class(ov["roi_pct"])}">'
-            f'{ov["roi_pct"]:+.1f}%</span>' if ov["roi_pct"] is not None else '<span class="big">—</span>',
+            f'<span class="big {_roi_class(ov["roi_pct"])}">{ov["roi_pct"]:+.1f}%</span>'
+            if ov["roi_pct"] is not None
+            else '<span class="big">—</span>',
         )
     )
 
@@ -447,14 +478,19 @@ def _build_dashboard_html(
         ("h1_score_mae", "1H Score MAE"),
     ]:
         val = accuracy.get(key)
-        acc_html += _card(label, f'<span class="big">{val:.1f}</span>' if val is not None else '<span class="big">—</span>')
+        acc_html += _card(
+            label,
+            f'<span class="big">{val:.1f}</span>'
+            if val is not None
+            else '<span class="big">—</span>',
+        )
 
     # ── By market table ───────────────────────────────────
     market_rows_html = ""
     for mkt, rec in sorted(stats["by_market"].items()):
         mkt_label = mkt.replace("_", " ")
-        wp = f'{rec["win_pct"]:.1f}%' if rec["win_pct"] is not None else "—"
-        roi = f'{rec["roi_pct"]:+.1f}%' if rec["roi_pct"] is not None else "—"
+        wp = f"{rec['win_pct']:.1f}%" if rec["win_pct"] is not None else "—"
+        roi = f"{rec['roi_pct']:+.1f}%" if rec["roi_pct"] is not None else "—"
         roi_cls = _roi_class(rec["roi_pct"])
         wp_cls = _pct_class(rec["win_pct"])
         market_rows_html += (
@@ -466,8 +502,8 @@ def _build_dashboard_html(
     # ── By threshold table ────────────────────────────────
     threshold_rows_html = ""
     for thr, rec in stats["by_edge_threshold"].items():
-        wp = f'{rec["win_pct"]:.1f}%' if rec["win_pct"] is not None else "—"
-        roi = f'{rec["roi_pct"]:+.1f}%' if rec["roi_pct"] is not None else "—"
+        wp = f"{rec['win_pct']:.1f}%" if rec["win_pct"] is not None else "—"
+        roi = f"{rec['roi_pct']:+.1f}%" if rec["roi_pct"] is not None else "—"
         roi_cls = _roi_class(rec["roi_pct"])
         wp_cls = _pct_class(rec["win_pct"])
         threshold_rows_html += (
@@ -485,7 +521,7 @@ def _build_dashboard_html(
             clv_html += _card(
                 f"CLV {mkt.title()}",
                 f'<span class="big {cls}">{data["mean"]:+.2f}</span>'
-                f'<br><small>{data["positive_pct"]:.0f}% positive ({data["sample_size"]} games)</small>',
+                f"<br><small>{data['positive_pct']:.0f}% positive ({data['sample_size']} games)</small>",
             )
     else:
         clv_html = '<p class="subtle">CLV data will appear after games finish and closing lines are captured.</p>'

@@ -37,9 +37,7 @@ class OddsClient:
             self._remaining_quota is not None
             and self._remaining_quota < settings.odds_api_quota_min
         ):
-            logger.warning(
-                "Odds API quota low (%s), skipping request", self._remaining_quota
-            )
+            logger.warning("Odds API quota low (%s), skipping request", self._remaining_quota)
             return True
         return False
 
@@ -173,9 +171,7 @@ class OddsClient:
         for event in odds_data:
             odds_api_id = event.get("id")
             # Look up internal game_id by odds_api_id
-            result = await db.execute(
-                select(Game.id).where(Game.odds_api_id == odds_api_id)
-            )
+            result = await db.execute(select(Game.id).where(Game.odds_api_id == odds_api_id))
             game_id = result.scalar_one_or_none()
             if game_id is None:
                 continue

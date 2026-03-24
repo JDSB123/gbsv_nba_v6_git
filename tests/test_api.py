@@ -3,6 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.api.dependencies import get_predictor
 from src.api.main import app
+from src.api.routes.predictions import _odds_freshness_summary
 from src.models.predictor import MODEL_VERSION
 
 
@@ -88,3 +89,23 @@ async def test_predictions_requires_ready_models_with_runtime_status_detail():
         assert detail["runtime_status"]["expected_features"] == 121
     finally:
         app.dependency_overrides.pop(get_predictor, None)
+
+
+from datetime import UTC, datetime, timedelta
+
+def test_odds_freshness_summary_flags_stale_and_missing():
+    stale_time = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    rows = [
+        {"odds_sourced": {"captured_at": stale_time}},
+        {"odds_sourced": {"captured_at": None}},
+        {"odds_sourced": None},
+    ]
+
+    summary = _odds_freshness_summary(rows, max_age_minutes=1)
+
+    assert summary["status"] == "warning"
+    assert summary["evaluated_predictions"] == 3
+    assert summary["usable_captured_at_count"] == 1
+    assert summary["missing_captured_at"] == 1
+    assert summary["missing_odds_sourced"] == 1
+    assert summary["stale_count"] == 1

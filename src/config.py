@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # ── Quota management ──────────────────────────────────────────
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
 
+    # ── Prediction reliability ────────────────────────────────────
+    odds_freshness_max_age_minutes: int = 30
+
     # ── Model governance / promotion gates ─────────────────────
     model_gate_min_rows: int = 200
     model_gate_max_mae_fg: float = 13.0
@@ -95,8 +98,7 @@ class Settings(BaseSettings):
             missing.append("DATABASE_URL")
         if missing:
             raise ValueError(
-                f"Missing required env vars for env={self.app_env}: "
-                + ", ".join(missing)
+                f"Missing required env vars for env={self.app_env}: " + ", ".join(missing)
             )
         return self
 

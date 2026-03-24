@@ -136,9 +136,7 @@ async def poll_scores_and_box() -> None:
                     if stats:
                         await client.persist_player_game_stats(game_id, stats, db)
                 except Exception:
-                    logger.warning(
-                        "Failed to fetch box score for game %d", game_id, exc_info=True
-                    )
+                    logger.warning("Failed to fetch box score for game %d", game_id, exc_info=True)
     except Exception:
         logger.exception("Error polling scores/box scores")
 
@@ -261,9 +259,7 @@ async def fill_clv() -> None:
             for pred in preds:
                 pred_any = cast(Any, pred)
                 game_obj = cast(Any, pred).game
-                home_name = (
-                    game_obj.home_team.name if game_obj and game_obj.home_team else ""
-                )
+                home_name = game_obj.home_team.name if game_obj and game_obj.home_team else ""
                 # Latest odds snapshot for this game
                 odds_q = await db.execute(
                     select(OddsSnapshot)
@@ -301,9 +297,7 @@ async def fill_clv() -> None:
                     pred_any.closing_total = closing_total
                     opening_total = cast(Any, pred.opening_total)
                     if opening_total is not None:
-                        pred_any.clv_total = round(
-                            float(closing_total) - float(opening_total), 1
-                        )
+                        pred_any.clv_total = round(float(closing_total) - float(opening_total), 1)
 
             await db.commit()
             logger.info("CLV filled for %d predictions", len(preds))
@@ -397,9 +391,7 @@ async def generate_predictions_and_publish() -> None:
                     rows.append((pred, game))
 
             # Latest odds pull timestamp
-            odds_ts_result = await db.execute(
-                select(sa_func.max(OddsSnapshot.captured_at))
-            )
+            odds_ts_result = await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
             odds_pulled_at = odds_ts_result.scalar_one_or_none()
 
             if rows:
@@ -421,14 +413,10 @@ async def generate_predictions_and_publish() -> None:
                         settings.teams_channel_id,
                         payload,
                     )
-                    logger.info(
-                        "Published %d predictions to Teams (Graph API)", len(rows)
-                    )
+                    logger.info("Published %d predictions to Teams (Graph API)", len(rows))
                 elif settings.teams_webhook_url:
                     await send_card_to_teams(settings.teams_webhook_url, payload)
-                    logger.info(
-                        "Published %d predictions to Teams (webhook)", len(rows)
-                    )
+                    logger.info("Published %d predictions to Teams (webhook)", len(rows))
                 else:
                     logger.info("No Teams delivery configured; skipping publish")
     except Exception:
@@ -448,9 +436,7 @@ def create_scheduler() -> AsyncIOScheduler:
         poll_1h_odds, "interval", minutes=settings.odds_1h_interval, id="poll_1h_odds"
     )
     scheduler.add_job(poll_player_props, "interval", minutes=30, id="poll_player_props")
-    scheduler.add_job(
-        poll_stats, "interval", minutes=settings.stats_interval, id="poll_stats"
-    )
+    scheduler.add_job(poll_stats, "interval", minutes=settings.stats_interval, id="poll_stats")
     scheduler.add_job(poll_scores_and_box, "interval", minutes=60, id="poll_scores")
     scheduler.add_job(sync_events_to_games, "interval", minutes=60, id="sync_events")
     scheduler.add_job(

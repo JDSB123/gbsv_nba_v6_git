@@ -263,13 +263,9 @@ async def build_feature_vector(
                         h1_scored.append(_as_float(cast(Any, g.away_score_1h)))
                         h1_allowed.append(_as_float(cast(Any, g.home_score_1h)))
                 features[f"{prefix}_{label}_pts_avg"] = float(np.mean(pts_scored))
-                features[f"{prefix}_{label}_pts_allowed_avg"] = float(
-                    np.mean(pts_allowed)
-                )
+                features[f"{prefix}_{label}_pts_allowed_avg"] = float(np.mean(pts_allowed))
                 features[f"{prefix}_{label}_1h_pts_avg"] = float(np.mean(h1_scored))
-                features[f"{prefix}_{label}_1h_allowed_avg"] = float(
-                    np.mean(h1_allowed)
-                )
+                features[f"{prefix}_{label}_1h_allowed_avg"] = float(np.mean(h1_allowed))
             else:
                 for k in ["pts_avg", "pts_allowed_avg", "1h_pts_avg", "1h_allowed_avg"]:
                     features[f"{prefix}_{label}_{k}"] = 0.0
@@ -366,13 +362,9 @@ async def build_feature_vector(
             all_reb = [_as_float(cast(Any, p.rebounds)) for p in pgs_rows]
             all_tov = [_as_float(cast(Any, p.turnovers)) for p in pgs_rows]
             all_pm = [_as_float(cast(Any, p.plus_minus)) for p in pgs_rows]
-            all_fg = [
-                _as_float(cast(Any, p.fg_pct)) for p in pgs_rows if p.fg_pct is not None
-            ]
+            all_fg = [_as_float(cast(Any, p.fg_pct)) for p in pgs_rows if p.fg_pct is not None]
             all_3pt = [
-                _as_float(cast(Any, p.three_pct))
-                for p in pgs_rows
-                if p.three_pct is not None
+                _as_float(cast(Any, p.three_pct)) for p in pgs_rows if p.three_pct is not None
             ]
             all_min = [_as_float(cast(Any, p.minutes)) for p in pgs_rows]
 
@@ -391,41 +383,28 @@ async def build_feature_vector(
                 )
                 starters = sorted_p[:5]
                 bench = sorted_p[5:]
-                starter_pts_list.append(
-                    sum(_as_float(cast(Any, s.points)) for s in starters)
-                )
-                bench_pts_list.append(
-                    sum(_as_float(cast(Any, b.points)) for b in bench)
-                )
+                starter_pts_list.append(sum(_as_float(cast(Any, s.points)) for s in starters))
+                bench_pts_list.append(sum(_as_float(cast(Any, b.points)) for b in bench))
 
             features[f"{prefix}_player_pts_avg"] = float(np.mean(all_pts))
             features[f"{prefix}_player_ast_avg"] = float(np.mean(all_ast))
             features[f"{prefix}_player_reb_avg"] = float(np.mean(all_reb))
             features[f"{prefix}_player_tov_avg"] = float(np.mean(all_tov))
             features[f"{prefix}_player_pm_avg"] = float(np.mean(all_pm))
-            features[f"{prefix}_player_fg_pct"] = (
-                float(np.mean(all_fg)) if all_fg else 0.0
-            )
-            features[f"{prefix}_player_3pt_pct"] = (
-                float(np.mean(all_3pt)) if all_3pt else 0.0
-            )
+            features[f"{prefix}_player_fg_pct"] = float(np.mean(all_fg)) if all_fg else 0.0
+            features[f"{prefix}_player_3pt_pct"] = float(np.mean(all_3pt)) if all_3pt else 0.0
             features[f"{prefix}_starter_pts_avg"] = (
                 float(np.mean(starter_pts_list)) if starter_pts_list else 0.0
             )
             features[f"{prefix}_bench_pts_avg"] = (
                 float(np.mean(bench_pts_list)) if bench_pts_list else 0.0
             )
-            features[f"{prefix}_bench_ratio"] = features[
-                f"{prefix}_bench_pts_avg"
-            ] / max(
-                features[f"{prefix}_starter_pts_avg"]
-                + features[f"{prefix}_bench_pts_avg"],
+            features[f"{prefix}_bench_ratio"] = features[f"{prefix}_bench_pts_avg"] / max(
+                features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"],
                 1.0,
             )
             # Minutes concentration: std of minutes shows roster depth
-            features[f"{prefix}_min_std"] = (
-                float(np.std(all_min)) if len(all_min) > 1 else 0.0
-            )
+            features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else 0.0
         else:
             for k in [
                 "player_pts_avg",
@@ -515,9 +494,7 @@ async def build_feature_vector(
                 _as_str(s.outcome_name),
             )
             existing = _prop_best.get(key)
-            if existing is None or cast(Any, s.captured_at) > cast(
-                Any, existing.captured_at
-            ):
+            if existing is None or cast(Any, s.captured_at) > cast(Any, existing.captured_at):
                 _prop_best[key] = s
         deduped_props = list(_prop_best.values())
 
@@ -530,9 +507,7 @@ async def build_feature_vector(
             and s.point is not None
         ]
         features["prop_pts_lines_count"] = float(len(pts_over_lines))
-        features["prop_pts_avg_line"] = (
-            float(np.mean(pts_over_lines)) if pts_over_lines else 0.0
-        )
+        features["prop_pts_avg_line"] = float(np.mean(pts_over_lines)) if pts_over_lines else 0.0
 
         # Assists props
         ast_over_lines = [
@@ -542,9 +517,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_ast_avg_line"] = (
-            float(np.mean(ast_over_lines)) if ast_over_lines else 0.0
-        )
+        features["prop_ast_avg_line"] = float(np.mean(ast_over_lines)) if ast_over_lines else 0.0
 
         # Rebounds props
         reb_over_lines = [
@@ -554,9 +527,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_reb_avg_line"] = (
-            float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
-        )
+        features["prop_reb_avg_line"] = float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
 
         # Threes props — 3-point shooting volume expectation
         threes_over = [
@@ -566,9 +537,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_threes_avg_line"] = (
-            float(np.mean(threes_over)) if threes_over else 0.0
-        )
+        features["prop_threes_avg_line"] = float(np.mean(threes_over)) if threes_over else 0.0
 
         # Blocks props — rim protection expectation
         blk_over = [
@@ -616,16 +585,14 @@ async def build_feature_vector(
         dd_yes = [
             s
             for s in deduped_props
-            if _as_str(s.market) == "player_double_double"
-            and _as_str(s.outcome_name) == "Yes"
+            if _as_str(s.market) == "player_double_double" and _as_str(s.outcome_name) == "Yes"
         ]
         features["prop_dd_count"] = float(len(dd_yes))
 
         td_yes = [
             s
             for s in deduped_props
-            if _as_str(s.market) == "player_triple_double"
-            and _as_str(s.outcome_name) == "Yes"
+            if _as_str(s.market) == "player_triple_double" and _as_str(s.outcome_name) == "Yes"
         ]
         features["prop_td_count"] = float(len(td_yes))
 
@@ -646,12 +613,8 @@ async def build_feature_vector(
             and s.point is not None
             and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
         ]
-        sharp_avg = (
-            float(np.mean(sharp_pts)) if sharp_pts else features["prop_pts_avg_line"]
-        )
-        square_avg = (
-            float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
-        )
+        sharp_avg = float(np.mean(sharp_pts)) if sharp_pts else features["prop_pts_avg_line"]
+        square_avg = float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
         features["prop_sharp_square_diff"] = sharp_avg - square_avg
     else:
         features["prop_pts_lines_count"] = 0.0
@@ -671,9 +634,7 @@ async def build_feature_vector(
     home_pace = features.get("home_pace", 0.0)
     away_pace = features.get("away_pace", 0.0)
     features["expected_pace"] = (
-        (home_pace + away_pace) / 2.0
-        if (home_pace != 0.0 and away_pace != 0.0)
-        else 0.0
+        (home_pace + away_pace) / 2.0 if (home_pace != 0.0 and away_pace != 0.0) else 0.0
     )
     features["pace_diff"] = home_pace - away_pace
 
@@ -749,13 +710,9 @@ async def build_feature_vector(
         l10_wins = 0
         for i, g in enumerate(streak_games):
             if int(cast(Any, g.home_team_id)) == team_id:
-                won = _as_float(cast(Any, g.home_score_fg)) > _as_float(
-                    cast(Any, g.away_score_fg)
-                )
+                won = _as_float(cast(Any, g.home_score_fg)) > _as_float(cast(Any, g.away_score_fg))
             else:
-                won = _as_float(cast(Any, g.away_score_fg)) > _as_float(
-                    cast(Any, g.home_score_fg)
-                )
+                won = _as_float(cast(Any, g.away_score_fg)) > _as_float(cast(Any, g.home_score_fg))
             if won:
                 l10_wins += 1
                 if i < 5:
@@ -860,9 +817,7 @@ async def build_feature_vector(
         features["mkt_spread_std"] = float(np.std(spreads)) if len(spreads) > 1 else 0.0
         features["mkt_total_avg"] = float(np.mean(totals)) if totals else 0.0
         features["mkt_total_std"] = float(np.std(totals)) if len(totals) > 1 else 0.0
-        features["mkt_1h_spread_avg"] = (
-            float(np.mean(h1_spreads)) if h1_spreads else 0.0
-        )
+        features["mkt_1h_spread_avg"] = float(np.mean(h1_spreads)) if h1_spreads else 0.0
         features["mkt_1h_total_avg"] = float(np.mean(h1_totals)) if h1_totals else 0.0
 
         # 1st-half moneyline implied probability
@@ -870,10 +825,7 @@ async def build_feature_vector(
             s
             for s in snapshots
             if _as_str(s.market) == "h2h_h1"
-            and (
-                "home" in _as_str(s.outcome_name).lower()
-                or _as_str(s.outcome_name) == home_name
-            )
+            and ("home" in _as_str(s.outcome_name).lower() or _as_str(s.outcome_name) == home_name)
         ]
         if h2h_h1:
             h1_prices = [_as_float(s.price) for s in h2h_h1]
@@ -893,15 +845,12 @@ async def build_feature_vector(
             home_prices = [
                 _as_float(s.price)
                 for s in h2h
-                if "home" in _as_str(s.outcome_name).lower()
-                or _as_str(s.outcome_name) == home_name
+                if "home" in _as_str(s.outcome_name).lower() or _as_str(s.outcome_name) == home_name
             ]
             if home_prices:
                 avg_price = np.mean(home_prices)
                 if avg_price < 0:
-                    features["mkt_home_ml_prob"] = float(
-                        abs(avg_price) / (abs(avg_price) + 100)
-                    )
+                    features["mkt_home_ml_prob"] = float(abs(avg_price) / (abs(avg_price) + 100))
                 else:
                     features["mkt_home_ml_prob"] = float(100 / (avg_price + 100))
             else:
@@ -940,9 +889,7 @@ async def build_feature_vector(
         features["square_spread"] = (
             float(np.mean(square_spr)) if square_spr else features["mkt_spread_avg"]
         )
-        features["sharp_square_spread_diff"] = (
-            features["sharp_spread"] - features["square_spread"]
-        )
+        features["sharp_square_spread_diff"] = features["sharp_spread"] - features["square_spread"]
 
         # Total: sharp vs square
         sharp_tot, square_tot = _split_by_book_type(snapshots, "totals")
@@ -952,9 +899,7 @@ async def build_feature_vector(
         features["square_total"] = (
             float(np.mean(square_tot)) if square_tot else features["mkt_total_avg"]
         )
-        features["sharp_square_total_diff"] = (
-            features["sharp_total"] - features["square_total"]
-        )
+        features["sharp_square_total_diff"] = features["sharp_total"] - features["square_total"]
 
         # Moneyline implied prob: sharp vs square
         sharp_h2h = [
@@ -962,20 +907,14 @@ async def build_feature_vector(
             for s in snapshots
             if _as_str(s.market) == "h2h"
             and _as_str(s.bookmaker).lower() in SHARP_BOOKS
-            and (
-                "home" in _as_str(s.outcome_name).lower()
-                or _as_str(s.outcome_name) == home_name
-            )
+            and ("home" in _as_str(s.outcome_name).lower() or _as_str(s.outcome_name) == home_name)
         ]
         square_h2h = [
             s
             for s in snapshots
             if _as_str(s.market) == "h2h"
             and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
-            and (
-                "home" in _as_str(s.outcome_name).lower()
-                or _as_str(s.outcome_name) == home_name
-            )
+            and ("home" in _as_str(s.outcome_name).lower() or _as_str(s.outcome_name) == home_name)
         ]
 
         if sharp_h2h:
