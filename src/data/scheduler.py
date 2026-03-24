@@ -422,6 +422,12 @@ async def generate_predictions_and_publish() -> None:
         # Invalidate Elo cache so fresh ratings are computed from latest results
         reset_elo_cache()
 
+        # 0) Ensure all of today's games exist in the DB.  poll_stats()
+        #    fetches today's schedule from the Basketball API and upserts
+        #    Game rows.  Without this, games added to the API after the
+        #    last 2-hour poll_stats cycle would be missing from predictions.
+        await poll_stats()
+
         # 1) Sync Odds-API events → internal games so odds_api_id is set
         #    before persist_odds tries to link snapshots.
         await sync_events_to_games()
