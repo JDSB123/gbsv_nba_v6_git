@@ -27,6 +27,18 @@ def _as_float(value: Any, default: float = 0.0) -> float:
     return float(value) if value is not None else default
 
 
+def _not_ready_detail(predictor: Predictor) -> Any:
+    """Return a detailed readiness payload when available."""
+    status_fn = getattr(predictor, "get_runtime_status", None)
+    if callable(status_fn):
+        status = status_fn()
+        reason = status.get("reason")
+        if reason:
+            return {"message": reason, "runtime_status": status}
+        return {"message": "Models not loaded", "runtime_status": status}
+    return "Models not loaded"
+
+
 def _format_prediction(pred: Prediction, game: Game) -> dict:
     home_name = (
         game.home_team.name
@@ -76,6 +88,7 @@ def _format_prediction(pred: Prediction, game: Game) -> dict:
         "predicted_at": (
             pred.predicted_at.isoformat() if pred.predicted_at is not None else None
         ),
+        "odds_sourced": pred.odds_sourced,
         "clv": {
             "opening_spread": pred.opening_spread,
             "opening_total": pred.opening_total,
@@ -94,7 +107,7 @@ async def list_predictions(
 ):
     """Get latest predictions for all upcoming games."""
     if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
+        raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
 
     # Subquery: latest prediction per game
     result = await db.execute(
@@ -138,7 +151,7 @@ async def download_slate_csv(
 ):
     """Download the full daily slate as a CSV file."""
     if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
+        raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
 
     result = await db.execute(
         select(Prediction)
@@ -195,7 +208,7 @@ async def download_slate_html(
 ):
     """Serve the full daily slate as an interactive HTML page."""
     if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
+        raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
 
     from sqlalchemy import func as sa_func
 
@@ -272,6 +285,57 @@ async def download_slate_html(
     return Response(content=html_page, media_type="text/html")
 
 
+@router.get("/refresh")
+async def refresh_predictions(
+    db: AsyncSession = Depends(get_db),
+    predictor: Predictor = Depends(get_predictor),
+):
+    """Regenerate predictions for all upcoming games using the current model."""
+    if not predictor.is_ready:
+        raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
+
+    try:
+        predictions = await predictor.predict_upcoming(db)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Prediction refresh failed",
+                "error": str(exc),
+                "runtime_status": predictor.get_runtime_status(),
+            },
+        ) from exc
+
+    if not predictions:
+        return {"status": "ok", "refreshed": 0, "detail": "No upcoming games"}
+
+    game_ids = [int(cast(Any, p.game_id)) for p in predictions]
+    game_result = await db.execute(
+        select(Game)
+        .options(
+            selectinload(Game.home_team).selectinload(Team.season_stats),
+            selectinload(Game.away_team).selectinload(Team.season_stats),
+        )
+        .where(Game.id.in_(game_ids))
+        .order_by(Game.commence_time)
+    )
+    games = game_result.scalars().all()
+    game_by_id = {int(cast(Any, g.id)): g for g in games}
+
+    output = []
+    for pred in predictions:
+        game = game_by_id.get(int(cast(Any, pred.game_id)))
+        if game:
+            output.append(_format_prediction(pred, game))
+
+    return {
+        "status": "ok",
+        "refreshed": len(output),
+        "model_version": predictions[0].model_version if predictions else None,
+        "predictions": output,
+    }
+
+
 @router.post("/publish/teams")
 async def publish_predictions_to_teams(
     db: AsyncSession = Depends(get_db),
@@ -279,7 +343,7 @@ async def publish_predictions_to_teams(
 ):
     """Generate latest predictions and send formatted payload to Teams."""
     if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
+        raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
     if (
         not (settings.teams_team_id and settings.teams_channel_id)
         and not settings.teams_webhook_url
@@ -347,7 +411,7 @@ async def get_prediction(
 ):
     """Get prediction detail for a specific game."""
     if not predictor.is_ready:
-        raise HTTPException(status_code=503, detail="Models not loaded")
+        raise HTTPException(status_code=503, detail=_not_ready_detail(predictor))
 
     game_result = await db.execute(
         select(Game)

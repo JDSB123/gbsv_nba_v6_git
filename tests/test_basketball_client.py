@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -168,13 +168,14 @@ async def test_persist_injuries_clears_and_inserts():
     """persist_injuries clears existing injuries and inserts new ones."""
     client = BasketballClient()
     db = AsyncMock()
+    db.add = MagicMock()
 
     # Simulate: delete returns nothing, team lookup → id=1, player lookup → id=10
     db.execute = AsyncMock(
         side_effect=[
             AsyncMock(scalar_one_or_none=lambda: None),  # delete
-            AsyncMock(scalar_one_or_none=lambda: 1),      # team lookup
-            AsyncMock(scalar_one_or_none=lambda: 10),     # player lookup
+            AsyncMock(scalar_one_or_none=lambda: 1),  # team lookup
+            AsyncMock(scalar_one_or_none=lambda: 10),  # player lookup
         ]
     )
 
@@ -205,6 +206,7 @@ async def test_persist_injuries_skips_unknown_team():
     """Injuries for teams not in our DB are skipped."""
     client = BasketballClient()
     db = AsyncMock()
+    db.add = MagicMock()
 
     db.execute = AsyncMock(
         side_effect=[
@@ -232,12 +234,13 @@ async def test_persist_injuries_skips_unknown_player():
     """Injuries for players not in our DB are skipped."""
     client = BasketballClient()
     db = AsyncMock()
+    db.add = MagicMock()
 
     db.execute = AsyncMock(
         side_effect=[
             AsyncMock(scalar_one_or_none=lambda: None),  # delete
-            AsyncMock(scalar_one_or_none=lambda: 1),      # team found
-            AsyncMock(scalar_one_or_none=lambda: None),   # player not found
+            AsyncMock(scalar_one_or_none=lambda: 1),  # team found
+            AsyncMock(scalar_one_or_none=lambda: None),  # player not found
         ]
     )
 

@@ -43,7 +43,12 @@ def _margin_to_prob(
 class Predictor:
     def __init__(self) -> None:
         self.feature_cols = get_feature_columns()
+        self._inference_feature_cols = list(self.feature_cols)
         self.models: dict[str, xgb.XGBRegressor] = {}
+        self._model_feature_counts: dict[str, int] = {}
+        self._incompatible_models: dict[str, int] = {}
+        self._last_error: str | None = None
+        self._compatibility_mode = False
         self._calibration: dict[str, float] = {}
         self.model_version = MODEL_VERSION
         self._load_models()
@@ -64,15 +69,70 @@ class Predictor:
         return self.model_version
 
     def _load_models(self) -> None:
+        expected_features = len(self.feature_cols)
         for name in MODEL_NAMES:
             path = ARTIFACTS_DIR / f"{name}.json"
             if path.exists():
                 model = xgb.XGBRegressor()
                 model.load_model(str(path))
+                actual_features = int(model.get_booster().num_features())
+                self._model_feature_counts[name] = actual_features
                 self.models[name] = model
                 logger.info("Loaded model %s", name)
             else:
                 logger.warning("Model file not found: %s", path)
+
+        if len(self.models) != len(MODEL_NAMES):
+            return
+
+        unique_counts = sorted(set(self._model_feature_counts.values()))
+        if len(unique_counts) > 1:
+            self._incompatible_models = {
+                name: count
+                for name, count in self._model_feature_counts.items()
+                if count != expected_features
+            }
+            mismatch = ", ".join(
+                f"{name}={count}" for name, count in self._model_feature_counts.items()
+            )
+            self._last_error = (
+                "Model artifact feature shape mismatch across models: "
+                f"expected {expected_features}, got [{mismatch}]"
+            )
+            logger.error(self._last_error)
+            self.models = {}
+            return
+
+        model_feature_count = unique_counts[0]
+        if model_feature_count == expected_features:
+            return
+
+        if 0 < model_feature_count < expected_features:
+            self._compatibility_mode = True
+            self._inference_feature_cols = self.feature_cols[:model_feature_count]
+            logger.warning(
+                "Compatibility mode enabled: models expect %d features, current vector has %d. "
+                "Using first %d features for inference.",
+                model_feature_count,
+                expected_features,
+                model_feature_count,
+            )
+            return
+
+        self._incompatible_models = {
+            name: count
+            for name, count in self._model_feature_counts.items()
+            if count != expected_features
+        }
+        mismatch = ", ".join(
+            f"{name}={count}" for name, count in self._model_feature_counts.items()
+        )
+        self._last_error = (
+            "Model artifact feature shape mismatch: "
+            f"expected {expected_features}, got [{mismatch}]"
+        )
+        logger.error(self._last_error)
+        self.models = {}
 
     def _load_calibration(self) -> None:
         """Load Platt-scaling coefficients from metrics.json."""
@@ -92,7 +152,25 @@ class Predictor:
 
     @property
     def is_ready(self) -> bool:
-        return len(self.models) == len(MODEL_NAMES)
+        return len(self.models) == len(MODEL_NAMES) and not self._incompatible_models
+
+    def get_runtime_status(self) -> dict[str, Any]:
+        expected_features = len(self.feature_cols)
+        missing = [name for name in MODEL_NAMES if name not in self.models]
+        reason = self._last_error
+        if reason is None and missing:
+            reason = "Models not loaded"
+        return {
+            "ready": self.is_ready,
+            "expected_features": expected_features,
+            "inference_features": len(self._inference_feature_cols),
+            "compatibility_mode": self._compatibility_mode,
+            "loaded_models": sorted(self.models.keys()),
+            "missing_models": missing,
+            "incompatible_models": self._incompatible_models,
+            "model_feature_counts": self._model_feature_counts,
+            "reason": reason,
+        }
 
     def get_metrics(self) -> dict:
         metrics_path = ARTIFACTS_DIR / "metrics.json"
@@ -209,12 +287,17 @@ class Predictor:
         if features is None:
             return None
 
-        X = np.array([[features.get(c, 0.0) for c in self.feature_cols]])
+        X = np.array([[features.get(c, 0.0) for c in self._inference_feature_cols]])
 
-        home_fg = float(self.models["model_home_fg"].predict(X)[0])
-        away_fg = float(self.models["model_away_fg"].predict(X)[0])
-        home_1h = float(self.models["model_home_1h"].predict(X)[0])
-        away_1h = float(self.models["model_away_1h"].predict(X)[0])
+        try:
+            home_fg = float(self.models["model_home_fg"].predict(X)[0])
+            away_fg = float(self.models["model_away_fg"].predict(X)[0])
+            home_1h = float(self.models["model_home_1h"].predict(X)[0])
+            away_1h = float(self.models["model_away_1h"].predict(X)[0])
+        except Exception as exc:
+            self._last_error = str(exc)
+            logger.exception("Prediction failed for game %s", game.id)
+            raise RuntimeError(str(exc)) from exc
 
         # Clamp 1H ≤ FG: half-time score cannot exceed full-game score
         home_1h = min(home_1h, home_fg)

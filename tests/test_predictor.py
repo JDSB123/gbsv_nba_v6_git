@@ -24,8 +24,7 @@ def test_margin_to_prob_negative():
 
 def test_feature_columns_count():
     cols = get_feature_columns()
-    # 2 × (8 season + 8 recent + 5 schedule/injury + 11 player-stats + 2 quarter)
-    # + 2 × 5 venue/streak + 12 game-level + 19 market + 5 prop = 114
+    # Current engineered feature set includes expanded market and prop inputs.
     assert len(cols) == 121
 
 

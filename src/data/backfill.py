@@ -42,9 +42,7 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
 
     async with async_session_factory() as db:
         # ── 1. Teams from standings ────────────────────────────
-        logger.info(
-            "Step 1/6: Fetching standings for season %s ...", resolved_season
-        )
+        logger.info("Step 1/6: Fetching standings for season %s ...", resolved_season)
         standings = await bball.fetch_standings(season=resolved_season)
         if standings:
             await bball.persist_teams(standings, db)

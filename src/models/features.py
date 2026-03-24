@@ -476,11 +476,18 @@ async def build_feature_vector(
     # Aggregate player prop lines into team-level signals that capture
     # bookmaker expectations about individual performance.
     prop_markets = [
-        "player_points", "player_rebounds", "player_assists",
-        "player_threes", "player_blocks", "player_steals",
-        "player_turnovers", "player_points_rebounds_assists",
-        "player_points_rebounds", "player_points_assists",
-        "player_rebounds_assists", "player_double_double",
+        "player_points",
+        "player_rebounds",
+        "player_assists",
+        "player_threes",
+        "player_blocks",
+        "player_steals",
+        "player_turnovers",
+        "player_points_rebounds_assists",
+        "player_points_rebounds",
+        "player_points_assists",
+        "player_rebounds_assists",
+        "player_double_double",
         "player_triple_double",
     ]
     if odds_snapshots is None:
@@ -571,9 +578,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_blk_avg_line"] = (
-            float(np.mean(blk_over)) if blk_over else 0.0
-        )
+        features["prop_blk_avg_line"] = float(np.mean(blk_over)) if blk_over else 0.0
 
         # Steals props — defensive activity expectation
         stl_over = [
@@ -583,9 +588,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_stl_avg_line"] = (
-            float(np.mean(stl_over)) if stl_over else 0.0
-        )
+        features["prop_stl_avg_line"] = float(np.mean(stl_over)) if stl_over else 0.0
 
         # Turnovers props — ball security / pace signal
         tov_over = [
@@ -595,9 +598,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_tov_avg_line"] = (
-            float(np.mean(tov_over)) if tov_over else 0.0
-        )
+        features["prop_tov_avg_line"] = float(np.mean(tov_over)) if tov_over else 0.0
 
         # PRA combo — star workload signal (top-end player expectation)
         pra_over = [
@@ -607,9 +608,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_pra_avg_line"] = (
-            float(np.mean(pra_over)) if pra_over else 0.0
-        )
+        features["prop_pra_avg_line"] = float(np.mean(pra_over)) if pra_over else 0.0
 
         # Double-double & triple-double lines available count
         # These markets don't have point lines; count of "Yes" outcomes
@@ -868,7 +867,8 @@ async def build_feature_vector(
 
         # 1st-half moneyline implied probability
         h2h_h1 = [
-            s for s in snapshots
+            s
+            for s in snapshots
             if _as_str(s.market) == "h2h_h1"
             and (
                 "home" in _as_str(s.outcome_name).lower()
@@ -883,9 +883,7 @@ async def build_feature_vector(
                     abs(avg_h1_price) / (abs(avg_h1_price) + 100)
                 )
             else:
-                features["mkt_1h_home_ml_prob"] = float(
-                    100 / (avg_h1_price + 100)
-                )
+                features["mkt_1h_home_ml_prob"] = float(100 / (avg_h1_price + 100))
         else:
             features["mkt_1h_home_ml_prob"] = 0.5
 

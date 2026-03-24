@@ -110,21 +110,15 @@ def _compute_advanced_stats(
 
     # ── Primary path: Dean Oliver possession estimate ──────────
     if fg_made and fg_pct and ft_made and ft_pct and tov is not None:
-        fga = fg_made / fg_pct        # field goals attempted
-        fta = ft_made / ft_pct        # free throws attempted
+        fga = fg_made / fg_pct  # field goals attempted
+        fta = ft_made / ft_pct  # free throws attempted
         orb = off_reb or 0.0
         total_poss = fga + 0.44 * fta - orb + tov
         if total_poss > 0:
             pace = total_poss / games_played
-            off_rating = (
-                100.0 * total_pts_for / total_poss
-                if total_pts_for
-                else None
-            )
+            off_rating = 100.0 * total_pts_for / total_poss if total_pts_for else None
             def_rating = (
-                100.0 * total_pts_against / total_poss
-                if total_pts_against
-                else None
+                100.0 * total_pts_against / total_poss if total_pts_against else None
             )
             return pace, off_rating, def_rating
 
@@ -432,9 +426,7 @@ class BasketballClient:
 
         games_played = _as_int(games_data.get("played", {}).get("all"))
         ppg = _as_float(points.get("for", {}).get("average", {}).get("all"))
-        oppg = _as_float(
-            points.get("against", {}).get("average", {}).get("all")
-        )
+        oppg = _as_float(points.get("against", {}).get("average", {}).get("all"))
 
         # Compute pace, off_rating, def_rating from box-score aggregates
         pace, off_rating, def_rating = _compute_advanced_stats(
@@ -446,9 +438,7 @@ class BasketballClient:
             season=season,
             games_played=games_played,
             wins=_as_int(games_data.get("wins", {}).get("all", {}).get("total")),
-            losses=_as_int(
-                games_data.get("loses", {}).get("all", {}).get("total")
-            ),
+            losses=_as_int(games_data.get("loses", {}).get("all", {}).get("total")),
             ppg=ppg,
             oppg=oppg,
             pace=pace,
@@ -492,9 +482,7 @@ class BasketballClient:
             team_id = p.get("team", {}).get("id", 0)
 
             # Ensure player exists
-            existing = await db.execute(
-                select(Player.id).where(Player.id == player_id)
-            )
+            existing = await db.execute(select(Player.id).where(Player.id == player_id))
             if existing.scalar_one_or_none() is None:
                 player_obj = Player(
                     id=player_id,
@@ -516,9 +504,7 @@ class BasketballClient:
                 if val is None or val == "":
                     return None
                 try:
-                    return (
-                        int(str(val).split(":")[0]) if ":" in str(val) else int(val)
-                    )
+                    return int(str(val).split(":")[0]) if ":" in str(val) else int(val)
                 except (ValueError, TypeError):
                     return None
 

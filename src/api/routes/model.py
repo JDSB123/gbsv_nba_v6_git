@@ -17,10 +17,12 @@ router = APIRouter(prefix="/model", tags=["model"])
 @router.get("/status")
 async def model_status(predictor: Predictor = Depends(get_predictor)):
     """Return model version, metrics, and feature importance."""
+    runtime_status = predictor.get_runtime_status()
     return {
         "ready": predictor.is_ready,
         "version": MODEL_VERSION,
         "active_model_version": predictor.model_version,
+        "runtime_status": runtime_status,
         "metrics": predictor.get_metrics(),
         "feature_importance": predictor.get_feature_importance(),
     }
