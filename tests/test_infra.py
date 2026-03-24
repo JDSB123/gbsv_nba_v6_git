@@ -19,13 +19,11 @@ def test_model_version_format():
 
 # ── Rate limiter ───────────────────────────────────────────────
 
-@pytest.mark.xfail(reason="slowapi/starlette version compat – _read_file_utf8 signature")
 def test_rate_limiter_loads():
     from src.api.rate_limit import limiter
     assert limiter is not None
 
 
-@pytest.mark.xfail(reason="slowapi/starlette version compat – _read_file_utf8 signature")
 def test_rate_limiter_key_func():
     from src.api.rate_limit import limiter
     assert limiter._key_func is not None

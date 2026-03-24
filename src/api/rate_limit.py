@@ -7,9 +7,9 @@ import, working around Windows cp1252 encoding issues with .env files.
 import starlette.config
 
 
-def _read_file_utf8(self, file_name):  # type: ignore[no-untyped-def]
+def _read_file_utf8(self, file_name, encoding="utf-8"):  # type: ignore[no-untyped-def]
     try:
-        with open(file_name, encoding="utf-8") as f:
+        with open(file_name, encoding=encoding or "utf-8") as f:
             return dict(
                 line.strip().split("=", 1)
                 for line in f

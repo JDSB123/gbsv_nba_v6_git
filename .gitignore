@@ -50,6 +50,8 @@ src/db/migrations/versions/__pycache__/
 _*.py
 _*.json
 _*.txt
+*.tmp
+*.log
 test_player_stats.py
 test_structure.py
 
