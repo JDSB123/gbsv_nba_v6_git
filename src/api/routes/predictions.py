@@ -117,3 +117,21 @@ async def publish_slate_via_graph(
     await send_card_via_graph(settings.teams_team_id, settings.teams_channel_id, card)
 
     return {"message": "Published slate to Teams (Graph API) successfully"}
+
+
+@router.post("/refresh")
+@limiter.limit("5/minute")
+async def refresh_predictions(
+    request: Request,
+) -> dict[str, Any]:
+    """Pull fresh odds, generate new predictions, and publish to Teams.
+
+    One-tap endpoint designed for mobile use — triggers the full pipeline:
+    1. Fetch latest full-game odds from The Odds API
+    2. Generate predictions for all upcoming games
+    3. Publish formatted slate to Teams (Graph API or webhook)
+    """
+    from src.data.scheduler import generate_predictions_and_publish
+
+    await generate_predictions_and_publish()
+    return {"message": "Fresh odds pulled, predictions generated, and slate published"}
