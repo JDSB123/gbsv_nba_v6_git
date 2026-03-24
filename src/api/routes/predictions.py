@@ -75,12 +75,12 @@ async def publish_slate_to_teams(
         )
 
     from src.notifications.teams import build_teams_card, send_card_to_teams
-    card = build_teams_card(rows, odds_pulled_at)
-    # the function signature is send_card_to_teams(webhook_url: str, card_payload: dict) -> bool
-    success = send_card_to_teams(settings.teams_webhook_url, card)
-
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to send to Teams")
+    card = build_teams_card(
+        rows,
+        settings.teams_max_games_per_message,
+        odds_pulled_at=odds_pulled_at,
+    )
+    await send_card_to_teams(settings.teams_webhook_url, card)
 
     return {"message": "Published slate to Teams successfully"}
 

@@ -325,7 +325,7 @@ async def build_feature_vector(
                 row = p_stats_result.one_or_none()
                 avg_pts = float(row[0] or 0) if row else 0.0
                 avg_min = float(row[1] or 0) if row else 0.0
-                injury_impact += weight * (avg_min * avg_pts / max(avg_min, 1))
+                injury_impact += weight * avg_pts * (avg_min / 30.0)
                 injured_count += 1
         features[f"{prefix}_injury_impact"] = injury_impact
         features[f"{prefix}_injured_count"] = float(injured_count)
@@ -1119,6 +1119,7 @@ def get_feature_columns() -> list[str]:
             "mkt_total_std",
             "mkt_1h_spread_avg",
             "mkt_1h_total_avg",
+            "mkt_1h_home_ml_prob",
             "mkt_home_ml_prob",
             # Sharp vs. Square analysis
             "sharp_spread",

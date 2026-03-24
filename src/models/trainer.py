@@ -314,25 +314,29 @@ class ModelTrainer:
             logger.info("%s — MAE: %.2f, RMSE: %.2f", model_name, avg_mae, avg_rmse)
 
         # ── Calibrated probability coefficients (Platt scaling) ──
+        # Use holdout portion (X_hold / y_hold from the 85/15 split) so that
+        # calibration is fitted on predictions the model never trained on.
+        hold_slice = slice(split_idx, None)
+        X_cal = X[hold_slice]
         if "model_home_fg" in self.models and "model_away_fg" in self.models:
-            home_preds = self.models["model_home_fg"].predict(X)
-            away_preds = self.models["model_away_fg"].predict(X)
+            home_preds = self.models["model_home_fg"].predict(X_cal)
+            away_preds = self.models["model_away_fg"].predict(X_cal)
             fg_margins = home_preds - away_preds
             fg_actuals = (
-                np.asarray(df["home_score_fg"].to_numpy(dtype=float))
-                > np.asarray(df["away_score_fg"].to_numpy(dtype=float))
+                np.asarray(df["home_score_fg"].to_numpy(dtype=float))[hold_slice]
+                > np.asarray(df["away_score_fg"].to_numpy(dtype=float))[hold_slice]
             ).astype(float)
             fg_coef, fg_intercept = _calibrate_probabilities(fg_margins, fg_actuals)
             metrics["calibration_fg_coef"] = fg_coef
             metrics["calibration_fg_intercept"] = fg_intercept
 
         if "model_home_1h" in self.models and "model_away_1h" in self.models:
-            h1_home = self.models["model_home_1h"].predict(X)
-            h1_away = self.models["model_away_1h"].predict(X)
+            h1_home = self.models["model_home_1h"].predict(X_cal)
+            h1_away = self.models["model_away_1h"].predict(X_cal)
             h1_margins = h1_home - h1_away
             h1_actuals = (
-                np.asarray(df["home_score_1h"].to_numpy(dtype=float))
-                > np.asarray(df["away_score_1h"].to_numpy(dtype=float))
+                np.asarray(df["home_score_1h"].to_numpy(dtype=float))[hold_slice]
+                > np.asarray(df["away_score_1h"].to_numpy(dtype=float))[hold_slice]
             ).astype(float)
             h1_coef, h1_intercept = _calibrate_probabilities(h1_margins, h1_actuals)
             metrics["calibration_1h_coef"] = h1_coef

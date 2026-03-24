@@ -1,12 +1,14 @@
 <#
 .SYNOPSIS
-    Pull secrets from Azure Container Apps and create a local .env file.
+    Bootstrap local development: create venv, install dependencies,
+    and pull secrets from Azure Container Apps.
 
 .DESCRIPTION
-    After cloning the repo, run this script once to generate .env with
-    the correct API keys and DATABASE_URL from the ACA deployment.
+    After cloning the repo, run this script once to:
+      1. Create a .venv (if missing) and install requirements-dev.txt
+      2. Generate .env with the correct API keys / DATABASE_URL from the ACA deployment
 
-    Requires: az CLI logged in with access to the nba_gbsv_v6_az resource group.
+    Requires: Python 3.12+, az CLI logged in with access to the nba_gbsv_v6_az resource group.
 
 .EXAMPLE
     .\scripts\setup-env.ps1
@@ -18,9 +20,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$ROOT = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$VENV = Join-Path $ROOT ".venv"
+$ENV_FILE = Join-Path $ROOT ".env"
+
+# ── 1. Create venv + install deps ────────────────────────────────
+if (-not (Test-Path (Join-Path $VENV "Scripts\python.exe"))) {
+  Write-Host "Creating virtual environment..." -ForegroundColor Cyan
+  python -m venv $VENV
+}
+
+$pip = Join-Path $VENV "Scripts\pip.exe"
+Write-Host "Installing dependencies..." -ForegroundColor Cyan
+& $pip install --quiet -r (Join-Path $ROOT "requirements-dev.txt")
+Write-Host "Dependencies installed." -ForegroundColor Green
+
+# ── 2. Pull secrets from ACA ─────────────────────────────────────
+
 $RG = "nba_gbsv_v6_az"
 $APP = "ca-nba-gbsv-v6-worker"
-$ENV_FILE = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.env"))
 
 if ((Test-Path $ENV_FILE) -and -not $Force) {
   Write-Host ".env already exists at $ENV_FILE" -ForegroundColor Yellow
