@@ -444,7 +444,7 @@ async def _run_audit() -> None:
             .order_by(Prediction.predicted_at.desc())
             .limit(10)
         )).scalars().all()
-        for p in rows:
+        for p in p_rows:
             g = p.game
             home = g.home_team.name if g and g.home_team else "?"
             away = g.away_team.name if g and g.away_team else "?"
@@ -468,7 +468,7 @@ async def _run_audit() -> None:
             .order_by(Game.commence_time)
             .limit(15)
         )).scalars().all()
-        for g in rows:
+        for g in g_rows:
             home = g.home_team.name if g.home_team else "?"
             away = g.away_team.name if g.away_team else "?"
             oid = g.odds_api_id or "NO_OID"

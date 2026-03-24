@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -16,7 +16,6 @@ from src.config import get_settings
 from src.db.models import Game, OddsSnapshot
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 _RETRY = retry(
     stop=stop_after_attempt(3),
@@ -35,9 +34,11 @@ class OddsClient:
     """Client for The Odds API v4."""
 
     def __init__(self) -> None:
-        self.base_url = settings.odds_api_base
-        self.api_key = settings.odds_api_key
-        self.sport = settings.odds_api_sport_key
+        _settings = get_settings()
+        self.base_url = _settings.odds_api_base
+        self.api_key = _settings.odds_api_key
+        self.sport = _settings.odds_api_sport_key
+        self._quota_min = _settings.odds_api_quota_min
         self._remaining_quota: int | None = None
 
     def _track_quota(self, response: httpx.Response) -> None:
@@ -53,7 +54,7 @@ class OddsClient:
     def _should_skip(self) -> bool:
         if (
             self._remaining_quota is not None
-            and self._remaining_quota < settings.odds_api_quota_min
+            and self._remaining_quota < self._quota_min
         ):
             logger.warning("Odds API quota low (%s), skipping request", self._remaining_quota)
             return True
@@ -189,7 +190,7 @@ class OddsClient:
 
     async def persist_odds(self, odds_data: list[dict], db: AsyncSession) -> int:
         """Parse odds response and insert OddsSnapshot rows. Returns count of inserted rows."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         count = 0
         for event in odds_data:
             odds_api_id = event.get("id")

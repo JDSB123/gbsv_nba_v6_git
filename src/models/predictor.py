@@ -2,7 +2,7 @@ import json
 import logging
 import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -429,7 +429,7 @@ class Predictor:
             existing.opening_spread = pred_dict.get("opening_spread")  # type: ignore[assignment]
             existing.opening_total = pred_dict.get("opening_total")  # type: ignore[assignment]
             existing.odds_sourced = pred_dict.get("odds_detail")  # type: ignore[assignment]
-            existing.predicted_at = datetime.utcnow()  # type: ignore[assignment]
+            existing.predicted_at = datetime.now(UTC)  # type: ignore[assignment]
             await db.commit()
             await db.refresh(existing)
             logger.info("Prediction updated for game %d", game.id)
@@ -451,7 +451,7 @@ class Predictor:
             opening_spread=pred_dict.get("opening_spread"),
             opening_total=pred_dict.get("opening_total"),
             odds_sourced=pred_dict.get("odds_detail"),
-            predicted_at=datetime.utcnow(),
+            predicted_at=datetime.now(UTC),
         )
         db.add(prediction)
         await db.commit()

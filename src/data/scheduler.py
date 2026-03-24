@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -13,7 +13,6 @@ from src.db.models import Game, Team
 from src.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 # Dedup flag: tracks the date for which pregame publish already fired
 _pregame_published_date: date | None = None
@@ -388,7 +387,7 @@ async def pregame_check() -> None:
             return
 
         minutes_until = (first_et - now).total_seconds() / 60
-        if 0 < minutes_until <= settings.pregame_lead_minutes:
+        if 0 < minutes_until <= get_settings().pregame_lead_minutes:
             logger.info(
                 "Pregame window: %d min until first game, publishing...",
                 int(minutes_until),
@@ -426,12 +425,13 @@ async def generate_predictions_and_publish() -> None:
             ).scalar_one_or_none()
 
         if latest_odds_ts is not None:
-            odds_age_min = (datetime.utcnow() - latest_odds_ts).total_seconds() / 60
-            if odds_age_min > settings.odds_freshness_max_age_minutes:
+            odds_age_min = (datetime.now(UTC) - latest_odds_ts.replace(tzinfo=UTC)).total_seconds() / 60
+            _s = get_settings()
+            if odds_age_min > _s.odds_freshness_max_age_minutes:
                 logger.warning(
                     "Odds data is %.0f min stale (threshold: %d min), refreshing before predictions...",
                     odds_age_min,
-                    settings.odds_freshness_max_age_minutes,
+                    _s.odds_freshness_max_age_minutes,
                 )
                 await poll_fg_odds()
         else:
@@ -476,24 +476,25 @@ async def generate_predictions_and_publish() -> None:
                 download_url: str | None = None
 
                 # Link to the HTML slate if the API is reachable
-                if settings.api_base_url:
-                    download_url = f"{settings.api_base_url}/predictions/slate.html"
+                _s = get_settings()
+                if _s.api_base_url:
+                    download_url = f"{_s.api_base_url}/predictions/slate.html"
 
                 payload = build_teams_card(
                     rows,
-                    settings.teams_max_games_per_message,
+                    _s.teams_max_games_per_message,
                     odds_pulled_at=odds_pulled_at,
                     download_url=download_url,
                 )
-                if settings.teams_team_id and settings.teams_channel_id:
+                if _s.teams_team_id and _s.teams_channel_id:
                     await send_card_via_graph(
-                        settings.teams_team_id,
-                        settings.teams_channel_id,
+                        _s.teams_team_id,
+                        _s.teams_channel_id,
                         payload,
                     )
                     logger.info("Published %d predictions to Teams (Graph API)", len(rows))
-                elif settings.teams_webhook_url:
-                    await send_card_to_teams(settings.teams_webhook_url, payload)
+                elif _s.teams_webhook_url:
+                    await send_card_to_teams(_s.teams_webhook_url, payload)
                     logger.info("Published %d predictions to Teams (webhook)", len(rows))
                 else:
                     logger.info("No Teams delivery configured; skipping publish")
@@ -519,7 +520,7 @@ async def check_prediction_drift() -> None:
         from src.db.models import Prediction
 
         async with async_session_factory() as db:
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             cutoff_30d = now - timedelta(days=30)
             cutoff_7d = now - timedelta(days=7)
 
@@ -584,7 +585,7 @@ async def prune_old_odds() -> None:
 
         from src.db.models import OddsSnapshot
 
-        cutoff = datetime.utcnow() - timedelta(days=30)
+        cutoff = datetime.now(UTC) - timedelta(days=30)
         async with async_session_factory() as db:
             # Only prune for games that are finished
             result = await db.execute(
@@ -623,6 +624,7 @@ async def db_maintenance() -> None:
 
 
 def create_scheduler() -> AsyncIOScheduler:
+    settings = get_settings()
     scheduler = AsyncIOScheduler(timezone="US/Eastern")
 
     scheduler.add_job(

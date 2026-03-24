@@ -96,4 +96,24 @@ async def publish_slate_via_graph(
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
 
+    settings = get_settings()
+    if not settings.teams_team_id or not settings.teams_channel_id:
+        raise HTTPException(
+            status_code=500,
+            detail="TEAMS_TEAM_ID and TEAMS_CHANNEL_ID not configured",
+        )
+
+    rows, odds_pulled_at = await service.get_slate_payload()
+    if not rows:
+        raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
+
+    from src.notifications.teams import build_teams_card, send_card_via_graph
+
+    card = build_teams_card(
+        rows,
+        settings.teams_max_games_per_message,
+        odds_pulled_at=odds_pulled_at,
+    )
+    await send_card_via_graph(settings.teams_team_id, settings.teams_channel_id, card)
+
     return {"message": "Published slate to Teams (Graph API) successfully"}

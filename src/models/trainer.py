@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -151,7 +151,7 @@ class ModelTrainer:
         )
         current = result.scalar_one_or_none()
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         metrics_json = json.dumps(metrics)
         params_json = json.dumps(best_params_all)
 

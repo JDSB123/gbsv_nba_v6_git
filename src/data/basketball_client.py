@@ -25,7 +25,6 @@ from src.db.models import (
 )
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 _RETRY = retry(
     stop=stop_after_attempt(3),
@@ -155,9 +154,11 @@ class BasketballClient:
     """Client for api-sports.io Basketball API v1."""
 
     def __init__(self) -> None:
-        self.base_url = settings.basketball_api_base
-        self.api_key = settings.basketball_api_key
-        self.league_id = settings.basketball_api_league_id
+        _settings = get_settings()
+        self.base_url = _settings.basketball_api_base
+        self.api_key = _settings.basketball_api_key
+        self.league_id = _settings.basketball_api_league_id
+        self._nba_api_base = _settings.nba_api_base
 
     def _headers(self) -> dict[str, str]:
         return {"x-apisports-key": self.api_key}
@@ -243,7 +244,7 @@ class BasketballClient:
         nba_season = resolved.split("-")[0]
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{settings.nba_api_base}/players/injuries",
+                f"{self._nba_api_base}/players/injuries",
                 headers=self._headers(),
                 params={"league": "standard", "season": nba_season},
                 timeout=30,

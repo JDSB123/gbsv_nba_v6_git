@@ -13,13 +13,13 @@ from src.api.routes import health, model, odds, performance, predictions
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup — use shared logging config (JSON in prod, plain in dev)
     _setup_logging()
+    settings = get_settings()
     logger.info("Starting NBA GBSV v6 — env=%s", settings.app_env)
 
     logger.info("API startup complete")
@@ -43,9 +43,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ── CORS ──────────────────────────────────────────────────────────
+_cors_settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.api_base_url] if settings.api_base_url else [],
+    allow_origins=[_cors_settings.api_base_url] if _cors_settings.api_base_url else [],
     allow_methods=["GET", "POST"],
     allow_headers=["X-API-Key", "Content-Type"],
 )
@@ -68,6 +69,7 @@ _AUTH_EXEMPT = {"/health", "/health/deep", "/docs", "/openapi.json"}
 
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next) -> Response:
+    settings = get_settings()
     if not settings.api_key or request.url.path in _AUTH_EXEMPT:
         return await call_next(request)
 
