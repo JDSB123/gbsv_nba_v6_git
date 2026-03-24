@@ -22,3 +22,9 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501", "B008"]
+[tool.mypy]
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+ignore_missing_imports = true
+
+
+

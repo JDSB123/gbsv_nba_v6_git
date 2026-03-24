@@ -106,8 +106,8 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
                 if not commence:
                     continue
                 ct = parse_api_datetime(commence)
-                result = await db.execute(select(Game).where(Game.commence_time == ct))
-                game = result.scalar_one_or_none()
+                game_result = await db.execute(select(Game).where(Game.commence_time == ct))
+                game = game_result.scalar_one_or_none()
                 game_odds_api_id = cast(Any, game.odds_api_id) if game is not None else None
                 if game is not None and game_odds_api_id is None:
                     game.odds_api_id = event["id"]

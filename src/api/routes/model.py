@@ -73,7 +73,7 @@ async def model_performance(
         if len(latest_per_game_version) >= limit:
             break
 
-    by_model: dict[str, dict[str, list[float] | int]] = {}
+    by_model: dict[str, Any] = {}
     for pred, game in latest_per_game_version.values():
         model_version = str(pred.model_version)
         slot = by_model.setdefault(

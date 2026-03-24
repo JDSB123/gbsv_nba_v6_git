@@ -408,10 +408,10 @@ class Predictor:
             existing.h1_spread = pred_dict["h1_spread"]
             existing.h1_total = pred_dict["h1_total"]
             existing.h1_home_ml_prob = pred_dict["h1_home_ml_prob"]
-            existing.opening_spread = pred_dict.get("opening_spread")
-            existing.opening_total = pred_dict.get("opening_total")
-            existing.odds_sourced = pred_dict.get("odds_detail")
-            existing.predicted_at = datetime.utcnow()
+            existing.opening_spread = pred_dict.get("opening_spread")  # type: ignore[assignment]
+            existing.opening_total = pred_dict.get("opening_total")  # type: ignore[assignment]
+            existing.odds_sourced = pred_dict.get("odds_detail")  # type: ignore[assignment]
+            existing.predicted_at = datetime.utcnow()  # type: ignore[assignment]
             await db.commit()
             await db.refresh(existing)
             logger.info("Prediction updated for game %d", game.id)

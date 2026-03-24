@@ -387,13 +387,13 @@ async def _run_audit() -> None:
         # ── Model registry ────────────────────────────────
         print()
         print("MODEL REGISTRY:")
-        rows = (await db.execute(
+        mr_rows = (await db.execute(
             select(ModelRegistry)
             .order_by(ModelRegistry.created_at.desc())
             .limit(5)
         )).scalars().all()
-        if rows:
-            for m in rows:
+        if mr_rows:
+            for m in mr_rows:
                 active = "ACTIVE" if m.is_active else "retired"
                 print(f"  {m.model_version:<20} {active:<10} created={m.created_at}")
         else:
@@ -403,7 +403,7 @@ async def _run_audit() -> None:
         print()
         print("RECENT PREDICTIONS (last 10):")
         from sqlalchemy.orm import selectinload
-        rows = (await db.execute(
+        p_rows = (await db.execute(
             select(Prediction)
             .options(selectinload(Prediction.game).selectinload(Game.home_team),
                      selectinload(Prediction.game).selectinload(Game.away_team))
@@ -427,7 +427,7 @@ async def _run_audit() -> None:
         # ── Upcoming games (NS) ──────────────────────────
         print()
         print("UPCOMING GAMES (NS):")
-        rows = (await db.execute(
+        g_rows = (await db.execute(
             select(Game)
             .options(selectinload(Game.home_team), selectinload(Game.away_team))
             .where(Game.status == "NS")

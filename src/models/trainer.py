@@ -162,9 +162,9 @@ class ModelTrainer:
             )
             db.add(current)
 
-        current.metrics_json = metrics_json
-        current.params_json = params_json
-        current.promotion_reason = promotion_reason
+        current.metrics_json = metrics_json  # type: ignore[assignment]
+        current.params_json = params_json  # type: ignore[assignment]
+        current.promotion_reason = promotion_reason  # type: ignore[assignment]
 
         if should_promote:
             active = await db.execute(
@@ -174,12 +174,12 @@ class ModelTrainer:
                 )
             )
             for row in active.scalars().all():
-                row.is_active = False
-                row.retired_at = now
+                row.is_active = False  # type: ignore[assignment]
+                row.retired_at = now  # type: ignore[assignment]
 
-            current.is_active = True
-            current.promoted_at = now
-            current.retired_at = None
+            current.is_active = True  # type: ignore[assignment]
+            current.promoted_at = now  # type: ignore[assignment]
+            current.retired_at = None  # type: ignore[assignment]
         elif current.is_active is None:
             current.is_active = False
 
@@ -244,7 +244,7 @@ class ModelTrainer:
                 logger.info("Running Optuna for %s (%d trials)...", model_name, OPTUNA_N_TRIALS)
                 study = optuna.create_study(direction="minimize")
                 study.optimize(
-                    lambda trial, _X=X, _y=y: _optuna_objective(trial, _X, _y),
+                    lambda trial, _X=X, _y=y: _optuna_objective(trial, _X, _y),  # type: ignore
                     n_trials=OPTUNA_N_TRIALS,
                 )
                 best = study.best_params

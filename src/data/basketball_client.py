@@ -294,9 +294,8 @@ class BasketballClient:
     async def persist_teams(self, standings: list[dict], db: AsyncSession) -> None:
         """Upsert teams from standings data."""
         for group in standings:
-            if not isinstance(group, list):
-                group = [group]
-            for entry in group:
+            items = group if isinstance(group, list) else [group]
+            for entry in items:
                 team_data = entry.get("team", {})
                 stmt = (
                     pg_insert(Team)
