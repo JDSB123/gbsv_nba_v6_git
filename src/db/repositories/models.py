@@ -12,7 +12,7 @@ class ModelRepository:
         return result.scalars().all()
 
     async def get_model_by_version(self, version: str) -> ModelRegistry | None:
-        result = await self._session.execute(select(ModelRegistry).where(ModelRegistry.version == version))
+        result = await self._session.execute(select(ModelRegistry).where(ModelRegistry.model_version == version))
         return result.scalar_one_or_none()
         
     async def get_finished_game_predictions(self):
@@ -27,3 +27,4 @@ class ModelRepository:
             .order_by(Game.commence_time.desc(), Prediction.predicted_at.desc())
         )
         return result.all()
+
