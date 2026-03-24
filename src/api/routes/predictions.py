@@ -120,10 +120,17 @@ async def publish_slate_to_teams(
 
     from src.notifications.teams import build_teams_card, send_card_to_teams
 
+    # Build download URLs from configured base or infer from request
+    base = settings.api_base_url.rstrip("/") if settings.api_base_url else str(request.base_url).rstrip("/")
+    download_url = f"{base}/predictions/slate.html"
+    csv_download_url = f"{base}/predictions/slate.csv"
+
     card = build_teams_card(
         rows,
         settings.teams_max_games_per_message,
         odds_pulled_at=odds_pulled_at,
+        download_url=download_url,
+        csv_download_url=csv_download_url,
     )
     await send_card_to_teams(settings.teams_webhook_url, card)
 

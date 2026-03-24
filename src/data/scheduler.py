@@ -687,11 +687,17 @@ async def generate_predictions_and_publish() -> None:
                     logger.info("Published %d predictions to Teams (Graph API)", len(rows))
 
                 elif _s.teams_webhook_url:
+                    csv_dl = (
+                        f"{_s.api_base_url.rstrip('/')}/predictions/slate.csv"
+                        if _s.api_base_url
+                        else None
+                    )
                     payload = build_teams_card(
                         rows,
                         _s.teams_max_games_per_message,
                         odds_pulled_at=odds_pulled_at,
                         download_url=download_url,
+                        csv_download_url=csv_dl,
                     )
                     await send_card_to_teams(_s.teams_webhook_url, payload)
                     logger.info("Published %d predictions to Teams (webhook)", len(rows))
