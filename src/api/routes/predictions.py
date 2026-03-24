@@ -13,8 +13,10 @@ from src.services.predictions import PredictionService
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
+
 def _not_ready_detail(reason: str) -> dict[str, str]:
     return {"message": "Predictions not ready", "reason": reason}
+
 
 async def get_prediction_service(
     db: AsyncSession = Depends(get_db),
@@ -23,6 +25,7 @@ async def get_prediction_service(
     repo = PredictionRepository(db)
     settings = get_settings()
     return PredictionService(repo, predictor, settings)
+
 
 @router.get("")
 @router.get("/")
@@ -34,6 +37,7 @@ async def list_predictions(
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
     return await service.get_list_predictions()
+
 
 @router.get("/{game_id}")
 @limiter.limit("60/minute")
@@ -54,6 +58,7 @@ async def get_prediction(
         )
     return detail["result"]
 
+
 @router.post("/publish/teams")
 @limiter.limit("10/minute")
 async def publish_slate_to_teams(
@@ -64,17 +69,14 @@ async def publish_slate_to_teams(
         raise HTTPException(status_code=503, detail="Models not ready")
     settings = get_settings()
     if not settings.teams_webhook_url:
-        raise HTTPException(
-            status_code=500, detail="MSTEAMS_WEBHOOK_URL not configured"
-        )
-    
+        raise HTTPException(status_code=500, detail="MSTEAMS_WEBHOOK_URL not configured")
+
     rows, odds_pulled_at = await service.get_slate_payload()
     if not rows:
-        raise HTTPException(
-            status_code=400, detail=_not_ready_detail("No predictions available")
-        )
+        raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
 
     from src.notifications.teams import build_teams_card, send_card_to_teams
+
     card = build_teams_card(
         rows,
         settings.teams_max_games_per_message,
@@ -83,6 +85,7 @@ async def publish_slate_to_teams(
     await send_card_to_teams(settings.teams_webhook_url, card)
 
     return {"message": "Published slate to Teams successfully"}
+
 
 @router.post("/publish/graph")
 @limiter.limit("10/minute")
