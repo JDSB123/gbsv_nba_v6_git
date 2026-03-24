@@ -1,12 +1,13 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from httpx import ASGITransport, AsyncClient
-from datetime import UTC, datetime, timedelta
 
 from src.api.dependencies import get_predictor
 from src.api.main import app
-from src.services.predictions import PredictionService
 from src.config import Settings
-from src.models.predictor import MODEL_VERSION
+from src.services.predictions import PredictionService
+
 
 @pytest.fixture
 def anyio_backend():

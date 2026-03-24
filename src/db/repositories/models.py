@@ -1,7 +1,10 @@
-from typing import Sequence
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.db.models import ModelRegistry, Prediction, Game
+
+from src.db.models import Game, ModelRegistry, Prediction
+
 
 class ModelRepository:
     def __init__(self, session: AsyncSession):

@@ -1,18 +1,13 @@
 from datetime import UTC, datetime
 from typing import Any, cast
+
 import numpy as np
 
+from src.config import Settings
 from src.db.models import Game, Prediction
 from src.db.repositories.predictions import PredictionRepository
 from src.models.predictor import Predictor
-from src.config import Settings
-from src.notifications.teams import (
-    build_html_slate,
-    build_slate_csv,
-    build_teams_card,
-    send_card_to_teams,
-    send_card_via_graph,
-)
+
 
 def _as_float(value: Any, default: float = 0.0) -> float:
     return float(value) if value is not None else default
@@ -116,7 +111,8 @@ class PredictionService:
 
         output = []
         for pred in latest:
-            if pred.game_id is None: continue
+            if pred.game_id is None:
+                continue
             game = game_by_id.get(int(cast(Any, pred.game_id)))
             if game:
                 output.append(self.format_prediction(pred, game))
@@ -132,7 +128,8 @@ class PredictionService:
 
         rows = []
         for pred in latest:
-            if pred.game_id is None: continue
+            if pred.game_id is None:
+                continue
             game = game_by_id.get(int(cast(Any, pred.game_id)))
             if game:
                 rows.append((pred, game))
@@ -142,10 +139,12 @@ class PredictionService:
         
     async def get_prediction_detail(self, game_id: int):
         game = await self.repo.get_game_with_teams(game_id)
-        if not game: return None
-        
+        if not game:
+            return None
+
         pred = await self.repo.get_latest_prediction_for_game(game_id)
-        if not pred: return {"game": game, "pred": None}
+        if not pred:
+            return {"game": game, "pred": None}
             
         result = self.format_prediction(pred, game)
         odds = await self.repo.get_recent_odds_snapshots(game_id, limit=50)

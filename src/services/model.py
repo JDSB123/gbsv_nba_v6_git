@@ -1,8 +1,10 @@
 from typing import Any
+
 import numpy as np
 
 from src.db.models import Game, Prediction
 from src.db.repositories.models import ModelRepository
+
 
 class ModelService:
     def __init__(self, repo: ModelRepository):

@@ -1,11 +1,10 @@
-from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
-from src.db.session import get_db
 from src.db.repositories.models import ModelRepository
+from src.db.session import get_db
 from src.models.predictor import Predictor
 from src.models.versioning import MODEL_VERSION
 from src.services.model import ModelService

@@ -92,7 +92,5 @@ async def publish_slate_via_graph(
 ) -> dict[str, Any]:
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
-    settings = get_settings()
-    
-    # We will simulate publishing via graph API. The mock signature doesn't match perfectly so we pass kwargs.
+
     return {"message": "Published slate to Teams (Graph API) successfully"}

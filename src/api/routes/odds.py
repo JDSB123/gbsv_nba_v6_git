@@ -1,7 +1,5 @@
 from fastapi import APIRouter
-from sqlalchemy import select
 
-from src.db.models import Game, OddsSnapshot
 from src.db.repositories.odds import OddsRepository
 from src.db.session import async_session_factory
 
