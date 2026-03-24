@@ -422,27 +422,62 @@ async def generate_predictions_and_publish() -> None:
         # Invalidate Elo cache so fresh ratings are computed from latest results
         reset_elo_cache()
 
-        # Check data freshness — refresh odds/stats if stale
+        # 1) Sync Odds-API events → internal games so odds_api_id is set
+        #    before persist_odds tries to link snapshots.
+        await sync_events_to_games()
+
+        # 2) Refresh FG odds if stale (check FG markets only, not 1H/props)
+        _s = get_settings()
+        _fg_markets = ("h2h", "spreads", "totals")
         async with async_session_factory() as _check_db:
-            latest_odds_ts = (
-                await _check_db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
+            latest_fg_ts = (
+                await _check_db.execute(
+                    select(sa_func.max(OddsSnapshot.captured_at)).where(
+                        OddsSnapshot.market.in_(_fg_markets)
+                    )
+                )
             ).scalar_one_or_none()
 
-        if latest_odds_ts is not None:
-            odds_age_min = (
-                datetime.now(UTC) - latest_odds_ts.replace(tzinfo=UTC)
+        if latest_fg_ts is not None:
+            fg_age_min = (
+                datetime.now(UTC) - latest_fg_ts.replace(tzinfo=UTC)
             ).total_seconds() / 60
-            _s = get_settings()
-            if odds_age_min > _s.odds_freshness_max_age_minutes:
+            if fg_age_min > _s.odds_freshness_max_age_minutes:
                 logger.warning(
-                    "Odds data is %.0f min stale (threshold: %d min), refreshing before predictions...",
-                    odds_age_min,
+                    "FG odds are %.0f min stale (threshold: %d min), refreshing...",
+                    fg_age_min,
                     _s.odds_freshness_max_age_minutes,
                 )
                 await poll_fg_odds()
         else:
-            logger.warning("No odds data found, refreshing before predictions...")
+            logger.warning("No FG odds data found, refreshing before predictions...")
             await poll_fg_odds()
+
+        # 3) Refresh 1H odds if stale
+        _h1_markets = ("h2h_h1", "spreads_h1", "totals_h1")
+        async with async_session_factory() as _check_db:
+            latest_h1_ts = (
+                await _check_db.execute(
+                    select(sa_func.max(OddsSnapshot.captured_at)).where(
+                        OddsSnapshot.market.in_(_h1_markets)
+                    )
+                )
+            ).scalar_one_or_none()
+
+        if latest_h1_ts is not None:
+            h1_age_min = (
+                datetime.now(UTC) - latest_h1_ts.replace(tzinfo=UTC)
+            ).total_seconds() / 60
+            if h1_age_min > _s.odds_freshness_max_age_minutes:
+                logger.warning(
+                    "1H odds are %.0f min stale (threshold: %d min), refreshing...",
+                    h1_age_min,
+                    _s.odds_freshness_max_age_minutes,
+                )
+                await poll_1h_odds()
+        else:
+            logger.warning("No 1H odds data found, refreshing before predictions...")
+            await poll_1h_odds()
 
         predictor = Predictor()
         if not predictor.is_ready:
