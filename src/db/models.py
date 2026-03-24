@@ -4,6 +4,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -39,10 +40,10 @@ class Player(Base):
     __tablename__ = "players"
 
     id = Column(Integer, primary_key=True)  # Basketball API player id
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(120), nullable=False)
     position = Column(String(20))
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
 
     team = relationship("Team", back_populates="players")
     game_stats = relationship("PlayerGameStats", back_populates="player")
@@ -54,11 +55,11 @@ class Game(Base):
 
     id = Column(Integer, primary_key=True)  # Basketball API game id
     odds_api_id = Column(String(64), unique=True, index=True)
-    home_team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
-    away_team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    home_team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    away_team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     commence_time = Column(DateTime, nullable=False, index=True)
-    status = Column(String(10), default="NS")  # NS, Q1-Q4, HT, FT, etc.
-    season = Column(String(10))  # e.g. "2024-2025"
+    status = Column(String(10), nullable=False, default="NS", server_default="NS")
+    season = Column(String(10), nullable=False, default="", server_default="")
 
     # Quarter scores
     home_q1 = Column(Integer)
@@ -84,14 +85,24 @@ class Game(Base):
     predictions = relationship("Prediction", back_populates="game")
     player_stats = relationship("PlayerGameStats", back_populates="game")
 
-    __table_args__ = (Index("ix_games_status_commence", "status", "commence_time"),)
+    __table_args__ = (
+        Index("ix_games_status_commence", "status", "commence_time"),
+        CheckConstraint("home_q1 IS NULL OR home_q1 >= 0", name="ck_games_home_q1_non_neg"),
+        CheckConstraint("home_q2 IS NULL OR home_q2 >= 0", name="ck_games_home_q2_non_neg"),
+        CheckConstraint("home_q3 IS NULL OR home_q3 >= 0", name="ck_games_home_q3_non_neg"),
+        CheckConstraint("home_q4 IS NULL OR home_q4 >= 0", name="ck_games_home_q4_non_neg"),
+        CheckConstraint("away_q1 IS NULL OR away_q1 >= 0", name="ck_games_away_q1_non_neg"),
+        CheckConstraint("away_q2 IS NULL OR away_q2 >= 0", name="ck_games_away_q2_non_neg"),
+        CheckConstraint("away_q3 IS NULL OR away_q3 >= 0", name="ck_games_away_q3_non_neg"),
+        CheckConstraint("away_q4 IS NULL OR away_q4 >= 0", name="ck_games_away_q4_non_neg"),
+    )
 
 
 class TeamSeasonStats(Base):
     __tablename__ = "team_season_stats"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     season = Column(String(10), nullable=False)
     games_played = Column(Integer, default=0)
     wins = Column(Integer, default=0)
@@ -111,8 +122,8 @@ class PlayerGameStats(Base):
     __tablename__ = "player_game_stats"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    player_id = Column(Integer, ForeignKey("players.id"), nullable=False, index=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
+    player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True)
+    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True)
     minutes = Column(Integer)
     points = Column(Integer)
     rebounds = Column(Integer)
@@ -135,11 +146,11 @@ class OddsSnapshot(Base):
     __tablename__ = "odds_snapshots"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
+    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True)
     source = Column(String(30), nullable=False)  # "odds_api" or "basketball_api"
     bookmaker = Column(String(60), nullable=False)
     market = Column(String(60), nullable=False)  # h2h, spreads, totals, player_points, etc.
-    outcome_name = Column(String(60), nullable=False)  # team name or "Over"/"Under"
+    outcome_name = Column(String(128), nullable=False)  # team name, "Over"/"Under", or player prop name
     description = Column(String(120))  # player name for prop bets
     price = Column(Float, nullable=False)
     point = Column(Float)  # spread or total line
@@ -154,7 +165,7 @@ class Prediction(Base):
     __tablename__ = "predictions"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
+    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True)
     model_version = Column(String(20), nullable=False)
     predicted_home_fg = Column(Float, nullable=False)
     predicted_away_fg = Column(Float, nullable=False)
@@ -210,8 +221,8 @@ class Injury(Base):
     __tablename__ = "injuries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    player_id = Column(Integer, ForeignKey("players.id"), nullable=False, index=True)
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     status = Column(String(20), nullable=False)  # out, doubtful, questionable, probable
     description = Column(String(255))
     reported_at = Column(DateTime, nullable=False, default=datetime.utcnow)

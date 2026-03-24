@@ -57,9 +57,13 @@ def _home_spreads(
     """
     result: list[float] = []
     for s in snapshots:
-        if _as_str(s.market) != market or s.point is None:
+        s_market = getattr(s, "market", None)
+        s_outcome = getattr(s, "outcome_name", None)
+        if s_market is None or s_outcome is None:
             continue
-        if _as_str(s.outcome_name) != home_team_name:
+        if _as_str(s_market) != market or s.point is None:
+            continue
+        if _as_str(s_outcome) != home_team_name:
             continue
         if books is not None and _as_str(s.bookmaker).lower() not in books:
             continue

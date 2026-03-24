@@ -79,7 +79,7 @@ def _pct_to_decimal(value: Any) -> float | None:
     treated as whole-number percentages and divided by 100.
     """
     f = _as_float(value)
-    if f is None or f <= 0:
+    if f is None or f < 0:
         return None
     return f / 100 if f > 1 else f
 
@@ -257,54 +257,57 @@ class BasketballClient:
         """Replace current injury data with a fresh report.
 
         Clears the entire ``injuries`` table then re-populates from the
-        latest API response.  Only players already tracked in the
-        ``players`` table are linked; unknown players are skipped so the
-        downstream feature code can look up their ``PlayerGameStats``.
+        latest API response.  Uses a savepoint so a mid-loop failure rolls
+        back to the pre-delete state instead of leaving the table empty.
+        Only players already tracked in the ``players`` table are linked;
+        unknown players are skipped so the downstream feature code can
+        look up their ``PlayerGameStats``.
         """
-        await db.execute(delete(Injury))
+        async with db.begin_nested():
+            await db.execute(delete(Injury))
 
-        count = 0
-        for entry in injuries_data:
-            team_info = entry.get("team") or {}
-            player_info = entry.get("player") or {}
-            status_info = entry.get("status") or {}
+            count = 0
+            for entry in injuries_data:
+                team_info = entry.get("team") or {}
+                player_info = entry.get("player") or {}
+                status_info = entry.get("status") or {}
 
-            team_name = team_info.get("name", "")
-            first = player_info.get("firstname", "")
-            last = player_info.get("lastname", "")
-            full_name = f"{first} {last}".strip()
-            if not team_name or not full_name:
-                continue
+                team_name = team_info.get("name", "")
+                first = player_info.get("firstname", "")
+                last = player_info.get("lastname", "")
+                full_name = f"{first} {last}".strip()
+                if not team_name or not full_name:
+                    continue
 
-            raw_status = (status_info.get("type") or "").lower()
-            mapped_status = INJURY_STATUS_MAP.get(raw_status, "questionable")
-            description = status_info.get("description", "")
+                raw_status = (status_info.get("type") or "").lower()
+                mapped_status = INJURY_STATUS_MAP.get(raw_status, "questionable")
+                description = status_info.get("description", "")
 
-            # Look up team by name
-            team_result = await db.execute(select(Team.id).where(Team.name == team_name))
-            team_id_row = team_result.scalar_one_or_none()
-            if team_id_row is None:
-                continue
+                # Look up team by name
+                team_result = await db.execute(select(Team.id).where(Team.name == team_name))
+                team_id_row = team_result.scalar_one_or_none()
+                if team_id_row is None:
+                    continue
 
-            # Look up player by name (case-insensitive) within team
-            player_result = await db.execute(
-                select(Player.id).where(
-                    Player.team_id == team_id_row,
-                    func.lower(Player.name) == full_name.lower(),
+                # Look up player by name (case-insensitive) within team
+                player_result = await db.execute(
+                    select(Player.id).where(
+                        Player.team_id == team_id_row,
+                        func.lower(Player.name) == full_name.lower(),
+                    )
                 )
-            )
-            player_id_row = player_result.scalar_one_or_none()
-            if player_id_row is None:
-                continue
+                player_id_row = player_result.scalar_one_or_none()
+                if player_id_row is None:
+                    continue
 
-            injury = Injury(
-                player_id=player_id_row,
-                team_id=team_id_row,
-                status=mapped_status,
-                description=description[:255] if description else None,
-            )
-            db.add(injury)
-            count += 1
+                injury = Injury(
+                    player_id=player_id_row,
+                    team_id=team_id_row,
+                    status=mapped_status,
+                    description=description[:255] if description else None,
+                )
+                db.add(injury)
+                count += 1
 
         await db.commit()
         logger.info("Refreshed %d injuries", count)
@@ -323,7 +326,7 @@ class BasketballClient:
                     .values(
                         id=team_data["id"],
                         name=team_data["name"],
-                        abbreviation=team_data.get("name", "")[:10],
+                        abbreviation=team_data.get("code", team_data.get("name", "")[:10]),
                         conference=entry.get("group", {}).get("name"),
                     )
                     .on_conflict_do_update(

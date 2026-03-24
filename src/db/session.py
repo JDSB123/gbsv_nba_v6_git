@@ -15,8 +15,8 @@ def _get_engine():
         echo=(settings.app_env == "development"),
         pool_size=5,
         max_overflow=5,
-        pool_timeout=30,
-        pool_recycle=3600,
+        pool_timeout=60,
+        pool_recycle=7200,
         pool_pre_ping=True,
     )
 

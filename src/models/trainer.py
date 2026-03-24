@@ -213,8 +213,14 @@ class ModelTrainer:
             row["away_score_fg"] = float(cast(Any, game.away_score_fg))
             home_score_1h = cast(Any, game.home_score_1h)
             away_score_1h = cast(Any, game.away_score_1h)
-            row["home_score_1h"] = float(home_score_1h) if home_score_1h is not None else 0.0
-            row["away_score_1h"] = float(away_score_1h) if away_score_1h is not None else 0.0
+            # Skip games with no 1H scores — using 0.0 as fallback would
+            # teach the model that "unknown" means zero and corrupt 1H targets.
+            if home_score_1h is None or away_score_1h is None:
+                row["home_score_1h"] = float("nan")
+                row["away_score_1h"] = float("nan")
+            else:
+                row["home_score_1h"] = float(home_score_1h)
+                row["away_score_1h"] = float(away_score_1h)
             row["commence_time"] = cast(Any, game.commence_time)
             rows.append(row)
 

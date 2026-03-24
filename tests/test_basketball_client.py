@@ -170,6 +170,9 @@ async def test_persist_injuries_clears_and_inserts():
     db = AsyncMock()
     db.add = MagicMock()
 
+    # begin_nested() must return an async context manager (savepoint)
+    db.begin_nested = MagicMock(return_value=AsyncMock())
+
     # Simulate: delete returns nothing, team lookup → id=1, player lookup → id=10
     db.execute = AsyncMock(
         side_effect=[
@@ -208,6 +211,8 @@ async def test_persist_injuries_skips_unknown_team():
     db = AsyncMock()
     db.add = MagicMock()
 
+    db.begin_nested = MagicMock(return_value=AsyncMock())
+
     db.execute = AsyncMock(
         side_effect=[
             AsyncMock(scalar_one_or_none=lambda: None),  # delete
@@ -235,6 +240,8 @@ async def test_persist_injuries_skips_unknown_player():
     client = BasketballClient()
     db = AsyncMock()
     db.add = MagicMock()
+
+    db.begin_nested = MagicMock(return_value=AsyncMock())
 
     db.execute = AsyncMock(
         side_effect=[

@@ -57,8 +57,8 @@ class TestPctToDecimal:
     def test_none_returns_none(self):
         assert _pct_to_decimal(None) is None
 
-    def test_zero_returns_none(self):
-        assert _pct_to_decimal("0") is None
+    def test_zero_returns_zero(self):
+        assert _pct_to_decimal("0") == 0.0
 
     def test_negative_returns_none(self):
         assert _pct_to_decimal("-5") is None

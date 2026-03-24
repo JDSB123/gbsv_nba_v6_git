@@ -4,7 +4,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from src.config import get_settings
@@ -256,7 +256,7 @@ async def sync_events_to_games() -> None:
                 result = await db.execute(select(Game).where(Game.commence_time == ct))
                 game = result.scalar_one_or_none()
 
-                # 2) Fallback: same home team within ±12 hours
+                # 2) Fallback: same home team within ±12 hours (pick closest)
                 if game is None and home_team_name:
                     window_start = ct - timedelta(hours=12)
                     window_end = ct + timedelta(hours=12)
@@ -267,6 +267,8 @@ async def sync_events_to_games() -> None:
                             Game.commence_time.between(window_start, window_end),
                             Team.name == home_team_name,
                         )
+                        .order_by(func.abs(func.extract("epoch", Game.commence_time - ct)))
+                        .limit(1)
                     )
                     game = result.scalar_one_or_none()
 

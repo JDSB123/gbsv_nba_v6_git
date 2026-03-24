@@ -194,6 +194,8 @@ class OddsClient:
         count = 0
         for event in odds_data:
             odds_api_id = event.get("id")
+            if not odds_api_id:
+                continue
             # Look up internal game_id by odds_api_id
             result = await db.execute(select(Game.id).where(Game.odds_api_id == odds_api_id))
             game_id = result.scalar_one_or_none()
@@ -205,15 +207,36 @@ class OddsClient:
                 for market in bookmaker.get("markets", []):
                     market_key = market["key"]
                     for outcome in market.get("outcomes", []):
+                        price = outcome.get("price")
+                        # Skip outcomes with missing or non-numeric price
+                        if price is None:
+                            continue
+                        try:
+                            price = float(price)
+                        except (ValueError, TypeError):
+                            logger.debug("Skipping outcome with invalid price: %s", price)
+                            continue
+
+                        point = outcome.get("point")
+                        if point is not None:
+                            try:
+                                point = float(point)
+                            except (ValueError, TypeError):
+                                point = None
+
+                        name = outcome.get("name")
+                        if not name:
+                            continue
+
                         snapshot = OddsSnapshot(
                             game_id=game_id,
                             source="odds_api",
                             bookmaker=bk_name,
                             market=market_key,
-                            outcome_name=outcome["name"],
+                            outcome_name=name[:128],
                             description=outcome.get("description"),
-                            price=outcome["price"],
-                            point=outcome.get("point"),
+                            price=price,
+                            point=point,
                             captured_at=now,
                         )
                         db.add(snapshot)
