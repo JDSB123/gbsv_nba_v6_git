@@ -522,7 +522,7 @@ async def check_prediction_drift() -> None:
         from src.db.models import Prediction
 
         async with async_session_factory() as db:
-            now = datetime.now(UTC)
+            now = datetime.now(UTC).replace(tzinfo=None)
             cutoff_30d = now - timedelta(days=30)
             cutoff_7d = now - timedelta(days=7)
 
@@ -587,7 +587,7 @@ async def prune_old_odds() -> None:
 
         from src.db.models import OddsSnapshot
 
-        cutoff = datetime.now(UTC) - timedelta(days=30)
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=30)
         async with async_session_factory() as db:
             # Only prune for games that are finished
             result = await db.execute(

@@ -151,7 +151,7 @@ class ModelTrainer:
         )
         current = result.scalar_one_or_none()
 
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         metrics_json = json.dumps(metrics)
         params_json = json.dumps(best_params_all)
 

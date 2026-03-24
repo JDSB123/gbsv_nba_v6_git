@@ -190,7 +190,7 @@ class OddsClient:
 
     async def persist_odds(self, odds_data: list[dict], db: AsyncSession) -> int:
         """Parse odds response and insert OddsSnapshot rows. Returns count of inserted rows."""
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         count = 0
         for event in odds_data:
             odds_api_id = event.get("id")
