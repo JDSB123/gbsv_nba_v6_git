@@ -187,6 +187,7 @@ class OddsClient:
         """Parse odds response and insert OddsSnapshot rows. Returns count of inserted rows."""
         now = datetime.now(UTC).replace(tzinfo=None)
         count = 0
+        skipped_no_game = 0
         for event in odds_data:
             odds_api_id = event.get("id")
             if not odds_api_id:
@@ -195,6 +196,7 @@ class OddsClient:
             result = await db.execute(select(Game.id).where(Game.odds_api_id == odds_api_id))
             game_id = result.scalar_one_or_none()
             if game_id is None:
+                skipped_no_game += 1
                 continue
 
             for bookmaker in event.get("bookmakers", []):
@@ -237,5 +239,12 @@ class OddsClient:
                         db.add(snapshot)
                         count += 1
         await db.commit()
-        logger.info("Persisted %d odds snapshots", count)
+        if skipped_no_game:
+            logger.warning(
+                "Persisted %d odds snapshots (%d events skipped — no matching game_id)",
+                count,
+                skipped_no_game,
+            )
+        else:
+            logger.info("Persisted %d odds snapshots (all events matched)", count)
         return count

@@ -291,6 +291,11 @@ class Predictor:
             .limit(500)
         )
         raw_snapshots = list(result.scalars().all())
+        if not raw_snapshots:
+            logger.warning(
+                "No odds snapshots for game %s — prediction will have no opening lines",
+                game.id,
+            )
         stored_snapshots, odds_ts = self._latest_snapshots(raw_snapshots)
 
         home_name = game.home_team.name if game.home_team else ""
@@ -480,4 +485,14 @@ class Predictor:
             pred = await self.predict_and_store(game, db)
             if pred:
                 predictions.append(pred)
+            else:
+                logger.warning("Skipped prediction for game %d (%s vs %s)",
+                               game.id,
+                               getattr(game.away_team, 'name', '?'),
+                               getattr(game.home_team, 'name', '?'))
+        if len(predictions) < len(games):
+            logger.warning(
+                "predict_upcoming: %d/%d games predicted (%d skipped)",
+                len(predictions), len(games), len(games) - len(predictions),
+            )
         return predictions

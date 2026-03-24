@@ -1026,6 +1026,15 @@ async def build_feature_vector(
         ]:
             features[k] = NaN
 
+    # ── NaN prevalence check ─────────────────────────────────────
+    total_feats = len(features)
+    nan_count = sum(1 for v in features.values() if isinstance(v, float) and math.isnan(v))
+    if total_feats > 0 and nan_count / total_feats > 0.3:
+        logger.warning(
+            "High NaN prevalence in features for game %s: %d/%d (%.0f%%) are NaN",
+            game.id, nan_count, total_feats, nan_count / total_feats * 100,
+        )
+
     return features
 
 

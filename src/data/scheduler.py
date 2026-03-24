@@ -43,6 +43,7 @@ async def poll_fg_odds() -> None:
     from src.data.circuit_breaker import odds_api_breaker
 
     if odds_api_breaker.should_skip():
+        logger.warning("Odds API circuit breaker open — skipping FG odds poll")
         return
     logger.info("Polling full-game odds...")
     try:
@@ -103,6 +104,7 @@ async def poll_stats() -> None:
     from src.data.circuit_breaker import basketball_api_breaker
 
     if basketball_api_breaker.should_skip():
+        logger.warning("Basketball API circuit breaker open — skipping poll_stats")
         return
     logger.info("Polling stats from Basketball API...")
     try:
@@ -119,10 +121,13 @@ async def poll_stats() -> None:
             # querying only date.today() (UTC) misses late-tipping games.
             today = date.today()
             tomorrow = today + timedelta(days=1)
+            total_games = 0
             for game_date in (today, tomorrow):
                 games = await client.fetch_games(game_date=game_date, season=season)
                 if games:
-                    await client.persist_games(games, db)
+                    persisted = await client.persist_games(games, db)
+                    total_games += persisted
+            logger.info("poll_stats: ingested %d games for %s / %s", total_games, today, tomorrow)
 
             result = await db.execute(select(Team.id))
             team_ids = [row[0] for row in result.fetchall()]
@@ -514,10 +519,32 @@ async def generate_predictions_and_publish() -> None:
             return
 
         async with async_session_factory() as db:
+            # Pre-check: how many NS games do we have?
+            ns_count_result = await db.execute(
+                select(sa_func.count(Game.id)).where(Game.status == "NS")
+            )
+            ns_game_count = ns_count_result.scalar() or 0
+            logger.info("Found %d NS (not-started) games in database", ns_game_count)
+
             predictions = await predictor.predict_upcoming(db)
             if not predictions:
-                logger.info("No upcoming games to publish")
+                if ns_game_count == 0:
+                    logger.info("No NS games in database \u2014 nothing to predict")
+                else:
+                    logger.warning(
+                        "DATA LOSS: %d NS games in DB but 0 predictions generated",
+                        ns_game_count,
+                    )
                 return
+
+            pred_count = len(predictions)
+            if pred_count < ns_game_count:
+                logger.warning(
+                    "INCOMPLETE COVERAGE: predicted %d / %d NS games (%d missing)",
+                    pred_count, ns_game_count, ns_game_count - pred_count,
+                )
+            else:
+                logger.info("Full coverage: predicted %d / %d NS games", pred_count, ns_game_count)
 
             game_ids = [int(cast(Any, p.game_id)) for p in predictions]
             game_result = await db.execute(
