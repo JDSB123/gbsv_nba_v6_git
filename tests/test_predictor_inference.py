@@ -4,17 +4,13 @@ get_metrics, get_feature_importance.
 """
 
 import json
-import math
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
-import pytest
 
-from src.models.predictor import MODEL_NAMES, Predictor, _margin_to_prob
-
+from src.models.predictor import MODEL_NAMES, Predictor
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -195,7 +191,7 @@ class TestPredictGame:
         pred._last_error = None
 
         # Mock 4 xgb models
-        for name in MODEL_NAMES:
+        for _name in MODEL_NAMES:
             mock_model = MagicMock()
             mock_model.predict.return_value = np.array([105.0])
             pred.models = {n: mock_model for n in MODEL_NAMES}
@@ -287,12 +283,12 @@ class TestPredictAndStore:
 
         db.execute = mock_exec
 
-        new_pred = MagicMock()
+        MagicMock()
         db.add = MagicMock()
         db.commit = AsyncMock()
         db.refresh = AsyncMock()
 
-        result = await pred.predict_and_store(game, db)
+        await pred.predict_and_store(game, db)
         db.commit.assert_awaited()
 
 

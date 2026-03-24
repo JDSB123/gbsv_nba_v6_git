@@ -6,7 +6,6 @@ import pytest
 
 from src.data.scheduler import _record_failure, create_scheduler
 
-
 # ── create_scheduler registers all expected jobs ───────────────
 
 def test_create_scheduler_registers_all_jobs():

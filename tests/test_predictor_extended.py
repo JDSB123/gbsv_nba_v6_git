@@ -2,9 +2,6 @@
 
 import json
 import math
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from src.models.predictor import (
     ARTIFACTS_DIR,
@@ -13,7 +10,6 @@ from src.models.predictor import (
     _margin_to_prob,
 )
 from src.models.versioning import MODEL_VERSION
-
 
 # ── _margin_to_prob (extended) ─────────────────────────────────
 

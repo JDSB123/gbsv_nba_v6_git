@@ -14,7 +14,6 @@ from src.db.models import (
     TeamSeasonStats,
 )
 
-
 # ── Table names ────────────────────────────────────────────────
 
 def test_all_expected_tables():

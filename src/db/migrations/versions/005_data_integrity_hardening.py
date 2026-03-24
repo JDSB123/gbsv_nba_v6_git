@@ -5,6 +5,8 @@ Revises: 004_player_props
 Create Date: 2025-07-12
 """
 
+import contextlib
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -18,10 +20,7 @@ def _has_constraint(table: str, constraint_name: str) -> bool:
     """Check if a named constraint already exists (prevents duplicate-add errors)."""
     bind = op.get_bind()
     insp = sa.inspect(bind)
-    for ck in insp.get_check_constraints(table):
-        if ck.get("name") == constraint_name:
-            return True
-    return False
+    return any(ck.get("name") == constraint_name for ck in insp.get_check_constraints(table))
 
 
 def upgrade() -> None:
@@ -84,10 +83,8 @@ def _recreate_fk(
     table: str, fk_name: str, local_col: str, ref_table: str, ref_col: str
 ) -> None:
     """Drop FK and re-add with ON DELETE CASCADE."""
-    try:
+    with contextlib.suppress(Exception):
         op.drop_constraint(fk_name, table, type_="foreignkey")
-    except Exception:
-        pass  # constraint may not exist or have a different auto-generated name
     op.create_foreign_key(fk_name, table, ref_table, [local_col], [ref_col], ondelete="CASCADE")
 
 
@@ -98,10 +95,8 @@ def downgrade() -> None:
         "away_q1", "away_q2", "away_q3", "away_q4",
     ):
         name = f"ck_games_{col}_non_neg"
-        try:
+        with contextlib.suppress(Exception):
             op.drop_constraint(name, "games", type_="check")
-        except Exception:
-            pass
 
     # Revert outcome_name width
     op.alter_column(
@@ -132,8 +127,6 @@ def downgrade() -> None:
 def _recreate_fk_no_action(
     table: str, fk_name: str, local_col: str, ref_table: str, ref_col: str
 ) -> None:
-    try:
+    with contextlib.suppress(Exception):
         op.drop_constraint(fk_name, table, type_="foreignkey")
-    except Exception:
-        pass
     op.create_foreign_key(fk_name, table, ref_table, [local_col], [ref_col])

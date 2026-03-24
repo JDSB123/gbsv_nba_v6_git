@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 from src.data.circuit_breaker import CircuitBreaker
 
-
 # ── Construction ────────────────────────────────────────────────
 
 def test_initial_state_is_closed():

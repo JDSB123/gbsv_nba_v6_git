@@ -10,7 +10,6 @@ from src.data.seasons import (
     season_bounds,
 )
 
-
 # ── format_season ──────────────────────────────────────────────
 
 def test_format_season():

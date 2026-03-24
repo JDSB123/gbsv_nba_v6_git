@@ -1,24 +1,18 @@
 """Tests for ModelTrainer — _build_dataset, _sync_model_registry, train, _optuna_objective."""
 
-import json
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
-import pytest
 
 from src.models.trainer import (
     DEFAULT_XGB_PARAMS,
     MODEL_NAMES,
     TARGETS,
     ModelTrainer,
-    _calibrate_probabilities,
-    _evaluate_promotion,
     _optuna_objective,
 )
-
 
 # ── _optuna_objective ────────────────────────────────────────────
 

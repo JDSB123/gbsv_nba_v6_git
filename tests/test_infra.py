@@ -1,12 +1,9 @@
 """Tests for session helpers, rate limiter, dependencies, versioning, config extras."""
 
-import importlib
-from unittest.mock import patch, MagicMock
 
 import pytest
 
 from src.models.versioning import MODEL_VERSION
-
 
 # ── MODEL_VERSION ──────────────────────────────────────────────
 
@@ -41,7 +38,7 @@ async def test_get_predictor_returns_predictor():
 
 @pytest.mark.asyncio
 async def test_get_predictor_cached():
-    from src.api.dependencies import get_predictor, _get_predictor
+    from src.api.dependencies import get_predictor
     p1 = await get_predictor()
     p2 = await get_predictor()
     # lru_cache should return same instance

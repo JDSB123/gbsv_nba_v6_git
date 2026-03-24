@@ -8,21 +8,17 @@ returned feature dict has all 122 feature columns with expected values.
 import math
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.models.features import (
-    INJURY_WEIGHTS,
-    SHARP_BOOKS,
-    SQUARE_BOOKS,
     TEAM_TZ,
     build_elo_ratings,
     build_feature_vector,
     get_feature_columns,
     reset_elo_cache,
 )
-
 
 # ── Helpers to build fake ORM rows ──────────────────────────────
 
@@ -192,7 +188,7 @@ def _build_mock_db(game, team_stats=None, recent_games=None, injuries=None, play
         # TeamSeasonStats queries
         if "team_season_stats" in sql_str.lower():
             # Return stats for home or away team
-            stats = team_stats.get(home_id) or team_stats.get(away_id)
+            team_stats.get(home_id) or team_stats.get(away_id)
             if team_stats:
                 # Determine which team from param bindings
                 stats_val = list(team_stats.values())[0] if len(team_stats) == 1 else None
@@ -261,7 +257,7 @@ class TestBuildFeatureVectorNoOdds:
     async def test_returns_dict_with_all_feature_columns(self):
         """Feature dict must contain every feature in get_feature_columns()."""
         home_stats = _make_team_season_stats()
-        away_stats = _make_team_season_stats(ppg=108, oppg=112, wins=20, losses=25)
+        _make_team_season_stats(ppg=108, oppg=112, wins=20, losses=25)
 
         game = _make_game()
         recent = [_make_recent_game(1, d) for d in range(1, 11)]
@@ -378,7 +374,7 @@ class TestBuildFeatureVectorNoOdds:
         db = AsyncMock()
 
         async def execute(stmt, *a, **kw):
-            sql = str(stmt).lower()
+            str(stmt).lower()
             result = MagicMock()
             result.scalar_one_or_none.return_value = None
             result.scalars.return_value.all.return_value = []

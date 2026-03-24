@@ -8,14 +8,11 @@ at the *source* module (e.g. ``src.data.odds_client.OddsClient``) rather
 than at ``src.data.scheduler.OddsClient``.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from src.data.scheduler import (
-    _pregame_published_date,
     check_prediction_drift,
     daily_retrain,
     db_maintenance,

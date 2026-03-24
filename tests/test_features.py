@@ -19,7 +19,6 @@ from src.models.features import (
     reset_elo_cache,
 )
 
-
 # ── _as_float ──────────────────────────────────────────────────
 
 def test_as_float_with_value():

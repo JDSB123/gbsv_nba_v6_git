@@ -4,12 +4,9 @@ import math
 
 from src.models.elo import (
     INITIAL_ELO,
-    HOME_ADVANTAGE,
-    K_FACTOR,
     SEASON_REVERSION,
     EloSystem,
 )
-
 
 # ── Defaults ────────────────────────────────────────────────────
 
@@ -110,8 +107,8 @@ def test_season_reset_reverts_toward_mean():
 
     # The pre-game update ratings should have been reverted
     # Using the formula: new_r = INITIAL + (old_r - INITIAL) * SEASON_REVERSION
-    expected_r1 = INITIAL_ELO + (r1_before - INITIAL_ELO) * SEASON_REVERSION
-    expected_r2 = INITIAL_ELO + (r2_before - INITIAL_ELO) * SEASON_REVERSION
+    INITIAL_ELO + (r1_before - INITIAL_ELO) * SEASON_REVERSION
+    INITIAL_ELO + (r2_before - INITIAL_ELO) * SEASON_REVERSION
     # After reset, a tie at home means home slightly drops
     # So r1 should be slightly below expected_r1 and r2 slightly above expected_r2
     # Just verify reversion happened (closer to mean than before)

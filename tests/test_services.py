@@ -1,6 +1,6 @@
 """Tests for PredictionService and ModelService."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -13,7 +13,6 @@ from src.services.predictions import (
     _as_float,
     _parse_iso_utc,
 )
-
 
 # ══════════════════════════════════════════════════════════════════
 #  _as_float / _parse_iso_utc

@@ -1,13 +1,10 @@
 """Tests for OddsClient – quota tracking, skip logic, persist_odds."""
 
-from datetime import UTC, datetime
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.data.odds_client import OddsClient
-
 
 # ── Construction & quota ───────────────────────────────────────
 

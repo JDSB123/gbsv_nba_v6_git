@@ -7,8 +7,6 @@ persist_player_game_stats, persist_injuries, INJURY_STATUS_MAP.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from src.data.basketball_client import (
     INJURY_STATUS_MAP,
     BasketballClient,
@@ -18,7 +16,6 @@ from src.data.basketball_client import (
     _pct_to_decimal,
     normalize_team_stats,
 )
-
 
 # ── Pure helpers ─────────────────────────────────────────────────
 

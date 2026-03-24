@@ -1,7 +1,6 @@
 """Tests for trainer – pure-logic functions that don't require a DB."""
 
 import numpy as np
-import pytest
 
 from src.models.trainer import (
     DEFAULT_XGB_PARAMS,
@@ -10,7 +9,6 @@ from src.models.trainer import (
     _calibrate_probabilities,
     _evaluate_promotion,
 )
-
 
 # ── _evaluate_promotion ───────────────────────────────────────
 

@@ -1,11 +1,7 @@
 """Tests for backfill.py (run_backfill) and worker.py shim."""
 
-from datetime import date, datetime
-from types import SimpleNamespace
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
 
 # ── worker.py shim ───────────────────────────────────────────────
 
