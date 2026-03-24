@@ -426,58 +426,13 @@ async def generate_predictions_and_publish() -> None:
         #    before persist_odds tries to link snapshots.
         await sync_events_to_games()
 
-        # 2) Refresh FG odds if stale (check FG markets only, not 1H/props)
+        # 2) Always pull fresh FG + 1H odds before generating predictions.
+        #    This function runs infrequently (morning cron / manual refresh),
+        #    so the API cost (~12 credits) is justified vs. the risk of
+        #    stale or missing odds producing wrong predictions.
         _s = get_settings()
-        _fg_markets = ("h2h", "spreads", "totals")
-        async with async_session_factory() as _check_db:
-            latest_fg_ts = (
-                await _check_db.execute(
-                    select(sa_func.max(OddsSnapshot.captured_at)).where(
-                        OddsSnapshot.market.in_(_fg_markets)
-                    )
-                )
-            ).scalar_one_or_none()
-
-        if latest_fg_ts is not None:
-            fg_age_min = (
-                datetime.now(UTC) - latest_fg_ts.replace(tzinfo=UTC)
-            ).total_seconds() / 60
-            if fg_age_min > _s.odds_freshness_max_age_minutes:
-                logger.warning(
-                    "FG odds are %.0f min stale (threshold: %d min), refreshing...",
-                    fg_age_min,
-                    _s.odds_freshness_max_age_minutes,
-                )
-                await poll_fg_odds()
-        else:
-            logger.warning("No FG odds data found, refreshing before predictions...")
-            await poll_fg_odds()
-
-        # 3) Refresh 1H odds if stale
-        _h1_markets = ("h2h_h1", "spreads_h1", "totals_h1")
-        async with async_session_factory() as _check_db:
-            latest_h1_ts = (
-                await _check_db.execute(
-                    select(sa_func.max(OddsSnapshot.captured_at)).where(
-                        OddsSnapshot.market.in_(_h1_markets)
-                    )
-                )
-            ).scalar_one_or_none()
-
-        if latest_h1_ts is not None:
-            h1_age_min = (
-                datetime.now(UTC) - latest_h1_ts.replace(tzinfo=UTC)
-            ).total_seconds() / 60
-            if h1_age_min > _s.odds_freshness_max_age_minutes:
-                logger.warning(
-                    "1H odds are %.0f min stale (threshold: %d min), refreshing...",
-                    h1_age_min,
-                    _s.odds_freshness_max_age_minutes,
-                )
-                await poll_1h_odds()
-        else:
-            logger.warning("No 1H odds data found, refreshing before predictions...")
-            await poll_1h_odds()
+        await poll_fg_odds()
+        await poll_1h_odds()
 
         predictor = Predictor()
         if not predictor.is_ready:
