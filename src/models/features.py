@@ -142,7 +142,7 @@ async def build_elo_ratings(db: AsyncSession) -> EloSystem:
     if _elo_system is not None:
         return _elo_system
 
-    result = await db.execute(
+    res_1 = await db.execute(
         select(Game)
         .where(
             Game.status == "FT",
@@ -151,7 +151,7 @@ async def build_elo_ratings(db: AsyncSession) -> EloSystem:
         )
         .order_by(Game.commence_time)
     )
-    games = result.scalars().all()
+    games = res_1.scalars().all()
     elo = EloSystem()
     for g in games:
         elo.update(
@@ -199,13 +199,13 @@ async def build_feature_vector(
 
     # ── Team season stats ───────────────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        result = await db.execute(
+        ts_result = await db.execute(
             select(TeamSeasonStats).where(
                 TeamSeasonStats.team_id == team_id,
                 TeamSeasonStats.season == season,
             )
         )
-        stats = result.scalar_one_or_none()
+        stats = ts_result.scalar_one_or_none()
         if stats:
             stats_any = cast(Any, stats)
             features[f"{prefix}_ppg"] = _as_float(stats_any.ppg)
@@ -235,7 +235,7 @@ async def build_feature_vector(
     # ── Recent game averages (last 5 & 10) ──────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         for n, label in [(5, "l5"), (10, "l10")]:
-            result = await db.execute(
+            rg_result = await db.execute(
                 select(Game)
                 .where(
                     Game.status == "FT",
@@ -245,7 +245,7 @@ async def build_feature_vector(
                 .order_by(Game.commence_time.desc())
                 .limit(n)
             )
-            recent = result.scalars().all()
+            recent = rg_result.scalars().all()
             if recent:
                 pts_scored = []
                 pts_allowed = []
@@ -272,7 +272,7 @@ async def build_feature_vector(
 
     # ── Rest days ───────────────────────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        result = await db.execute(
+        lgt_result = await db.execute(
             select(Game.commence_time)
             .where(
                 Game.status == "FT",
@@ -282,7 +282,7 @@ async def build_feature_vector(
             .order_by(Game.commence_time.desc())
             .limit(1)
         )
-        last_game_time = result.scalar_one_or_none()
+        last_game_time = lgt_result.scalar_one_or_none()
         if last_game_time is not None:
             rest_days = (game.commence_time - last_game_time).days
             features[f"{prefix}_rest_days"] = float(rest_days)
@@ -293,32 +293,32 @@ async def build_feature_vector(
 
         # Games in last 7 days
         week_ago = game.commence_time - timedelta(days=7)
-        result = await db.execute(
+        g7d_result = await db.execute(
             select(func.count(Game.id)).where(
                 (Game.home_team_id == team_id) | (Game.away_team_id == team_id),
                 Game.commence_time.between(week_ago, game.commence_time),
                 Game.status == "FT",
             )
         )
-        features[f"{prefix}_games_7d"] = float(result.scalar() or 0)
+        features[f"{prefix}_games_7d"] = float(g7d_result.scalar() or 0)
 
     # ── Injury impact ───────────────────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        result = await db.execute(select(Injury).where(Injury.team_id == team_id))
-        injuries = result.scalars().all()
+        inj_result = await db.execute(select(Injury).where(Injury.team_id == team_id))
+        injuries = inj_result.scalars().all()
         injury_impact = 0.0
         injured_count = 0
         for inj in injuries:
             weight = INJURY_WEIGHTS.get(_as_str(cast(Any, inj.status)).lower(), 0.0)
             if weight > 0:
                 # Estimate player value from season averages
-                result2 = await db.execute(
+                p_stats_result = await db.execute(
                     select(
                         func.avg(PlayerGameStats.points),
                         func.avg(PlayerGameStats.minutes),
                     ).where(PlayerGameStats.player_id == inj.player_id)
                 )
-                row = result2.one_or_none()
+                row = p_stats_result.one_or_none()
                 avg_pts = float(row[0] or 0) if row else 0.0
                 avg_min = float(row[1] or 0) if row else 0.0
                 injury_impact += weight * (avg_min * avg_pts / max(avg_min, 1))
@@ -423,7 +423,7 @@ async def build_feature_vector(
 
     # ── Quarter scoring tendencies ──────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        result = await db.execute(
+        res_2 = await db.execute(
             select(Game)
             .where(
                 Game.status == "FT",
@@ -434,7 +434,7 @@ async def build_feature_vector(
             .order_by(Game.commence_time.desc())
             .limit(10)
         )
-        qtr_games = result.scalars().all()
+        qtr_games = res_2.scalars().all()
         if qtr_games:
             q1_scored = []
             q3_scored = []  # 2nd half opener
@@ -487,15 +487,15 @@ async def build_feature_vector(
         # Deduplicate: keep latest per bookmaker+market+description+outcome
         _prop_best: dict[tuple[str, str, str, str], Any] = {}
         for s in prop_snaps:
-            key = (
+            prop_key = (
                 _as_str(s.bookmaker),
                 _as_str(s.market),
                 _as_str(getattr(s, "description", "")),
                 _as_str(s.outcome_name),
             )
-            existing = _prop_best.get(key)
+            existing = _prop_best.get(prop_key)
             if existing is None or cast(Any, s.captured_at) > cast(Any, existing.captured_at):
-                _prop_best[key] = s
+                _prop_best[prop_key] = s
         deduped_props = list(_prop_best.values())
 
         # Points props: sum of Over lines = implied team total
@@ -644,7 +644,7 @@ async def build_feature_vector(
             venue_filter = Game.home_team_id == team_id
         else:
             venue_filter = Game.away_team_id == team_id
-        result = await db.execute(
+        res_3 = await db.execute(
             select(Game)
             .where(
                 Game.status == "FT",
@@ -654,7 +654,7 @@ async def build_feature_vector(
             .order_by(Game.commence_time.desc())
             .limit(15)
         )
-        venue_games = result.scalars().all()
+        venue_games = res_3.scalars().all()
         if venue_games:
             scored = []
             allowed = []
@@ -673,7 +673,7 @@ async def build_feature_vector(
 
     # ── Win streak & L5/L10 record ──────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        result = await db.execute(
+        res_4 = await db.execute(
             select(Game)
             .where(
                 Game.status == "FT",
@@ -683,7 +683,7 @@ async def build_feature_vector(
             .order_by(Game.commence_time.desc())
             .limit(10)
         )
-        streak_games = result.scalars().all()
+        streak_games = res_4.scalars().all()
         # Win streak (positive = wins, negative = losses)
         streak = 0
         if streak_games:
@@ -734,7 +734,7 @@ async def build_feature_vector(
     features["elo_diff"] = features["home_elo"] - features["away_elo"]
 
     # ── Head-to-head history ────────────────────────────────────
-    result = await db.execute(
+    res_5 = await db.execute(
         select(Game)
         .where(
             Game.status == "FT",
@@ -745,7 +745,7 @@ async def build_feature_vector(
         .order_by(Game.commence_time.desc())
         .limit(10)
     )
-    h2h_games = result.scalars().all()
+    h2h_games = res_5.scalars().all()
     if h2h_games:
         h2h_wins = 0
         h2h_margins = []
@@ -789,13 +789,13 @@ async def build_feature_vector(
     # ── Market signals (latest odds) ────────────────────────────
     if odds_snapshots is None:
         # Training path: read historical cached odds from DB
-        result = await db.execute(
+        res_6 = await db.execute(
             select(OddsSnapshot)
             .where(OddsSnapshot.game_id == game.id)
             .order_by(OddsSnapshot.captured_at.desc())
             .limit(500)
         )
-        snapshots = result.scalars().all()
+        snapshots = res_6.scalars().all()
     else:
         # Prediction path: use fresh odds passed in by the caller
         snapshots = odds_snapshots
