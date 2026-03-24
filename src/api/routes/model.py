@@ -2,12 +2,12 @@ from typing import Any
 
 import numpy as np
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
-from src.db.models import Game, ModelRegistry, Prediction
+from src.db.models import Game, Prediction
 from src.db.session import get_db
+from src.db.repositories.models import ModelRepository
 from src.models.predictor import Predictor
 from src.models.versioning import MODEL_VERSION
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/model", tags=["model"])
 
 @router.get("/status")
 async def model_status(predictor: Predictor = Depends(get_predictor)):
-    """Return model version, metrics, and feature importance."""
+    # Return model version, metrics, and feature importance.
     runtime_status = predictor.get_runtime_status()
     return {
         "ready": predictor.is_ready,
@@ -30,8 +30,8 @@ async def model_status(predictor: Predictor = Depends(get_predictor)):
 
 @router.get("/registry")
 async def model_registry(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ModelRegistry).order_by(ModelRegistry.created_at.desc()))
-    rows = result.scalars().all()
+    repo = ModelRepository(db)
+    rows = await repo.get_all_models_ordered_by_creation()
     return {
         "models": [
             {
@@ -52,18 +52,9 @@ async def model_performance(
     limit: int = 200,
     db: AsyncSession = Depends(get_db),
 ):
-    """Realized post-game performance from finished games with latest predictions."""
-    result = await db.execute(
-        select(Prediction, Game)
-        .join(Game, Prediction.game_id == Game.id)
-        .where(
-            Game.status == "FT",
-            Game.home_score_fg.is_not(None),
-            Game.away_score_fg.is_not(None),
-        )
-        .order_by(Game.commence_time.desc(), Prediction.predicted_at.desc())
-    )
-    rows = result.all()
+    # Realized post-game performance from finished games with latest predictions.
+    repo = ModelRepository(db)
+    rows = await repo.get_finished_game_predictions()
 
     latest_per_game_version: dict[tuple[int, str], tuple[Prediction, Game]] = {}
     for pred, game in rows:
@@ -141,7 +132,7 @@ async def model_performance(
 
 @router.post("/retrain")
 async def retrain():
-    """Trigger a manual model retrain."""
+    # Trigger a manual model retrain.
     from src.db.session import async_session_factory
     from src.models.trainer import ModelTrainer
 
