@@ -128,9 +128,9 @@ async def poll_stats() -> None:
             # Data completeness check
             team_count = (
                 await db.execute(
-                    select(sa_func.count()).select_from(TeamSeasonStats).where(
-                        TeamSeasonStats.season == season
-                    )
+                    select(sa_func.count())
+                    .select_from(TeamSeasonStats)
+                    .where(TeamSeasonStats.season == season)
                 )
             ).scalar() or 0
             if team_count < 30:
@@ -204,7 +204,11 @@ async def daily_retrain() -> None:
         await _record_failure("daily_retrain", exc)
         from src.notifications.teams import send_alert
 
-        await send_alert("Daily Retrain Failed", "Model retraining raised an exception. Check worker logs.", "error")
+        await send_alert(
+            "Daily Retrain Failed",
+            "Model retraining raised an exception. Check worker logs.",
+            "error",
+        )
 
 
 async def poll_injuries() -> None:
@@ -421,13 +425,13 @@ async def generate_predictions_and_publish() -> None:
         # Check data freshness — refresh odds/stats if stale
         async with async_session_factory() as _check_db:
             latest_odds_ts = (
-                await _check_db.execute(
-                    select(sa_func.max(OddsSnapshot.captured_at))
-                )
+                await _check_db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
             ).scalar_one_or_none()
 
         if latest_odds_ts is not None:
-            odds_age_min = (datetime.now(UTC) - latest_odds_ts.replace(tzinfo=UTC)).total_seconds() / 60
+            odds_age_min = (
+                datetime.now(UTC) - latest_odds_ts.replace(tzinfo=UTC)
+            ).total_seconds() / 60
             _s = get_settings()
             if odds_age_min > _s.odds_freshness_max_age_minutes:
                 logger.warning(
@@ -528,15 +532,17 @@ async def check_prediction_drift() -> None:
 
             # 30-day baseline
             result_30d = await db.execute(
-                select(Prediction.predicted_home_fg, Prediction.predicted_away_fg)
-                .where(Prediction.predicted_at > cutoff_30d)
+                select(Prediction.predicted_home_fg, Prediction.predicted_away_fg).where(
+                    Prediction.predicted_at > cutoff_30d
+                )
             )
             rows_30d = result_30d.all()
 
             # Recent 7-day window
             result_7d = await db.execute(
-                select(Prediction.predicted_home_fg, Prediction.predicted_away_fg)
-                .where(Prediction.predicted_at > cutoff_7d)
+                select(Prediction.predicted_home_fg, Prediction.predicted_away_fg).where(
+                    Prediction.predicted_at > cutoff_7d
+                )
             )
             rows_7d = result_7d.all()
 

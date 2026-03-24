@@ -81,7 +81,9 @@ def _fmt_time_cst(dt: datetime | None) -> str:
     """Format a datetime as '6:30 PM CT'."""
     if not dt:
         return "TBD"
-    ct = dt.astimezone(_CST)
+    # commence_time is stored as naive UTC; make it aware before converting
+    aware = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    ct = aware.astimezone(_CST)
     raw = ct.strftime("%I:%M %p")
     return raw.lstrip("0") + " CT"
 

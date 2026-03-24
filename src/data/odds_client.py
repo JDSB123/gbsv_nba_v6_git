@@ -23,9 +23,7 @@ _RETRY = retry(
     retry=retry_if_exception_type(
         (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
     ),
-    before_sleep=lambda rs: logger.warning(
-        "Retry #%d for %s", rs.attempt_number, rs.fn.__name__
-    ),
+    before_sleep=lambda rs: logger.warning("Retry #%d for %s", rs.attempt_number, rs.fn.__name__),
     reraise=True,
 )
 
@@ -52,10 +50,7 @@ class OddsClient:
         return self._remaining_quota
 
     def _should_skip(self) -> bool:
-        if (
-            self._remaining_quota is not None
-            and self._remaining_quota < self._quota_min
-        ):
+        if self._remaining_quota is not None and self._remaining_quota < self._quota_min:
             logger.warning("Odds API quota low (%s), skipping request", self._remaining_quota)
             return True
         return False
