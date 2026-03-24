@@ -111,11 +111,29 @@ class Predictor:
             self._inference_feature_cols = self.feature_cols[:model_feature_count]
             logger.warning(
                 "Compatibility mode enabled: models expect %d features, current vector has %d. "
-                "Using first %d features for inference.",
+                "Using first %d features for inference. Retrain recommended.",
                 model_feature_count,
                 expected_features,
                 model_feature_count,
             )
+            # Fire-and-forget alert — import here to avoid circular dependency
+            try:
+                import asyncio
+
+                from src.notifications.teams import send_alert
+
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(
+                        send_alert(
+                            "Model Compatibility Mode Active",
+                            f"Models expect {model_feature_count} features but code provides "
+                            f"{expected_features}. Running in degraded mode — retrain recommended.",
+                            "warning",
+                        )
+                    )
+            except Exception:
+                pass  # alerting is best-effort
             return
 
         self._incompatible_models = {

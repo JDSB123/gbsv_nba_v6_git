@@ -24,11 +24,30 @@ def _setup_logging(log_level: str | None = None) -> None:
     if resolved_log_level is None:
         settings = get_settings()
         resolved_log_level = settings.log_level
-    logging.basicConfig(
-        level=getattr(logging, resolved_log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+
+    level = getattr(logging, resolved_log_level.upper(), logging.INFO)
+
+    app_env = os.getenv("APP_ENV", "development")
+    if app_env not in ("development", "test"):
+        # Structured JSON logging for production
+        from pythonjsonlogger.json import JsonFormatter
+
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            JsonFormatter(
+                fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+                datefmt="%Y-%m-%dT%H:%M:%S",
+            )
+        )
+        logging.root.handlers.clear()
+        logging.root.addHandler(handler)
+        logging.root.setLevel(level)
+    else:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -51,19 +70,34 @@ def cmd_work(args: argparse.Namespace) -> None:
     logger.info("Starting worker (scheduler)...")
 
     async def _run() -> None:
+        import signal
+
         from src.data.scheduler import create_scheduler
 
         scheduler = create_scheduler()
         scheduler.start()
         logger.info("Scheduler started with %d jobs", len(scheduler.get_jobs()))
+
+        stop_event = asyncio.Event()
+
+        def _signal_handler() -> None:
+            logger.info("Received shutdown signal, waiting for in-flight jobs...")
+            stop_event.set()
+
+        loop = asyncio.get_running_loop()
+        import contextlib
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, _signal_handler)
+
         try:
-            while True:
-                await asyncio.sleep(3600)
+            await stop_event.wait()
         except (KeyboardInterrupt, SystemExit):
             pass
         finally:
-            scheduler.shutdown(wait=False)
-            logger.info("Worker shut down")
+            scheduler.shutdown(wait=True)
+            logger.info("Worker shut down gracefully")
 
     asyncio.run(_run())
 

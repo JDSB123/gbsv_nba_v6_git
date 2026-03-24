@@ -24,6 +24,10 @@ _pregame_published_date: date | None = None
 
 async def poll_fg_odds() -> None:
     """Fetch full-game odds every 15 minutes."""
+    from src.data.circuit_breaker import odds_api_breaker
+
+    if odds_api_breaker.should_skip():
+        return
     logger.info("Polling full-game odds...")
     try:
         from src.data.odds_client import OddsClient
@@ -33,8 +37,10 @@ async def poll_fg_odds() -> None:
         if odds_data:
             async with async_session_factory() as db:
                 await client.persist_odds(odds_data, db)
+        odds_api_breaker.record_success()
     except Exception:
         logger.exception("Error polling FG odds")
+        odds_api_breaker.record_failure()
 
 
 async def poll_1h_odds() -> None:
@@ -77,9 +83,16 @@ async def poll_player_props() -> None:
 
 async def poll_stats() -> None:
     """Fetch team stats and recent games every 2 hours."""
+    from src.data.circuit_breaker import basketball_api_breaker
+
+    if basketball_api_breaker.should_skip():
+        return
     logger.info("Polling stats from Basketball API...")
     try:
+        from sqlalchemy import func as sa_func
+
         from src.data.basketball_client import BasketballClient
+        from src.db.models import TeamSeasonStats
 
         client = BasketballClient()
         season = current_nba_season()
@@ -94,8 +107,25 @@ async def poll_stats() -> None:
                 stats = await client.fetch_team_stats(team_id, season=season)
                 if stats:
                     await client.persist_team_season_stats(team_id, stats, season, db)
+
+            # Data completeness check
+            team_count = (
+                await db.execute(
+                    select(sa_func.count()).select_from(TeamSeasonStats).where(
+                        TeamSeasonStats.season == season
+                    )
+                )
+            ).scalar() or 0
+            if team_count < 30:
+                logger.warning(
+                    "Data completeness: only %d/30 teams have season stats for %s",
+                    team_count,
+                    season,
+                )
+        basketball_api_breaker.record_success()
     except Exception:
         logger.exception("Error polling stats")
+        basketball_api_breaker.record_failure()
 
 
 async def poll_scores_and_box() -> None:
@@ -153,6 +183,9 @@ async def daily_retrain() -> None:
         logger.info("Daily retrain completed")
     except Exception:
         logger.exception("Error during daily retrain")
+        from src.notifications.teams import send_alert
+
+        await send_alert("Daily Retrain Failed", "Model retraining raised an exception. Check worker logs.", "error")
 
 
 async def poll_injuries() -> None:
@@ -353,12 +386,37 @@ async def generate_predictions_and_publish() -> None:
         from sqlalchemy import func as sa_func
 
         from src.db.models import OddsSnapshot
+        from src.models.features import reset_elo_cache
         from src.models.predictor import Predictor
         from src.notifications.teams import (
             build_teams_card,
             send_card_to_teams,
             send_card_via_graph,
         )
+
+        # Invalidate Elo cache so fresh ratings are computed from latest results
+        reset_elo_cache()
+
+        # Check data freshness — refresh odds/stats if stale
+        async with async_session_factory() as _check_db:
+            latest_odds_ts = (
+                await _check_db.execute(
+                    select(sa_func.max(OddsSnapshot.captured_at))
+                )
+            ).scalar_one_or_none()
+
+        if latest_odds_ts is not None:
+            odds_age_min = (datetime.utcnow() - latest_odds_ts).total_seconds() / 60
+            if odds_age_min > settings.odds_freshness_max_age_minutes:
+                logger.warning(
+                    "Odds data is %.0f min stale (threshold: %d min), refreshing before predictions...",
+                    odds_age_min,
+                    settings.odds_freshness_max_age_minutes,
+                )
+                await poll_fg_odds()
+        else:
+            logger.warning("No odds data found, refreshing before predictions...")
+            await poll_fg_odds()
 
         predictor = Predictor()
         if not predictor.is_ready:
@@ -421,6 +479,58 @@ async def generate_predictions_and_publish() -> None:
                     logger.info("No Teams delivery configured; skipping publish")
     except Exception:
         logger.exception("Error generating/publishing predictions")
+        from src.notifications.teams import send_alert
+
+        await send_alert(
+            "Prediction Publish Failed",
+            "generate_predictions_and_publish raised an exception. Check worker logs.",
+            "error",
+        )
+
+
+async def prune_old_odds() -> None:
+    """Delete odds snapshots older than 30 days for finished games."""
+    logger.info("Pruning old odds snapshots...")
+    try:
+        from datetime import timedelta
+
+        from sqlalchemy import and_, delete
+
+        from src.db.models import OddsSnapshot
+
+        cutoff = datetime.utcnow() - timedelta(days=30)
+        async with async_session_factory() as db:
+            # Only prune for games that are finished
+            result = await db.execute(
+                delete(OddsSnapshot).where(
+                    and_(
+                        OddsSnapshot.captured_at < cutoff,
+                        OddsSnapshot.game_id.in_(
+                            select(Game.id).where(Game.status.in_(["FT", "AOT"]))
+                        ),
+                    )
+                )
+            )
+            await db.commit()
+            logger.info("Pruned %d old odds snapshots", result.rowcount)
+    except Exception:
+        logger.exception("Error pruning old odds")
+
+
+async def db_maintenance() -> None:
+    """Run ANALYZE on key tables to keep query planner stats current."""
+    logger.info("Running database maintenance (ANALYZE)...")
+    try:
+        from sqlalchemy import text
+
+        tables = ["games", "odds_snapshots", "predictions", "player_game_stats"]
+        async with async_session_factory() as db:
+            for table in tables:
+                await db.execute(text(f"ANALYZE {table}"))
+            await db.commit()
+        logger.info("Database ANALYZE complete")
+    except Exception:
+        logger.exception("Error during database maintenance")
 
 
 # ── Scheduler setup ────────────────────────────────────────────────
@@ -456,6 +566,22 @@ def create_scheduler() -> AsyncIOScheduler:
         "interval",
         minutes=settings.injuries_interval,
         id="poll_injuries",
+    )
+    scheduler.add_job(
+        prune_old_odds,
+        "cron",
+        day_of_week="sun",
+        hour=4,
+        minute=0,
+        id="prune_old_odds",
+    )
+    scheduler.add_job(
+        db_maintenance,
+        "cron",
+        day_of_week="sun",
+        hour=4,
+        minute=30,
+        id="db_maintenance",
     )
 
     return scheduler

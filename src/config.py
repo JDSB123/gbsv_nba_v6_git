@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # ── Public API base URL (used for download links in cards) ──
     api_base_url: str = ""
 
+    # ── API authentication ────────────────────────────────────────
+    api_key: str = ""  # X-API-Key header; empty = no auth enforced
+
     # ── Quota management ──────────────────────────────────────────
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
 

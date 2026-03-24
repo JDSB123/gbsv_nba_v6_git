@@ -231,8 +231,8 @@ class ModelTrainer:
 
         df = df.sort_values("commence_time").reset_index(drop=True)
         X: np.ndarray = np.asarray(
-            df[self.feature_cols].fillna(-999.0).to_numpy(dtype=float)
-        )  # sentinel, not 0
+            df[self.feature_cols].to_numpy(dtype=np.float32)
+        )  # XGBoost handles NaN natively — no sentinel needed
         metrics: dict[str, float] = {}
         best_params_all: dict[str, dict] = {}
 

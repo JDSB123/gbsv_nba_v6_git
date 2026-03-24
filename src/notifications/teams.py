@@ -1303,6 +1303,64 @@ def build_teams_text(predictions_with_games: list[tuple[Any, Any]], max_games: i
 # ── Senders ────────────────────────────────────────────────────────
 
 
+async def send_alert(title: str, message: str, severity: str = "warning") -> None:
+    """Send a lightweight alert to Teams via the configured webhook.
+
+    Designed for critical system alerts (retrain failure, quota exhaustion,
+    etc.).  Silently swallows delivery errors to avoid masking the original
+    failure that triggered the alert.
+    """
+    from src.config import get_settings
+
+    settings = get_settings()
+    webhook_url = settings.teams_webhook_url
+    if not webhook_url:
+        logger.debug("No Teams webhook configured; skipping alert")
+        return
+
+    color = {"error": "attention", "warning": "warning"}.get(severity, "default")
+    card: dict[str, Any] = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": f"⚠ {title}",
+                            "weight": "bolder",
+                            "size": "medium",
+                            "color": color,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": message,
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+                            "size": "small",
+                            "isSubtle": True,
+                        },
+                    ],
+                },
+            }
+        ],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(webhook_url, json=card)
+            resp.raise_for_status()
+        logger.info("Alert sent to Teams: %s", title)
+    except Exception:
+        logger.warning("Failed to send Teams alert: %s", title, exc_info=True)
+
+
 async def send_card_to_teams(webhook_url: str, payload: dict[str, Any]) -> None:
     """Send an Adaptive Card payload to a Teams incoming webhook."""
     async with httpx.AsyncClient(timeout=30.0) as client:

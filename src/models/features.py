@@ -1,4 +1,5 @@
 import logging
+import math
 from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any, cast
@@ -21,7 +22,10 @@ from src.models.elo import EloSystem
 logger = logging.getLogger(__name__)
 
 
-def _as_float(value: Any, default: float = 0.0) -> float:
+NaN = float("nan")
+
+
+def _as_float(value: Any, default: float = NaN) -> float:
     return float(value) if value is not None else default
 
 
@@ -217,7 +221,7 @@ async def build_feature_vector(
             features[f"{prefix}_def_rating"] = _as_float(stats_any.def_rating)
             games_played = int(_as_float(stats_any.games_played))
             wins = _as_float(stats_any.wins)
-            win_pct = wins / max(games_played, 1) if games_played else 0.0
+            win_pct = wins / max(games_played, 1) if games_played else NaN
             features[f"{prefix}_win_pct"] = win_pct
         else:
             for key in [
@@ -230,7 +234,7 @@ async def build_feature_vector(
                 "def_rating",
                 "win_pct",
             ]:
-                features[f"{prefix}_{key}"] = 0.0
+                features[f"{prefix}_{key}"] = NaN
 
     # ── Recent game averages (last 5 & 10) ──────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -268,7 +272,7 @@ async def build_feature_vector(
                 features[f"{prefix}_{label}_1h_allowed_avg"] = float(np.mean(h1_allowed))
             else:
                 for k in ["pts_avg", "pts_allowed_avg", "1h_pts_avg", "1h_allowed_avg"]:
-                    features[f"{prefix}_{label}_{k}"] = 0.0
+                    features[f"{prefix}_{label}_{k}"] = NaN
 
     # ── Rest days ───────────────────────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -300,7 +304,7 @@ async def build_feature_vector(
                 Game.status == "FT",
             )
         )
-        features[f"{prefix}_games_7d"] = float(g7d_result.scalar() or 0)
+        features[f"{prefix}_games_7d"] = float(g7d_result.scalar() or 0)  # count: 0 is valid
 
     # ── Injury impact ───────────────────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -391,20 +395,20 @@ async def build_feature_vector(
             features[f"{prefix}_player_reb_avg"] = float(np.mean(all_reb))
             features[f"{prefix}_player_tov_avg"] = float(np.mean(all_tov))
             features[f"{prefix}_player_pm_avg"] = float(np.mean(all_pm))
-            features[f"{prefix}_player_fg_pct"] = float(np.mean(all_fg)) if all_fg else 0.0
-            features[f"{prefix}_player_3pt_pct"] = float(np.mean(all_3pt)) if all_3pt else 0.0
+            features[f"{prefix}_player_fg_pct"] = float(np.mean(all_fg)) if all_fg else NaN
+            features[f"{prefix}_player_3pt_pct"] = float(np.mean(all_3pt)) if all_3pt else NaN
             features[f"{prefix}_starter_pts_avg"] = (
-                float(np.mean(starter_pts_list)) if starter_pts_list else 0.0
+                float(np.mean(starter_pts_list)) if starter_pts_list else NaN
             )
             features[f"{prefix}_bench_pts_avg"] = (
-                float(np.mean(bench_pts_list)) if bench_pts_list else 0.0
+                float(np.mean(bench_pts_list)) if bench_pts_list else NaN
             )
             features[f"{prefix}_bench_ratio"] = features[f"{prefix}_bench_pts_avg"] / max(
                 features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"],
                 1.0,
             )
             # Minutes concentration: std of minutes shows roster depth
-            features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else 0.0
+            features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else NaN
         else:
             for k in [
                 "player_pts_avg",
@@ -419,7 +423,7 @@ async def build_feature_vector(
                 "bench_ratio",
                 "min_std",
             ]:
-                features[f"{prefix}_{k}"] = 0.0
+                features[f"{prefix}_{k}"] = NaN
 
     # ── Quarter scoring tendencies ──────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -448,8 +452,8 @@ async def build_feature_vector(
             features[f"{prefix}_q1_avg"] = float(np.mean(q1_scored))
             features[f"{prefix}_q3_avg"] = float(np.mean(q3_scored))
         else:
-            features[f"{prefix}_q1_avg"] = 0.0
-            features[f"{prefix}_q3_avg"] = 0.0
+            features[f"{prefix}_q1_avg"] = NaN
+            features[f"{prefix}_q3_avg"] = NaN
 
     # ── Player prop consensus signals ───────────────────────────
     # Aggregate player prop lines into team-level signals that capture
@@ -507,7 +511,7 @@ async def build_feature_vector(
             and s.point is not None
         ]
         features["prop_pts_lines_count"] = float(len(pts_over_lines))
-        features["prop_pts_avg_line"] = float(np.mean(pts_over_lines)) if pts_over_lines else 0.0
+        features["prop_pts_avg_line"] = float(np.mean(pts_over_lines)) if pts_over_lines else NaN
 
         # Assists props
         ast_over_lines = [
@@ -517,7 +521,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_ast_avg_line"] = float(np.mean(ast_over_lines)) if ast_over_lines else 0.0
+        features["prop_ast_avg_line"] = float(np.mean(ast_over_lines)) if ast_over_lines else NaN
 
         # Rebounds props
         reb_over_lines = [
@@ -527,7 +531,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_reb_avg_line"] = float(np.mean(reb_over_lines)) if reb_over_lines else 0.0
+        features["prop_reb_avg_line"] = float(np.mean(reb_over_lines)) if reb_over_lines else NaN
 
         # Threes props — 3-point shooting volume expectation
         threes_over = [
@@ -537,7 +541,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_threes_avg_line"] = float(np.mean(threes_over)) if threes_over else 0.0
+        features["prop_threes_avg_line"] = float(np.mean(threes_over)) if threes_over else NaN
 
         # Blocks props — rim protection expectation
         blk_over = [
@@ -547,7 +551,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_blk_avg_line"] = float(np.mean(blk_over)) if blk_over else 0.0
+        features["prop_blk_avg_line"] = float(np.mean(blk_over)) if blk_over else NaN
 
         # Steals props — defensive activity expectation
         stl_over = [
@@ -557,7 +561,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_stl_avg_line"] = float(np.mean(stl_over)) if stl_over else 0.0
+        features["prop_stl_avg_line"] = float(np.mean(stl_over)) if stl_over else NaN
 
         # Turnovers props — ball security / pace signal
         tov_over = [
@@ -567,7 +571,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_tov_avg_line"] = float(np.mean(tov_over)) if tov_over else 0.0
+        features["prop_tov_avg_line"] = float(np.mean(tov_over)) if tov_over else NaN
 
         # PRA combo — star workload signal (top-end player expectation)
         pra_over = [
@@ -577,7 +581,7 @@ async def build_feature_vector(
             and _as_str(s.outcome_name) == "Over"
             and s.point is not None
         ]
-        features["prop_pra_avg_line"] = float(np.mean(pra_over)) if pra_over else 0.0
+        features["prop_pra_avg_line"] = float(np.mean(pra_over)) if pra_over else NaN
 
         # Double-double & triple-double lines available count
         # These markets don't have point lines; count of "Yes" outcomes
@@ -617,26 +621,28 @@ async def build_feature_vector(
         square_avg = float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
         features["prop_sharp_square_diff"] = sharp_avg - square_avg
     else:
-        features["prop_pts_lines_count"] = 0.0
-        features["prop_pts_avg_line"] = 0.0
-        features["prop_ast_avg_line"] = 0.0
-        features["prop_reb_avg_line"] = 0.0
-        features["prop_threes_avg_line"] = 0.0
-        features["prop_blk_avg_line"] = 0.0
-        features["prop_stl_avg_line"] = 0.0
-        features["prop_tov_avg_line"] = 0.0
-        features["prop_pra_avg_line"] = 0.0
-        features["prop_dd_count"] = 0.0
-        features["prop_td_count"] = 0.0
-        features["prop_sharp_square_diff"] = 0.0
+        features["prop_pts_lines_count"] = 0.0  # count: 0 is valid
+        features["prop_pts_avg_line"] = NaN
+        features["prop_ast_avg_line"] = NaN
+        features["prop_reb_avg_line"] = NaN
+        features["prop_threes_avg_line"] = NaN
+        features["prop_blk_avg_line"] = NaN
+        features["prop_stl_avg_line"] = NaN
+        features["prop_tov_avg_line"] = NaN
+        features["prop_pra_avg_line"] = NaN
+        features["prop_dd_count"] = 0.0  # count: 0 is valid
+        features["prop_td_count"] = 0.0  # count: 0 is valid
+        features["prop_sharp_square_diff"] = NaN
 
     # ── Expected game pace (interaction) ────────────────────────
-    home_pace = features.get("home_pace", 0.0)
-    away_pace = features.get("away_pace", 0.0)
-    features["expected_pace"] = (
-        (home_pace + away_pace) / 2.0 if (home_pace != 0.0 and away_pace != 0.0) else 0.0
-    )
-    features["pace_diff"] = home_pace - away_pace
+    home_pace = features.get("home_pace", NaN)
+    away_pace = features.get("away_pace", NaN)
+    if not (math.isfinite(home_pace) and math.isfinite(away_pace)):
+        features["expected_pace"] = NaN
+        features["pace_diff"] = NaN
+    else:
+        features["expected_pace"] = (home_pace + away_pace) / 2.0
+        features["pace_diff"] = home_pace - away_pace
 
     # ── Home/away venue splits (PPG when home vs. away) ─────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -668,8 +674,8 @@ async def build_feature_vector(
             features[f"{prefix}_venue_ppg"] = float(np.mean(scored))
             features[f"{prefix}_venue_oppg"] = float(np.mean(allowed))
         else:
-            features[f"{prefix}_venue_ppg"] = features.get(f"{prefix}_ppg", 0.0)
-            features[f"{prefix}_venue_oppg"] = features.get(f"{prefix}_oppg", 0.0)
+            features[f"{prefix}_venue_ppg"] = features.get(f"{prefix}_ppg", NaN)
+            features[f"{prefix}_venue_oppg"] = features.get(f"{prefix}_oppg", NaN)
 
     # ── Win streak & L5/L10 record ──────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -723,9 +729,14 @@ async def build_feature_vector(
         features[f"{prefix}_l10_record"] = float(l10_wins)
 
     # ── Season phase ────────────────────────────────────────────
-    home_gp = features.get("home_wins", 0) + features.get("home_losses", 0)
-    away_gp = features.get("away_wins", 0) + features.get("away_losses", 0)
-    features["season_progress"] = (home_gp + away_gp) / (2.0 * 82.0)
+    _hw = features.get("home_wins", NaN)
+    _hl = features.get("home_losses", NaN)
+    _aw = features.get("away_wins", NaN)
+    _al = features.get("away_losses", NaN)
+    if any(math.isnan(v) for v in (_hw, _hl, _aw, _al)):
+        features["season_progress"] = NaN
+    else:
+        features["season_progress"] = (_hw + _hl + _aw + _al) / (2.0 * 82.0)
 
     # ── Elo ratings ─────────────────────────────────────────────
     elo = await build_elo_ratings(db)
@@ -764,8 +775,8 @@ async def build_feature_vector(
         features["h2h_win_pct"] = h2h_wins / len(h2h_games)
         features["h2h_avg_margin"] = float(np.mean(h2h_margins))
     else:
-        features["h2h_win_pct"] = 0.5
-        features["h2h_avg_margin"] = 0.0
+        features["h2h_win_pct"] = 0.5  # neutral prior when no H2H history
+        features["h2h_avg_margin"] = NaN
 
     # ── Travel / timezone ───────────────────────────────────────
     home_name = game.home_team.name if game.home_team is not None else ""
@@ -776,14 +787,14 @@ async def build_feature_vector(
 
     # ── Opponent-adjusted ratings ───────────────────────────────
     # Approximation: team off rating relative to opponent def rating
-    features["home_adj_off"] = features.get("home_off_rating", 0.0) - features.get(
-        "away_def_rating", 0.0
-    )
-    features["home_adj_def"] = features.get("away_off_rating", 0.0) - features.get(
-        "home_def_rating", 0.0
-    )
-    features["rest_diff"] = features.get("home_rest_days", 0.0) - features.get(
-        "away_rest_days", 0.0
+    _h_off = features.get("home_off_rating", NaN)
+    _a_def = features.get("away_def_rating", NaN)
+    _a_off = features.get("away_off_rating", NaN)
+    _h_def = features.get("home_def_rating", NaN)
+    features["home_adj_off"] = _h_off - _a_def  # NaN propagates if either missing
+    features["home_adj_def"] = _a_off - _h_def
+    features["rest_diff"] = features.get("home_rest_days", NaN) - features.get(
+        "away_rest_days", NaN
     )
 
     # ── Market signals (latest odds) ────────────────────────────
@@ -813,12 +824,12 @@ async def build_feature_vector(
             if _as_str(s.market) == "totals_h1" and s.point is not None
         ]
 
-        features["mkt_spread_avg"] = float(np.mean(spreads)) if spreads else 0.0
-        features["mkt_spread_std"] = float(np.std(spreads)) if len(spreads) > 1 else 0.0
-        features["mkt_total_avg"] = float(np.mean(totals)) if totals else 0.0
-        features["mkt_total_std"] = float(np.std(totals)) if len(totals) > 1 else 0.0
-        features["mkt_1h_spread_avg"] = float(np.mean(h1_spreads)) if h1_spreads else 0.0
-        features["mkt_1h_total_avg"] = float(np.mean(h1_totals)) if h1_totals else 0.0
+        features["mkt_spread_avg"] = float(np.mean(spreads)) if spreads else NaN
+        features["mkt_spread_std"] = float(np.std(spreads)) if len(spreads) > 1 else NaN
+        features["mkt_total_avg"] = float(np.mean(totals)) if totals else NaN
+        features["mkt_total_std"] = float(np.std(totals)) if len(totals) > 1 else NaN
+        features["mkt_1h_spread_avg"] = float(np.mean(h1_spreads)) if h1_spreads else NaN
+        features["mkt_1h_total_avg"] = float(np.mean(h1_totals)) if h1_totals else NaN
 
         # 1st-half moneyline implied probability
         h2h_h1 = [
@@ -967,10 +978,10 @@ async def build_feature_vector(
             and s.point is not None
         ]
 
-        open_spr = float(np.mean(opening_spreads)) if opening_spreads else 0.0
-        curr_spr = float(np.mean(current_spreads)) if current_spreads else 0.0
-        open_tot = float(np.mean(opening_totals)) if opening_totals else 0.0
-        curr_tot = float(np.mean(current_totals)) if current_totals else 0.0
+        open_spr = float(np.mean(opening_spreads)) if opening_spreads else NaN
+        curr_spr = float(np.mean(current_spreads)) if current_spreads else NaN
+        open_tot = float(np.mean(opening_totals)) if opening_totals else NaN
+        curr_tot = float(np.mean(current_totals)) if current_totals else NaN
 
         features["spread_move"] = curr_spr - open_spr
         features["total_move"] = curr_tot - open_tot
@@ -987,7 +998,7 @@ async def build_feature_vector(
         ) or (features["sharp_square_spread_diff"] < 0 and features["spread_move"] < 0)
         features["rlm_flag"] = 1.0 if spread_moved_toward_sharp else 0.0
     else:
-        for k in [
+        for k in [  # no market data: all NaN except binary flags
             "mkt_spread_avg",
             "mkt_spread_std",
             "mkt_total_avg",
@@ -1009,7 +1020,7 @@ async def build_feature_vector(
             "total_move",
             "rlm_flag",
         ]:
-            features[k] = 0.0
+            features[k] = NaN
 
     return features
 

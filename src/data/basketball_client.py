@@ -6,6 +6,12 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
@@ -20,6 +26,18 @@ from src.db.models import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+_RETRY = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    retry=retry_if_exception_type(
+        (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
+    ),
+    before_sleep=lambda rs: logger.warning(
+        "Retry #%d for %s", rs.attempt_number, rs.fn.__name__
+    ),
+    reraise=True,
+)
 
 
 def _as_float(value: Any) -> float | None:
@@ -147,6 +165,7 @@ class BasketballClient:
     def _resolve_season(self, season: str | None) -> str:
         return season or current_nba_season()
 
+    @_RETRY
     async def _get(self, endpoint: str, params: dict | None = None) -> Any:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -211,6 +230,7 @@ class BasketballClient:
 
     # ── Injury data (NBA API v2, shares same api-sports key) ─────
 
+    @_RETRY
     async def fetch_injuries(self, season: str | None = None) -> list[dict]:
         """Fetch current injury report from the NBA API.
 

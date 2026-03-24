@@ -5,12 +5,30 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.config import get_settings
 from src.db.models import Game, OddsSnapshot
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+_RETRY = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    retry=retry_if_exception_type(
+        (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
+    ),
+    before_sleep=lambda rs: logger.warning(
+        "Retry #%d for %s", rs.attempt_number, rs.fn.__name__
+    ),
+    reraise=True,
+)
 
 
 class OddsClient:
@@ -41,6 +59,7 @@ class OddsClient:
             return True
         return False
 
+    @_RETRY
     async def fetch_events(self) -> list[dict[str, Any]]:
         """Fetch upcoming NBA events (free, no quota cost)."""
         async with httpx.AsyncClient() as client:
@@ -53,6 +72,7 @@ class OddsClient:
             self._track_quota(resp)
             return resp.json()
 
+    @_RETRY
     async def fetch_odds(
         self,
         markets: str = "h2h,spreads,totals",
@@ -82,6 +102,7 @@ class OddsClient:
             self._track_quota(resp)
             return resp.json()
 
+    @_RETRY
     async def fetch_event_odds(
         self,
         event_id: str,
@@ -111,6 +132,7 @@ class OddsClient:
             self._track_quota(resp)
             return resp.json()
 
+    @_RETRY
     async def fetch_scores(self, days_from: int = 1) -> list[dict[str, Any]]:
         """Fetch recent scores. Cost: 2 credits."""
         if self._should_skip():
@@ -135,6 +157,7 @@ class OddsClient:
         "player_double_double,player_triple_double"
     )
 
+    @_RETRY
     async def fetch_player_props(
         self,
         event_id: str,
