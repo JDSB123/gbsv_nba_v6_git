@@ -4,8 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from src.__main__ import _setup_logging
+from src.api.rate_limit import limiter
 from src.api.routes import health, model, odds, performance, predictions
 from src.config import get_settings
 
@@ -34,6 +37,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Rate limiting ────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 
 # ── CORS ──────────────────────────────────────────────────────────
 app.add_middleware(
@@ -56,10 +63,12 @@ async def add_security_headers(request: Request, call_next) -> Response:
 
 
 # ── API key authentication ────────────────────────────────────────
+_AUTH_EXEMPT = {"/health", "/health/deep", "/docs", "/openapi.json"}
+
+
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next) -> Response:
-    # Skip auth if no API key is configured or for health endpoints
-    if not settings.api_key or request.url.path.startswith("/health") or request.url.path == "/docs" or request.url.path == "/openapi.json":
+    if not settings.api_key or request.url.path in _AUTH_EXEMPT:
         return await call_next(request)
 
     provided_key = request.headers.get("X-API-Key", "")

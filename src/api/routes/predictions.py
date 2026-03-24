@@ -1,11 +1,13 @@
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
-from src.config import Settings, get_settings
-from src.db.session import get_db
+from src.api.rate_limit import limiter
+from src.config import get_settings
 from src.db.repositories.predictions import PredictionRepository
+from src.db.session import get_db
 from src.models.predictor import Predictor
 from src.services.predictions import PredictionService
 
@@ -24,7 +26,9 @@ async def get_prediction_service(
 
 @router.get("")
 @router.get("/")
+@limiter.limit("60/minute")
 async def list_predictions(
+    request: Request,
     service: PredictionService = Depends(get_prediction_service),
 ) -> dict[str, Any]:
     if not service.predictor.is_ready:
@@ -32,7 +36,9 @@ async def list_predictions(
     return await service.get_list_predictions()
 
 @router.get("/{game_id}")
+@limiter.limit("60/minute")
 async def get_prediction(
+    request: Request,
     game_id: int,
     service: PredictionService = Depends(get_prediction_service),
 ) -> dict[str, Any]:
@@ -49,7 +55,9 @@ async def get_prediction(
     return detail["result"]
 
 @router.post("/publish/teams")
+@limiter.limit("10/minute")
 async def publish_slate_to_teams(
+    request: Request,
     service: PredictionService = Depends(get_prediction_service),
 ) -> dict[str, Any]:
     if not service.predictor.is_ready:
@@ -77,7 +85,9 @@ async def publish_slate_to_teams(
     return {"message": "Published slate to Teams successfully"}
 
 @router.post("/publish/graph")
+@limiter.limit("10/minute")
 async def publish_slate_via_graph(
+    request: Request,
     service: PredictionService = Depends(get_prediction_service),
 ) -> dict[str, Any]:
     if not service.predictor.is_ready:

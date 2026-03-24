@@ -230,6 +230,21 @@ class ModelTrainer:
             return {}
 
         df = df.sort_values("commence_time").reset_index(drop=True)
+
+        # ── Outlier detection on target variables ─────────────────
+        for target in TARGETS:
+            col = df[target]
+            mean, std = col.mean(), col.std()
+            outliers = df[(col - mean).abs() > 3 * std]
+            if not outliers.empty:
+                logger.warning(
+                    "Training data: %d outlier(s) in %s (>3σ from mean=%.1f, std=%.1f)",
+                    len(outliers),
+                    target,
+                    mean,
+                    std,
+                )
+
         X: np.ndarray = np.asarray(
             df[self.feature_cols].to_numpy(dtype=np.float32)
         )  # XGBoost handles NaN natively — no sentinel needed
@@ -335,7 +350,7 @@ class ModelTrainer:
         metrics["row_count"] = float(len(df))
         metrics["promoted"] = 1.0 if should_promote else 0.0
 
-        # Save feature importance
+        # Save feature importance + drift tracking
         if self.models:
             first_model = next(iter(self.models.values()))
             importance = dict(
@@ -346,6 +361,27 @@ class ModelTrainer:
                 )
             )
             imp_path = ARTIFACTS_DIR / "feature_importance.json"
+
+            # Compare with previous importance before overwriting
+            if imp_path.exists():
+                try:
+                    prev = json.loads(imp_path.read_text())
+                    prev_ranking = sorted(prev, key=prev.get, reverse=True)  # type: ignore[arg-type]
+                    new_ranking = sorted(importance, key=importance.get, reverse=True)  # type: ignore[arg-type]
+                    drifted = []
+                    for feat in new_ranking[:20]:  # top-20 features
+                        old_rank = prev_ranking.index(feat) if feat in prev_ranking else -1
+                        new_rank = new_ranking.index(feat)
+                        if old_rank >= 0 and abs(old_rank - new_rank) > 10:
+                            drifted.append(f"{feat}: {old_rank}→{new_rank}")
+                    if drifted:
+                        logger.warning(
+                            "Feature importance drift detected (>10 rank shift): %s",
+                            ", ".join(drifted),
+                        )
+                except Exception:
+                    pass  # best-effort comparison
+
             imp_path.write_text(json.dumps(importance, indent=2))
 
         await self._sync_model_registry(

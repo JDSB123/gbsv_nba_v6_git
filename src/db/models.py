@@ -218,3 +218,15 @@ class Injury(Base):
 
     player = relationship("Player", back_populates="injuries")
     team = relationship("Team", back_populates="injuries")
+
+
+class IngestionFailure(Base):
+    """Dead-letter log for failed ingestion jobs."""
+
+    __tablename__ = "ingestion_failures"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_name = Column(String(100), nullable=False, index=True)
+    error_message = Column(Text, nullable=False)
+    payload_summary = Column(Text)
+    failed_at = Column(DateTime, nullable=False, default=datetime.utcnow)

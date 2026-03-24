@@ -19,6 +19,23 @@ settings = get_settings()
 _pregame_published_date: date | None = None
 
 
+async def _record_failure(job_name: str, error: Exception) -> None:
+    """Log a failed ingestion job to the dead-letter table (best-effort)."""
+    try:
+        from src.db.models import IngestionFailure
+
+        async with async_session_factory() as db:
+            db.add(
+                IngestionFailure(
+                    job_name=job_name,
+                    error_message=str(error)[:2000],
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("Failed to record ingestion failure for %s", job_name, exc_info=True)
+
+
 # ── Scheduled jobs ─────────────────────────────────────────────────
 
 
@@ -38,9 +55,10 @@ async def poll_fg_odds() -> None:
             async with async_session_factory() as db:
                 await client.persist_odds(odds_data, db)
         odds_api_breaker.record_success()
-    except Exception:
+    except Exception as exc:
         logger.exception("Error polling FG odds")
         odds_api_breaker.record_failure()
+        await _record_failure("poll_fg_odds", exc)
 
 
 async def poll_1h_odds() -> None:
@@ -123,9 +141,10 @@ async def poll_stats() -> None:
                     season,
                 )
         basketball_api_breaker.record_success()
-    except Exception:
+    except Exception as exc:
         logger.exception("Error polling stats")
         basketball_api_breaker.record_failure()
+        await _record_failure("poll_stats", exc)
 
 
 async def poll_scores_and_box() -> None:
@@ -181,8 +200,9 @@ async def daily_retrain() -> None:
         async with async_session_factory() as db:
             await trainer.train(db)
         logger.info("Daily retrain completed")
-    except Exception:
+    except Exception as exc:
         logger.exception("Error during daily retrain")
+        await _record_failure("daily_retrain", exc)
         from src.notifications.teams import send_alert
 
         await send_alert("Daily Retrain Failed", "Model retraining raised an exception. Check worker logs.", "error")
@@ -488,6 +508,72 @@ async def generate_predictions_and_publish() -> None:
         )
 
 
+async def check_prediction_drift() -> None:
+    """Compare recent prediction distributions against 30-day trailing window."""
+    logger.info("Checking prediction drift...")
+    try:
+        from datetime import timedelta
+
+        import numpy as np
+
+        from src.db.models import Prediction
+
+        async with async_session_factory() as db:
+            now = datetime.utcnow()
+            cutoff_30d = now - timedelta(days=30)
+            cutoff_7d = now - timedelta(days=7)
+
+            # 30-day baseline
+            result_30d = await db.execute(
+                select(Prediction.predicted_home_fg, Prediction.predicted_away_fg)
+                .where(Prediction.predicted_at > cutoff_30d)
+            )
+            rows_30d = result_30d.all()
+
+            # Recent 7-day window
+            result_7d = await db.execute(
+                select(Prediction.predicted_home_fg, Prediction.predicted_away_fg)
+                .where(Prediction.predicted_at > cutoff_7d)
+            )
+            rows_7d = result_7d.all()
+
+            if len(rows_30d) < 20 or len(rows_7d) < 5:
+                logger.info("Not enough predictions for drift analysis")
+                return
+
+            totals_30d = [float(r[0] or 0) + float(r[1] or 0) for r in rows_30d]
+            totals_7d = [float(r[0] or 0) + float(r[1] or 0) for r in rows_7d]
+
+            mean_30d = float(np.mean(totals_30d))
+            mean_7d = float(np.mean(totals_7d))
+            drift = abs(mean_7d - mean_30d)
+
+            if drift > 5.0:
+                logger.warning(
+                    "Prediction drift detected: 7d mean total=%.1f vs 30d mean=%.1f (delta=%.1f)",
+                    mean_7d,
+                    mean_30d,
+                    drift,
+                )
+                from src.notifications.teams import send_alert
+
+                await send_alert(
+                    "Prediction Drift Warning",
+                    f"7-day mean predicted total ({mean_7d:.1f}) drifted {drift:.1f} points "
+                    f"from 30-day baseline ({mean_30d:.1f}). Review model performance.",
+                    "warning",
+                )
+            else:
+                logger.info(
+                    "Prediction drift OK: 7d=%.1f, 30d=%.1f, delta=%.1f",
+                    mean_7d,
+                    mean_30d,
+                    drift,
+                )
+    except Exception:
+        logger.exception("Error checking prediction drift")
+
+
 async def prune_old_odds() -> None:
     """Delete odds snapshots older than 30 days for finished games."""
     logger.info("Pruning old odds snapshots...")
@@ -566,6 +652,13 @@ def create_scheduler() -> AsyncIOScheduler:
         "interval",
         minutes=settings.injuries_interval,
         id="poll_injuries",
+    )
+    scheduler.add_job(
+        check_prediction_drift,
+        "cron",
+        hour=7,
+        minute=0,
+        id="check_prediction_drift",
     )
     scheduler.add_job(
         prune_old_odds,
