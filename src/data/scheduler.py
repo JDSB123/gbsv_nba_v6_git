@@ -105,6 +105,11 @@ async def poll_1h_odds() -> None:
 
 async def poll_player_props() -> None:
     """Fetch player prop odds for ALL upcoming games every 30 minutes."""
+    from src.data.circuit_breaker import odds_api_breaker
+
+    if odds_api_breaker.should_skip():
+        logger.warning("Odds API circuit breaker open — skipping player props poll")
+        return
     logger.info("Polling player prop odds...")
     try:
         from src.data.odds_client import OddsClient
@@ -128,8 +133,11 @@ async def poll_player_props() -> None:
                     await client.persist_odds([data], db)
                     fetched += 1
         logger.info("Player props: fetched %d / %d events", fetched, len(events))
-    except Exception:
+        odds_api_breaker.record_success()
+    except Exception as exc:
         logger.exception("Error polling player props")
+        odds_api_breaker.record_failure()
+        await _record_failure("poll_player_props", exc)
 
 
 async def poll_stats() -> None:
@@ -149,18 +157,23 @@ async def poll_stats() -> None:
         client = BasketballClient()
         season = current_nba_season()
         async with async_session_factory() as db:
-            # Fetch today's AND tomorrow's games to cover the UTC date
-            # boundary.  NBA games at 10pm ET = 03:00 UTC next day, so
-            # querying only date.today() (UTC) misses late-tipping games.
-            today = date.today()
+            # Fetch yesterday + today + tomorrow (UTC) to cover all
+            # timezone boundaries.  NBA games at 10 PM ET = 03:00 UTC
+            # next day, so a single date misses late tips.  Including
+            # yesterday catches games that finished after midnight UTC.
+            today = datetime.now(UTC).date()
+            yesterday = today - timedelta(days=1)
             tomorrow = today + timedelta(days=1)
             total_games = 0
-            for game_date in (today, tomorrow):
+            for game_date in (yesterday, today, tomorrow):
                 games = await client.fetch_games(game_date=game_date, season=season)
                 if games:
                     persisted = await client.persist_games(games, db)
                     total_games += persisted
-            logger.info("poll_stats: ingested %d games for %s / %s", total_games, today, tomorrow)
+            logger.info(
+                "poll_stats: ingested %d games for %s / %s / %s",
+                total_games, yesterday, today, tomorrow,
+            )
 
             result = await db.execute(select(Team.id))
             team_ids = [row[0] for row in result.fetchall()]
@@ -564,9 +577,18 @@ async def generate_predictions_and_publish() -> None:
                 if ns_game_count == 0:
                     logger.info("No NS games in database \u2014 nothing to predict")
                 else:
-                    logger.warning(
+                    logger.error(
                         "DATA LOSS: %d NS games in DB but 0 predictions generated",
                         ns_game_count,
+                    )
+                    from src.notifications.teams import send_alert
+
+                    await send_alert(
+                        "DATA LOSS — 0 Predictions",
+                        f"{ns_game_count} NS games in DB but the prediction pipeline "
+                        f"produced 0 predictions. Check model readiness and feature "
+                        f"availability.",
+                        "error",
                     )
                 return
 
@@ -603,27 +625,74 @@ async def generate_predictions_and_publish() -> None:
             odds_pulled_at = odds_ts_result.scalar_one_or_none()
 
             if rows:
+                _s = get_settings()
                 download_url: str | None = None
 
                 # Link to the HTML slate if the API is reachable
-                _s = get_settings()
                 if _s.api_base_url:
                     download_url = f"{_s.api_base_url}/predictions/slate.html"
 
-                payload = build_teams_card(
-                    rows,
-                    _s.teams_max_games_per_message,
-                    odds_pulled_at=odds_pulled_at,
-                    download_url=download_url,
-                )
                 if _s.teams_team_id and _s.teams_channel_id:
+                    # ── Graph API path: card + CSV file + HTML slate ──
+                    from src.notifications.teams import (
+                        build_html_slate,
+                        build_slate_csv,
+                        send_html_via_graph,
+                        upload_csv_to_channel,
+                    )
+
+                    # 1) Upload CSV to channel Files tab
+                    csv_url: str | None = None
+                    try:
+                        csv_content = build_slate_csv(rows)
+                        csv_filename = (
+                            f"nba_slate_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.csv"
+                        )
+                        csv_url = await upload_csv_to_channel(
+                            _s.teams_team_id,
+                            _s.teams_channel_id,
+                            csv_filename,
+                            csv_content,
+                        )
+                        logger.info("CSV slate uploaded: %s", csv_url)
+                    except Exception:
+                        logger.warning("Failed to upload CSV slate", exc_info=True)
+
+                    # 2) Send Adaptive Card (with CSV download link)
+                    payload = build_teams_card(
+                        rows,
+                        _s.teams_max_games_per_message,
+                        odds_pulled_at=odds_pulled_at,
+                        download_url=download_url,
+                        csv_download_url=csv_url,
+                    )
                     await send_card_via_graph(
                         _s.teams_team_id,
                         _s.teams_channel_id,
                         payload,
                     )
+
+                    # 3) Post full HTML slate as a follow-up message
+                    try:
+                        html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+                        await send_html_via_graph(
+                            _s.teams_team_id,
+                            _s.teams_channel_id,
+                            html,
+                        )
+                        logger.info("HTML slate posted to Teams channel")
+                    except Exception:
+                        logger.warning("Failed to post HTML slate", exc_info=True)
+
                     logger.info("Published %d predictions to Teams (Graph API)", len(rows))
+
                 elif _s.teams_webhook_url:
+                    payload = build_teams_card(
+                        rows,
+                        _s.teams_max_games_per_message,
+                        odds_pulled_at=odds_pulled_at,
+                        download_url=download_url,
+                    )
                     await send_card_to_teams(_s.teams_webhook_url, payload)
                     logger.info("Published %d predictions to Teams (webhook)", len(rows))
                 else:

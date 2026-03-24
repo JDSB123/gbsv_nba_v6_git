@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
@@ -37,6 +38,48 @@ async def list_predictions(
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
     return await service.get_list_predictions()
+
+
+@router.get("/slate.html", response_class=HTMLResponse)
+@limiter.limit("60/minute")
+async def slate_html(
+    request: Request,
+    service: PredictionService = Depends(get_prediction_service),
+) -> HTMLResponse:
+    """Return a filterable/sortable HTML slate of today's predictions."""
+    if not service.predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not ready")
+    rows, odds_pulled_at = await service.get_slate_payload()
+    if not rows:
+        raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
+
+    from src.notifications.teams import build_html_slate
+
+    html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+    return HTMLResponse(content=html)
+
+
+@router.get("/slate.csv")
+@limiter.limit("60/minute")
+async def slate_csv(
+    request: Request,
+    service: PredictionService = Depends(get_prediction_service),
+) -> Response:
+    """Return today's predictions as a downloadable CSV."""
+    if not service.predictor.is_ready:
+        raise HTTPException(status_code=503, detail="Models not ready")
+    rows, odds_pulled_at = await service.get_slate_payload()
+    if not rows:
+        raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
+
+    from src.notifications.teams import build_slate_csv
+
+    csv_bytes = build_slate_csv(rows)
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=slate.csv"},
+    )
 
 
 @router.get("/{game_id}")

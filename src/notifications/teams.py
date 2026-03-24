@@ -661,6 +661,7 @@ def build_teams_card(
     odds_pulled_at: datetime | None = None,
     min_edge: float = MIN_EDGE,
     download_url: str | None = None,
+    csv_download_url: str | None = None,
 ) -> dict[str, Any]:
     """Build a pick-focused Adaptive Card sorted by edge.
 
@@ -806,14 +807,21 @@ def build_teams_card(
         "body": body,
     }
 
+    actions: list[dict[str, str]] = []
     if download_url:
-        card["actions"] = [
-            {
-                "type": "Action.OpenUrl",
-                "title": "📥 View Full Slate",
-                "url": download_url,
-            }
-        ]
+        actions.append({
+            "type": "Action.OpenUrl",
+            "title": "📊 View Full Slate",
+            "url": download_url,
+        })
+    if csv_download_url:
+        actions.append({
+            "type": "Action.OpenUrl",
+            "title": "📥 Download CSV",
+            "url": csv_download_url,
+        })
+    if actions:
+        card["actions"] = actions
 
     return {
         "type": "message",

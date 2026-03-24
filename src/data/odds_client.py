@@ -188,9 +188,11 @@ class OddsClient:
         now = datetime.now(UTC).replace(tzinfo=None)
         count = 0
         skipped_no_game = 0
+        skipped_no_id = 0
         for event in odds_data:
             odds_api_id = event.get("id")
             if not odds_api_id:
+                skipped_no_id += 1
                 continue
             # Look up internal game_id by odds_api_id
             result = await db.execute(select(Game.id).where(Game.odds_api_id == odds_api_id))
@@ -239,11 +241,21 @@ class OddsClient:
                         db.add(snapshot)
                         count += 1
         await db.commit()
-        if skipped_no_game:
+        if skipped_no_id:
             logger.warning(
-                "Persisted %d odds snapshots (%d events skipped — no matching game_id)",
+                "persist_odds: %d events had no 'id' field and were skipped",
+                skipped_no_id,
+            )
+        total_events = len(odds_data)
+        if skipped_no_game:
+            skip_ratio = skipped_no_game / max(total_events, 1)
+            log_fn = logger.error if skip_ratio > 0.5 else logger.warning
+            log_fn(
+                "Persisted %d odds snapshots (%d/%d events skipped — no matching game_id, %.0f%%)",
                 count,
                 skipped_no_game,
+                total_events,
+                skip_ratio * 100,
             )
         else:
             logger.info("Persisted %d odds snapshots (all events matched)", count)

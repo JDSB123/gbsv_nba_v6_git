@@ -81,7 +81,12 @@ def _pct_to_decimal(value: Any) -> float | None:
     f = _as_float(value)
     if f is None or f < 0:
         return None
-    return f / 100 if f > 1 else f
+    result = f / 100 if f > 1 else f
+    # Sanity check: a percentage should be in [0, 1] after conversion
+    if result > 1.0:
+        logger.warning("_pct_to_decimal: value %s produced out-of-range result %s", value, result)
+        return None
+    return result
 
 
 def _compute_advanced_stats(
@@ -125,15 +130,19 @@ def _compute_advanced_stats(
 
     # ── Primary path: Dean Oliver possession estimate ──────────
     if fg_made and fg_pct and ft_made and ft_pct and tov is not None:
-        fga = fg_made / fg_pct  # field goals attempted
-        fta = ft_made / ft_pct  # free throws attempted
-        orb = off_reb or 0.0
-        total_poss = fga + 0.44 * fta - orb + tov
-        if total_poss > 0:
-            pace = total_poss / games_played
-            off_rating = 100.0 * total_pts_for / total_poss if total_pts_for else None
-            def_rating = 100.0 * total_pts_against / total_poss if total_pts_against else None
-            return pace, off_rating, def_rating
+        if fg_pct == 0 or ft_pct == 0:
+            # Can't derive attempts from 0% shooting — fall through to fallback
+            pass
+        else:
+            fga = fg_made / fg_pct  # field goals attempted
+            fta = ft_made / ft_pct  # free throws attempted
+            orb = off_reb or 0.0
+            total_poss = fga + 0.44 * fta - orb + tov
+            if total_poss > 0:
+                pace = total_poss / games_played
+                off_rating = 100.0 * total_pts_for / total_poss if total_pts_for else None
+                def_rating = 100.0 * total_pts_against / total_poss if total_pts_against else None
+                return pace, off_rating, def_rating
 
     # ── Fallback: estimate from PPG / OPPG ─────────────────────
     if ppg and oppg and ppg > 0 and oppg > 0:
@@ -359,8 +368,18 @@ class BasketballClient:
             away_q3 = away.get("quarter_3")
             away_q4 = away.get("quarter_4")
 
-            home_1h = (home_q1 or 0) + (home_q2 or 0) if home_q1 is not None else None
-            away_1h = (away_q1 or 0) + (away_q2 or 0) if away_q1 is not None else None
+            home_1h = (
+                (home_q1 if home_q1 is not None else 0)
+                + (home_q2 if home_q2 is not None else 0)
+                if home_q1 is not None
+                else None
+            )
+            away_1h = (
+                (away_q1 if away_q1 is not None else 0)
+                + (away_q2 if away_q2 is not None else 0)
+                if away_q1 is not None
+                else None
+            )
 
             status_info = g.get("status", {})
             commence = g.get("date")
