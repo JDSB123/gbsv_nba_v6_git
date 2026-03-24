@@ -49,6 +49,10 @@ async def poll_fg_odds() -> None:
     try:
         from src.data.odds_client import OddsClient
 
+        # Ensure events are linked to Game rows BEFORE persisting odds,
+        # otherwise persist_odds silently skips unlinked events.
+        await sync_events_to_games()
+
         client = OddsClient()
         odds_data = await client.fetch_odds()
         if odds_data:
@@ -62,39 +66,68 @@ async def poll_fg_odds() -> None:
 
 
 async def poll_1h_odds() -> None:
-    """Fetch 1st-half odds for upcoming games every 30 minutes."""
+    """Fetch 1st-half odds for ALL upcoming games every 30 minutes."""
+    from src.data.circuit_breaker import odds_api_breaker
+
+    if odds_api_breaker.should_skip():
+        logger.warning("Odds API circuit breaker open — skipping 1H odds poll")
+        return
     logger.info("Polling 1st-half odds...")
     try:
         from src.data.odds_client import OddsClient
 
         client = OddsClient()
         events = await client.fetch_events()
+        fetched = 0
         async with async_session_factory() as db:
-            for event in events[:10]:
+            for event in events:
                 event_id = event.get("id")
-                if event_id:
-                    data = await client.fetch_event_odds(event_id)
-                    if data and data.get("bookmakers"):
-                        await client.persist_odds([data], db)
-    except Exception:
+                if not event_id:
+                    continue
+                # Respect quota check per call (6 credits each)
+                if client._should_skip():
+                    logger.warning(
+                        "Quota low — stopped 1H poll after %d/%d events",
+                        fetched, len(events),
+                    )
+                    break
+                data = await client.fetch_event_odds(event_id)
+                if data and data.get("bookmakers"):
+                    await client.persist_odds([data], db)
+                    fetched += 1
+        logger.info("1H odds: fetched %d / %d events", fetched, len(events))
+        odds_api_breaker.record_success()
+    except Exception as exc:
         logger.exception("Error polling 1H odds")
+        odds_api_breaker.record_failure()
+        await _record_failure("poll_1h_odds", exc)
 
 
 async def poll_player_props() -> None:
-    """Fetch player prop odds for upcoming games every 30 minutes."""
+    """Fetch player prop odds for ALL upcoming games every 30 minutes."""
     logger.info("Polling player prop odds...")
     try:
         from src.data.odds_client import OddsClient
 
         client = OddsClient()
         events = await client.fetch_events()
+        fetched = 0
         async with async_session_factory() as db:
-            for event in events[:10]:
+            for event in events:
                 event_id = event.get("id")
-                if event_id:
-                    data = await client.fetch_player_props(event_id)
-                    if data and data.get("bookmakers"):
-                        await client.persist_odds([data], db)
+                if not event_id:
+                    continue
+                if client._should_skip():
+                    logger.warning(
+                        "Quota low — stopped props poll after %d/%d events",
+                        fetched, len(events),
+                    )
+                    break
+                data = await client.fetch_player_props(event_id)
+                if data and data.get("bookmakers"):
+                    await client.persist_odds([data], db)
+                    fetched += 1
+        logger.info("Player props: fetched %d / %d events", fetched, len(events))
     except Exception:
         logger.exception("Error polling player props")
 

@@ -38,11 +38,12 @@ _SF = "src.data.scheduler.async_session_factory"
 
 
 class TestPollFgOdds:
+    @patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock)
     @patch("src.data.circuit_breaker.CircuitBreaker.record_success")
     @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
     @patch(_SF)
-    async def test_persists_odds(self, mock_sf, mock_cls, mock_skip, mock_success):
+    async def test_persists_odds(self, mock_sf, mock_cls, mock_skip, mock_success, mock_sync):
         mock_client = mock_cls.return_value
         mock_client.fetch_odds = AsyncMock(return_value=[{"bookmakers": []}])
         mock_client.persist_odds = AsyncMock(return_value=5)
@@ -53,6 +54,7 @@ class TestPollFgOdds:
 
         await poll_fg_odds()
 
+        mock_sync.assert_awaited_once()
         mock_client.fetch_odds.assert_awaited_once()
         mock_client.persist_odds.assert_awaited_once()
         mock_success.assert_called()
@@ -66,15 +68,18 @@ class TestPollFgOdds:
 
 
 class TestPoll1hOdds:
+    @patch("src.data.circuit_breaker.CircuitBreaker.record_success")
+    @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
     @patch(_SF)
-    async def test_fetches_event_odds(self, mock_sf, mock_cls):
+    async def test_fetches_event_odds(self, mock_sf, mock_cls, mock_skip, mock_success):
         mock_client = mock_cls.return_value
         mock_client.fetch_events = AsyncMock(return_value=[
             {"id": "ev1"}, {"id": "ev2"},
         ])
         mock_client.fetch_event_odds = AsyncMock(return_value={"bookmakers": [{}]})
         mock_client.persist_odds = AsyncMock(return_value=1)
+        mock_client._should_skip = MagicMock(return_value=False)
 
         mock_db = AsyncMock()
         mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -85,16 +90,22 @@ class TestPoll1hOdds:
         mock_client.fetch_events.assert_awaited_once()
         assert mock_client.fetch_event_odds.await_count >= 1
 
+    @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
     @patch(_SF)
-    async def test_handles_empty_events(self, mock_sf, mock_cls):
+    async def test_handles_empty_events(self, mock_sf, mock_cls, mock_skip):
         mock_client = mock_cls.return_value
         mock_client.fetch_events = AsyncMock(return_value=[])
+        mock_client._should_skip = MagicMock(return_value=False)
 
         mock_db = AsyncMock()
         mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
         mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
 
+        await poll_1h_odds()
+
+    @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=True)
+    async def test_skips_when_circuit_open(self, mock_skip):
         await poll_1h_odds()
 
 
@@ -109,6 +120,7 @@ class TestPollPlayerProps:
         mock_client.fetch_events = AsyncMock(return_value=[{"id": "ev1"}])
         mock_client.fetch_player_props = AsyncMock(return_value={"bookmakers": [{}]})
         mock_client.persist_odds = AsyncMock(return_value=1)
+        mock_client._should_skip = MagicMock(return_value=False)
 
         mock_db = AsyncMock()
         mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
