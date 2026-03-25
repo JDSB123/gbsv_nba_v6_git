@@ -809,17 +809,21 @@ def build_teams_card(
 
     actions: list[dict[str, str]] = []
     if download_url:
-        actions.append({
-            "type": "Action.OpenUrl",
-            "title": "📊 View Full Slate",
-            "url": download_url,
-        })
+        actions.append(
+            {
+                "type": "Action.OpenUrl",
+                "title": "📊 View Full Slate",
+                "url": download_url,
+            }
+        )
     if csv_download_url:
-        actions.append({
-            "type": "Action.OpenUrl",
-            "title": "📥 Download CSV",
-            "url": csv_download_url,
-        })
+        actions.append(
+            {
+                "type": "Action.OpenUrl",
+                "title": "📥 Download CSV",
+                "url": csv_download_url,
+            }
+        )
     if actions:
         card["actions"] = actions
 
@@ -1065,7 +1069,7 @@ def build_html_slate(
     th_style = (
         "background:#1a2332;color:#d4af37;font-weight:600;font-size:11px;"
         "letter-spacing:1px;text-transform:uppercase;padding:8px 6px;"
-        "text-align:left;white-space:nowrap"
+        "text-align:left;white-space:nowrap;cursor:pointer;user-select:none"
     )
 
     rows_html: list[str] = []
@@ -1110,7 +1114,8 @@ def build_html_slate(
         rows_html.append(
             f'<tr style="background:{bg}" data-matchup="{_esc(p.matchup)}" '
             f'data-seg="{_esc(p.segment)}" data-mkt="{_esc(p.market_type)}" '
-            f'data-edge="{p.edge:.1f}">'
+            f'data-edge="{p.edge:.1f}" data-time="{_esc(p.time_cst)}" '
+            f'data-rating="{p.confidence}">'
             f"<td {td}>{_esc(p.time_cst)}</td>"
             f"<td {td}>{matchup_cell}</td>"
             f"<td {td}>{_segment_pill(p.segment)}</td>"
@@ -1127,17 +1132,18 @@ def build_html_slate(
             "</tr>"
         )
 
+    sort_arrow = '<span class="sort-arrow" style="margin-left:4px;font-size:10px">\u25B2\u25BC</span>'
     table = (
         '<table id="slate" style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
         "<thead><tr>"
-        f'<th style="{th_style}">Time</th>'
-        f'<th style="{th_style}">Matchup</th>'
-        f'<th style="{th_style}">Seg</th>'
-        f'<th style="{th_style}">Market</th>'
-        f'<th style="{th_style}">Pick</th>'
-        f'<th style="{th_style}">Model</th>'
-        f'<th style="{th_style};text-align:center">Edge</th>'
-        f'<th style="{th_style};text-align:center">Rating</th>'
+        f'<th style="{th_style}" onclick="sortTable(0,\'text\')" data-col="0">Time{sort_arrow}</th>'
+        f'<th style="{th_style}" onclick="sortTable(1,\'text\')" data-col="1">Matchup{sort_arrow}</th>'
+        f'<th style="{th_style}" onclick="sortTable(2,\'text\')" data-col="2">Seg{sort_arrow}</th>'
+        f'<th style="{th_style}" onclick="sortTable(3,\'text\')" data-col="3">Market{sort_arrow}</th>'
+        f'<th style="{th_style}" onclick="sortTable(4,\'text\')" data-col="4">Pick{sort_arrow}</th>'
+        f'<th style="{th_style}" onclick="sortTable(5,\'text\')" data-col="5">Model{sort_arrow}</th>'
+        f'<th style="{th_style};text-align:center" onclick="sortTable(6,\'num\')" data-col="6">Edge{sort_arrow}</th>'
+        f'<th style="{th_style};text-align:center" onclick="sortTable(7,\'num\')" data-col="7">Rating{sort_arrow}</th>'
         "</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table>"
@@ -1250,6 +1256,21 @@ def build_html_slate(
 
     script = (
         "<script>"
+        "var _sortCol=-1,_sortAsc=true;"
+        "function sortTable(col,type){"
+        "var tb=document.querySelector('#slate tbody');"
+        "var rows=Array.from(tb.rows);"
+        "if(_sortCol===col){_sortAsc=!_sortAsc}else{_sortCol=col;_sortAsc=type==='num'?false:true}"
+        "rows.sort(function(a,b){"
+        "var av=a.cells[col].textContent.trim(),bv=b.cells[col].textContent.trim();"
+        "if(type==='num'){av=parseFloat(av)||0;bv=parseFloat(bv)||0;return _sortAsc?av-bv:bv-av}"
+        "return _sortAsc?av.localeCompare(bv):bv.localeCompare(av);"
+        "});"
+        "rows.forEach(function(r,i){tb.appendChild(r);r.style.background=i%2===0?'#ffffff':'#f8f9fa'});"
+        "document.querySelectorAll('#slate thead th .sort-arrow').forEach(function(s,i){"
+        "s.textContent=i===col?(_sortAsc?'\\u25B2':'\\u25BC'):'\\u25B2\\u25BC';"
+        "});"
+        "}"
         "function applyFilters(){"
         "var m=document.getElementById('fMatchup').value,"
         "s=document.getElementById('fSeg').value,"
