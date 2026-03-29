@@ -32,9 +32,7 @@ _RETRY = retry(
     retry=retry_if_exception_type(
         (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
     ),
-    before_sleep=lambda rs: logger.warning(
-        "Retry #%d for %s", rs.attempt_number, rs.fn.__name__
-    ),
+    before_sleep=lambda rs: logger.warning("Retry #%d for %s", rs.attempt_number, rs.fn.__name__),
     reraise=True,
 )
 
@@ -369,14 +367,12 @@ class BasketballClient:
             away_q4 = away.get("quarter_4")
 
             home_1h = (
-                (home_q1 if home_q1 is not None else 0)
-                + (home_q2 if home_q2 is not None else 0)
+                (home_q1 if home_q1 is not None else 0) + (home_q2 if home_q2 is not None else 0)
                 if home_q1 is not None
                 else None
             )
             away_1h = (
-                (away_q1 if away_q1 is not None else 0)
-                + (away_q2 if away_q2 is not None else 0)
+                (away_q1 if away_q1 is not None else 0) + (away_q2 if away_q2 is not None else 0)
                 if away_q1 is not None
                 else None
             )

@@ -13,6 +13,7 @@ from src.models.versioning import MODEL_VERSION
 
 # ── _margin_to_prob (extended) ─────────────────────────────────
 
+
 def test_margin_to_prob_with_calibration():
     # Platt-scaled: z = coef * margin + intercept
     prob = _margin_to_prob(5.0, coef=0.2, intercept=-0.5)
@@ -42,6 +43,7 @@ def test_margin_to_prob_symmetry():
 
 
 # ── Predictor construction ─────────────────────────────────────
+
 
 def test_predictor_has_feature_cols():
     predictor = Predictor()
@@ -74,6 +76,7 @@ def test_predictor_is_ready_when_artifacts_exist():
 
 
 # ── Calibration loading ────────────────────────────────────────
+
 
 def test_predictor_loads_calibration():
     """If metrics.json has calibration keys, they should be loaded."""

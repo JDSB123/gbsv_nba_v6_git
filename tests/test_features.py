@@ -21,6 +21,7 @@ from src.models.features import (
 
 # ── _as_float ──────────────────────────────────────────────────
 
+
 def test_as_float_with_value():
     assert _as_float(3.5) == 3.5
     assert _as_float(0) == 0.0
@@ -39,6 +40,7 @@ def test_as_float_none_with_custom_default():
 
 # ── _as_str ────────────────────────────────────────────────────
 
+
 def test_as_str_with_value():
     assert _as_str("hello") == "hello"
     assert _as_str(42) == "42"
@@ -51,8 +53,11 @@ def test_as_str_none_returns_default():
 
 # ── _home_spreads ──────────────────────────────────────────────
 
+
 def _snap(market="spreads", outcome_name="Boston Celtics", point=-5.5, bookmaker="fanduel"):
-    return SimpleNamespace(market=market, outcome_name=outcome_name, point=point, bookmaker=bookmaker)
+    return SimpleNamespace(
+        market=market, outcome_name=outcome_name, point=point, bookmaker=bookmaker
+    )
 
 
 def test_home_spreads_extracts_home_team():
@@ -110,6 +115,7 @@ def test_home_spreads_empty_when_no_match():
 
 # ── Constants ──────────────────────────────────────────────────
 
+
 def test_injury_weights_keys():
     assert set(INJURY_WEIGHTS.keys()) == {"out", "doubtful", "questionable", "probable"}
     assert INJURY_WEIGHTS["out"] == 1.0
@@ -127,6 +133,7 @@ def test_sharp_and_square_books_disjoint():
 
 
 # ── Feature column registry ───────────────────────────────────
+
 
 def test_feature_columns_include_market_signals():
     cols = get_feature_columns()
@@ -159,6 +166,7 @@ def test_feature_columns_include_rest_and_b2b():
 
 
 # ── Reset Elo cache ────────────────────────────────────────────
+
 
 def test_reset_elo_cache():
     """reset_elo_cache should clear the global _elo_system without error."""

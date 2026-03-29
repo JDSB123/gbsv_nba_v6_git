@@ -71,9 +71,12 @@ class TestPoll1hOdds:
     @patch(_SF)
     async def test_fetches_event_odds(self, mock_sf, mock_cls, mock_skip, mock_success):
         mock_client = mock_cls.return_value
-        mock_client.fetch_events = AsyncMock(return_value=[
-            {"id": "ev1"}, {"id": "ev2"},
-        ])
+        mock_client.fetch_events = AsyncMock(
+            return_value=[
+                {"id": "ev1"},
+                {"id": "ev2"},
+            ]
+        )
         mock_client.fetch_event_odds = AsyncMock(return_value={"bookmakers": [{}]})
         mock_client.persist_odds = AsyncMock(return_value=1)
         mock_client._should_skip = MagicMock(return_value=False)
@@ -241,9 +244,15 @@ class TestSyncEventsToGames:
     @patch(_SF)
     async def test_maps_events_to_games(self, mock_sf, mock_cls):
         mock_client = mock_cls.return_value
-        mock_client.fetch_events = AsyncMock(return_value=[
-            {"id": "odds1", "commence_time": "2025-01-15T19:00:00Z", "home_team": "Boston Celtics"},
-        ])
+        mock_client.fetch_events = AsyncMock(
+            return_value=[
+                {
+                    "id": "odds1",
+                    "commence_time": "2025-01-15T19:00:00Z",
+                    "home_team": "Boston Celtics",
+                },
+            ]
+        )
 
         mock_game = SimpleNamespace(odds_api_id=None)
         mock_db = AsyncMock()

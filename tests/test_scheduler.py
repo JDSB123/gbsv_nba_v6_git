@@ -8,6 +8,7 @@ from src.data.scheduler import _record_failure, create_scheduler
 
 # ── create_scheduler registers all expected jobs ───────────────
 
+
 def test_create_scheduler_registers_all_jobs():
     scheduler = create_scheduler()
 
@@ -42,6 +43,7 @@ def test_create_scheduler_timezone():
 
 
 # ── _record_failure ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_record_failure_logs_to_db():

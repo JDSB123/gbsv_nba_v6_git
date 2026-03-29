@@ -40,7 +40,9 @@ class Player(Base):
     __tablename__ = "players"
 
     id = Column(Integer, primary_key=True)  # Basketball API player id
-    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    team_id = Column(
+        Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name = Column(String(120), nullable=False)
     position = Column(String(20))
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
@@ -55,8 +57,12 @@ class Game(Base):
 
     id = Column(Integer, primary_key=True)  # Basketball API game id
     odds_api_id = Column(String(64), unique=True, index=True)
-    home_team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
-    away_team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    home_team_id = Column(
+        Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    away_team_id = Column(
+        Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     commence_time = Column(DateTime, nullable=False, index=True)
     status = Column(String(10), nullable=False, default="NS", server_default="NS")
     season = Column(String(10), nullable=False, default="", server_default="")
@@ -102,7 +108,9 @@ class TeamSeasonStats(Base):
     __tablename__ = "team_season_stats"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    team_id = Column(
+        Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     season = Column(String(10), nullable=False)
     games_played = Column(Integer, default=0)
     wins = Column(Integer, default=0)
@@ -122,8 +130,12 @@ class PlayerGameStats(Base):
     __tablename__ = "player_game_stats"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True)
-    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True)
+    player_id = Column(
+        Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    game_id = Column(
+        Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     minutes = Column(Integer)
     points = Column(Integer)
     rebounds = Column(Integer)
@@ -146,11 +158,15 @@ class OddsSnapshot(Base):
     __tablename__ = "odds_snapshots"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True)
+    game_id = Column(
+        Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     source = Column(String(30), nullable=False)  # "odds_api" or "basketball_api"
     bookmaker = Column(String(60), nullable=False)
     market = Column(String(60), nullable=False)  # h2h, spreads, totals, player_points, etc.
-    outcome_name = Column(String(128), nullable=False)  # team name, "Over"/"Under", or player prop name
+    outcome_name = Column(
+        String(128), nullable=False
+    )  # team name, "Over"/"Under", or player prop name
     description = Column(String(120))  # player name for prop bets
     price = Column(Float, nullable=False)
     point = Column(Float)  # spread or total line
@@ -165,7 +181,9 @@ class Prediction(Base):
     __tablename__ = "predictions"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True)
+    game_id = Column(
+        Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     model_version = Column(String(20), nullable=False)
     predicted_home_fg = Column(Float, nullable=False)
     predicted_away_fg = Column(Float, nullable=False)
@@ -221,8 +239,12 @@ class Injury(Base):
     __tablename__ = "injuries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True)
-    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    player_id = Column(
+        Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    team_id = Column(
+        Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     status = Column(String(20), nullable=False)  # out, doubtful, questionable, probable
     description = Column(String(255))
     reported_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -241,3 +263,32 @@ class IngestionFailure(Base):
     error_message = Column(Text, nullable=False)
     payload_summary = Column(Text)
     failed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class GameReferee(Base):
+    """Tracks referee assignments for games (sharp moneyline/totals signal)."""
+
+    __tablename__ = "game_referees"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(
+        Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    referee_name = Column(String(100), nullable=False)
+    role = Column(String(50))  # e.g., 'Crew Chief', 'Referee', 'Umpire'
+    # Future metrics: foul_rate, home_win_pct_bias
+
+
+class RotationChange(Base):
+    """Tracks starting lineup anomalies / unexpected replacements vs season baseline."""
+
+    __tablename__ = "rotation_changes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(
+        Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    player_id = Column(Integer, nullable=False)
+    is_replacement_starter = Column(Boolean, default=False)
+    minutes_projection = Column(Float)  # e.g., standard backup thrust into 35 mins

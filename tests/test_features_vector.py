@@ -93,7 +93,9 @@ def _make_team_season_stats(
     )
 
 
-def _make_recent_game(team_id, days_ago, home=True, fg=110, opp_fg=105, h1=55, opp_h1=50, q1=28, q3=27):
+def _make_recent_game(
+    team_id, days_ago, home=True, fg=110, opp_fg=105, h1=55, opp_h1=50, q1=28, q3=27
+):
     g = SimpleNamespace(
         id=100 + days_ago,
         home_team_id=team_id if home else 99,
@@ -136,7 +138,19 @@ def _make_odds_snapshot(
     )
 
 
-def _make_player_game_stats(player_id, game_id, team_id, pts=15, ast=4, reb=5, tov=2, pm=3, fg_pct=0.45, three_pct=0.35, minutes=25):
+def _make_player_game_stats(
+    player_id,
+    game_id,
+    team_id,
+    pts=15,
+    ast=4,
+    reb=5,
+    tov=2,
+    pm=3,
+    fg_pct=0.45,
+    three_pct=0.35,
+    minutes=25,
+):
     return SimpleNamespace(
         id=player_id * 1000 + game_id,
         player_id=player_id,
@@ -163,7 +177,10 @@ def _make_injury(player_id, team_id, status="out"):
 
 # ── Mock DB session builder ─────────────────────────────────────
 
-def _build_mock_db(game, team_stats=None, recent_games=None, injuries=None, player_stats=None, elo_games=None):
+
+def _build_mock_db(
+    game, team_stats=None, recent_games=None, injuries=None, player_stats=None, elo_games=None
+):
     """Build a mock AsyncSession that responds to all queries in build_feature_vector."""
     team_stats = team_stats or {}
     recent_games = recent_games or []
@@ -404,12 +421,48 @@ class TestBuildFeatureVectorWithOdds:
         game = _make_game()
 
         snapshots = [
-            _make_odds_snapshot(market="spreads", outcome_name="Boston Celtics", point=-5.5, bookmaker="pinnacle", captured_at=_ts(1)),
-            _make_odds_snapshot(market="spreads", outcome_name="Boston Celtics", point=-5.0, bookmaker="fanduel", captured_at=_ts(0)),
-            _make_odds_snapshot(market="totals", outcome_name="Over", point=220.5, bookmaker="pinnacle", captured_at=_ts(1)),
-            _make_odds_snapshot(market="totals", outcome_name="Over", point=221.0, bookmaker="fanduel", captured_at=_ts(0)),
-            _make_odds_snapshot(market="h2h", outcome_name="Boston Celtics", price=-200, point=None, bookmaker="pinnacle"),
-            _make_odds_snapshot(market="h2h", outcome_name="Los Angeles Lakers", price=170, point=None, bookmaker="pinnacle"),
+            _make_odds_snapshot(
+                market="spreads",
+                outcome_name="Boston Celtics",
+                point=-5.5,
+                bookmaker="pinnacle",
+                captured_at=_ts(1),
+            ),
+            _make_odds_snapshot(
+                market="spreads",
+                outcome_name="Boston Celtics",
+                point=-5.0,
+                bookmaker="fanduel",
+                captured_at=_ts(0),
+            ),
+            _make_odds_snapshot(
+                market="totals",
+                outcome_name="Over",
+                point=220.5,
+                bookmaker="pinnacle",
+                captured_at=_ts(1),
+            ),
+            _make_odds_snapshot(
+                market="totals",
+                outcome_name="Over",
+                point=221.0,
+                bookmaker="fanduel",
+                captured_at=_ts(0),
+            ),
+            _make_odds_snapshot(
+                market="h2h",
+                outcome_name="Boston Celtics",
+                price=-200,
+                point=None,
+                bookmaker="pinnacle",
+            ),
+            _make_odds_snapshot(
+                market="h2h",
+                outcome_name="Los Angeles Lakers",
+                price=170,
+                point=None,
+                bookmaker="pinnacle",
+            ),
         ]
 
         db = AsyncMock()
@@ -597,10 +650,12 @@ class TestBuildEloRatings:
     async def test_caching(self):
         """Second call returns cached instance without re-querying."""
         db = AsyncMock()
+
         async def execute(stmt, *a, **kw):
             result = MagicMock()
             result.scalars.return_value.all.return_value = []
             return result
+
         db.execute = execute
 
         elo1 = await build_elo_ratings(db)

@@ -46,9 +46,7 @@ class CircuitBreaker:
 
     def should_skip(self) -> bool:
         if self.is_open:
-            logger.warning(
-                "Circuit breaker [%s] is open, skipping call", self.name
-            )
+            logger.warning("Circuit breaker [%s] is open, skipping call", self.name)
             return True
         return False
 

@@ -138,7 +138,7 @@ def test_build_teams_card_sorts_by_edge():
     low_pred = SimpleNamespace(
         game_id=2,
         fg_spread=2.5,
-        fg_total=220.0,
+        fg_total=230.0,
         fg_home_ml_prob=0.55,
         h1_spread=1.0,
         h1_total=110.0,

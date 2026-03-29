@@ -31,9 +31,16 @@ def _margin_to_prob(
     """Convert predicted point margin to win probability.
 
     Uses Platt-scaled logistic coefficients when available (trained by
-    ``ModelTrainer``), otherwise falls back to the hardcoded logistic.
+    ``ModelTrainer``), otherwise falls back to a standard sigmoid.
+
+    Args:
+        margin: Predicted margin (home - away).
+        coef: Logistic coefficient (from training).
+        intercept: Logistic intercept (from training).
+        scale: Fallback scale factor for fallback sigmoid.
     """
     if coef is not None and intercept is not None:
+        # P(Win) = 1 / (1 + exp(-(coef*margin + intercept)))
         z = coef * margin + intercept
         return 1.0 / (1.0 + math.exp(-z))
     return 1.0 / (1.0 + math.exp(-margin / scale))
@@ -68,7 +75,9 @@ class Predictor:
         return self.model_version
 
     def _load_models(self) -> None:
-        expected_features = len(self.feature_cols)
+        expected_features = self.feature_cols
+        expected_count = len(expected_features)
+
         for name in MODEL_NAMES:
             path = ARTIFACTS_DIR / f"{name}.json"
             if path.exists():
@@ -89,26 +98,40 @@ class Predictor:
             self._incompatible_models = {
                 name: count
                 for name, count in self._model_feature_counts.items()
-                if count != expected_features
+                if count != expected_count
             }
             mismatch = ", ".join(
                 f"{name}={count}" for name, count in self._model_feature_counts.items()
             )
             self._last_error = (
                 "Model artifact feature shape mismatch across models: "
-                f"expected {expected_features}, got [{mismatch}]"
+                f"expected {expected_count}, got [{mismatch}]"
             )
             logger.error(self._last_error)
             self.models = {}
             return
 
         model_feature_count = unique_counts[0]
-        if model_feature_count == expected_features:
+
+        # Check if the feature names in code match what the model expects (if we had feature_names)
+        # XGBoost models saved as JSON might have feature_names if set during training.
+        try:
+            model_features = self.models[MODEL_NAMES[0]].get_booster().feature_names
+            if model_features and list(model_features) != expected_features:
+                self._last_error = (
+                    "Model feature name mismatch. Code and artifacts are out of sync."
+                )
+                logger.error(self._last_error)
+                # We don't nullify models yet to allow 'compatibility_mode' if counts match
+        except Exception:
+            pass
+
+        if model_feature_count == expected_count:
             return
 
-        if 0 < model_feature_count < expected_features:
+        if 0 < model_feature_count < expected_count:
             self._compatibility_mode = True
-            self._inference_feature_cols = self.feature_cols[:model_feature_count]
+            self._inference_feature_cols = expected_features[:model_feature_count]
             logger.warning(
                 "Compatibility mode enabled: models expect %d features, current vector has %d. "
                 "Using first %d features for inference. Retrain recommended.",
@@ -486,13 +509,17 @@ class Predictor:
             if pred:
                 predictions.append(pred)
             else:
-                logger.warning("Skipped prediction for game %d (%s vs %s)",
-                               game.id,
-                               getattr(game.away_team, 'name', '?'),
-                               getattr(game.home_team, 'name', '?'))
+                logger.warning(
+                    "Skipped prediction for game %d (%s vs %s)",
+                    game.id,
+                    getattr(game.away_team, "name", "?"),
+                    getattr(game.home_team, "name", "?"),
+                )
         if len(predictions) < len(games):
             logger.warning(
                 "predict_upcoming: %d/%d games predicted (%d skipped)",
-                len(predictions), len(games), len(games) - len(predictions),
+                len(predictions),
+                len(games),
+                len(games) - len(predictions),
             )
         return predictions

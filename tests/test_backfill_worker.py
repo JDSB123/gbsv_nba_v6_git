@@ -10,6 +10,7 @@ class TestWorkerShim:
     def test_main_calls_cmd_work(self):
         with patch("src.worker.cmd_work") as mock_cmd:
             from src.worker import main
+
             main()
             mock_cmd.assert_called_once()
 

@@ -8,6 +8,7 @@ from src.data.odds_client import OddsClient
 
 # ── Construction & quota ───────────────────────────────────────
 
+
 def test_odds_client_init():
     client = OddsClient()
     assert client.base_url is not None
@@ -32,6 +33,7 @@ def test_track_quota_missing_header():
 
 
 # ── Skip logic ─────────────────────────────────────────────────
+
 
 def test_should_skip_when_quota_above_min():
     client = OddsClient()
@@ -63,6 +65,7 @@ def test_fetch_odds_returns_empty_when_skip(monkeypatch):
     client._remaining_quota = 0
 
     import asyncio
+
     result = asyncio.get_event_loop().run_until_complete(client.fetch_odds())
     assert result == []
 
@@ -73,6 +76,7 @@ def test_fetch_scores_returns_empty_when_skip():
     client._remaining_quota = 0
 
     import asyncio
+
     result = asyncio.get_event_loop().run_until_complete(client.fetch_scores())
     assert result == []
 
@@ -82,9 +86,8 @@ def test_fetch_event_odds_returns_empty_when_skip():
     client._remaining_quota = 0
 
     import asyncio
-    result = asyncio.get_event_loop().run_until_complete(
-        client.fetch_event_odds("ev123")
-    )
+
+    result = asyncio.get_event_loop().run_until_complete(client.fetch_event_odds("ev123"))
     assert result == {}
 
 
@@ -93,13 +96,13 @@ def test_fetch_player_props_returns_empty_when_skip():
     client._remaining_quota = 0
 
     import asyncio
-    result = asyncio.get_event_loop().run_until_complete(
-        client.fetch_player_props("ev123")
-    )
+
+    result = asyncio.get_event_loop().run_until_complete(client.fetch_player_props("ev123"))
     assert result == {}
 
 
 # ── persist_odds ───────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_persist_odds_inserts_snapshots():
@@ -180,22 +183,30 @@ async def test_persist_odds_multiple_events():
     db.add = MagicMock()
 
     # Two events, first found (id=1), second not found
-    db.execute = AsyncMock(side_effect=[
-        MagicMock(scalar_one_or_none=MagicMock(return_value=1)),
-        MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
-    ])
+    db.execute = AsyncMock(
+        side_effect=[
+            MagicMock(scalar_one_or_none=MagicMock(return_value=1)),
+            MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
+        ]
+    )
 
     odds_data = [
         {
             "id": "ev1",
             "bookmakers": [
-                {"key": "dk", "markets": [{"key": "h2h", "outcomes": [{"name": "A", "price": -150}]}]}
+                {
+                    "key": "dk",
+                    "markets": [{"key": "h2h", "outcomes": [{"name": "A", "price": -150}]}],
+                }
             ],
         },
         {
             "id": "ev2",
             "bookmakers": [
-                {"key": "dk", "markets": [{"key": "h2h", "outcomes": [{"name": "B", "price": 120}]}]}
+                {
+                    "key": "dk",
+                    "markets": [{"key": "h2h", "outcomes": [{"name": "B", "price": 120}]}],
+                }
             ],
         },
     ]
@@ -219,19 +230,25 @@ async def test_persist_odds_multiple_markets_and_books():
                     "key": "fanduel",
                     "markets": [
                         {"key": "h2h", "outcomes": [{"name": "Home", "price": -130}]},
-                        {"key": "spreads", "outcomes": [
-                            {"name": "Home", "price": -110, "point": -3.5},
-                            {"name": "Away", "price": -110, "point": 3.5},
-                        ]},
+                        {
+                            "key": "spreads",
+                            "outcomes": [
+                                {"name": "Home", "price": -110, "point": -3.5},
+                                {"name": "Away", "price": -110, "point": 3.5},
+                            ],
+                        },
                     ],
                 },
                 {
                     "key": "draftkings",
                     "markets": [
-                        {"key": "totals", "outcomes": [
-                            {"name": "Over", "price": -110, "point": 220.5},
-                            {"name": "Under", "price": -110, "point": 220.5},
-                        ]},
+                        {
+                            "key": "totals",
+                            "outcomes": [
+                                {"name": "Over", "price": -110, "point": 220.5},
+                                {"name": "Under", "price": -110, "point": 220.5},
+                            ],
+                        },
                     ],
                 },
             ],

@@ -10,6 +10,7 @@ from src.models.elo import (
 
 # ── Defaults ────────────────────────────────────────────────────
 
+
 def test_initial_rating_is_1500():
     elo = EloSystem()
     assert elo.rating(1) == INITIAL_ELO
@@ -24,6 +25,7 @@ def test_new_team_auto_initialised():
 
 
 # ── MOV multiplier ──────────────────────────────────────────────
+
 
 def test_mov_multiplier_positive():
     elo = EloSystem()
@@ -46,6 +48,7 @@ def test_mov_multiplier_negative_margin_uses_abs():
 
 
 # ── Update mechanics ────────────────────────────────────────────
+
 
 def test_home_win_increases_home_elo():
     elo = EloSystem()
@@ -94,6 +97,7 @@ def test_blowout_moves_ratings_more_than_close_game():
 
 
 # ── Season reversion ────────────────────────────────────────────
+
 
 def test_season_reset_reverts_toward_mean():
     elo = EloSystem()

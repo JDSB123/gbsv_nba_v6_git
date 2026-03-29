@@ -151,10 +151,15 @@ class TestBuildDataset:
     @patch("src.models.trainer.build_feature_vector", return_value=None)
     async def test_skips_games_with_no_features(self, mock_bfv, mock_reset):
         game = SimpleNamespace(
-            id=1, home_team_id=1, away_team_id=2,
-            commence_time=datetime(2025, 1, 10), status="FT",
-            home_score_fg=110, away_score_fg=105,
-            home_score_1h=55, away_score_1h=50,
+            id=1,
+            home_team_id=1,
+            away_team_id=2,
+            commence_time=datetime(2025, 1, 10),
+            status="FT",
+            home_score_fg=110,
+            away_score_fg=105,
+            home_score_1h=55,
+            away_score_1h=50,
             home_team=SimpleNamespace(name="A"),
             away_team=SimpleNamespace(name="B"),
         )
@@ -204,7 +209,8 @@ class TestTrain:
         for i in range(100):
             g = SimpleNamespace(
                 id=i,
-                home_team_id=1, away_team_id=2,
+                home_team_id=1,
+                away_team_id=2,
                 commence_time=datetime(2024, 1, 1) + timedelta(days=i),
                 status="FT",
                 home_score_fg=100 + rng.integers(-15, 15),
@@ -216,7 +222,9 @@ class TestTrain:
             )
             games.append(g)
 
-        mock_bfv.side_effect = lambda g, db, **kw: {f"f{j}": float(rng.standard_normal()) for j in range(5)}
+        mock_bfv.side_effect = lambda g, db, **kw: {
+            f"f{j}": float(rng.standard_normal()) for j in range(5)
+        }
 
         db = AsyncMock()
         game_result = MagicMock()
@@ -226,6 +234,7 @@ class TestTrain:
         reg_result.scalars.return_value.all.return_value = []
 
         call_n = {"n": 0}
+
         async def mock_exec(stmt, *a, **kw):
             call_n["n"] += 1
             if call_n["n"] == 1:

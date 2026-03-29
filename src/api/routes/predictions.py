@@ -121,7 +121,11 @@ async def publish_slate_to_teams(
     from src.notifications.teams import build_teams_card, send_card_to_teams
 
     # Build download URLs from configured base or infer from request
-    base = settings.api_base_url.rstrip("/") if settings.api_base_url else str(request.base_url).rstrip("/")
+    base = (
+        settings.api_base_url.rstrip("/")
+        if settings.api_base_url
+        else str(request.base_url).rstrip("/")
+    )
     download_url = f"{base}/predictions/slate.html"
     csv_download_url = f"{base}/predictions/slate.csv"
 

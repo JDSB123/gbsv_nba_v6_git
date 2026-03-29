@@ -123,12 +123,21 @@ def _calibrate_probabilities(
 ) -> tuple[float, float]:
     """Fit a logistic regression on predicted margin → actual W/L.
 
-    Returns (coef, intercept) so the predictor can use them.
+    Enforces a positive coefficient to ensure win probability aligns
+    with predicted score margin (positive margin = favored to win).
     """
     lr = LogisticRegression()
     lr.fit(margins.reshape(-1, 1), actuals)
     coef = float(np.ravel(lr.coef_)[0])
     intercept = float(np.ravel(lr.intercept_)[0])
+
+    # Enforcement: if the relationship is non-positive, it means the model
+    # is too noisy/broken on the holdout set. Forcing it to 1.0 (or similar)
+    # would still be arbitrary; better to fallback to standard sigmoid.
+    if coef <= 0.01:
+        logger.warning("Calibration found non-positive coefficient (%.4f). Scaling reset.", coef)
+        return 0.15, 0.0  # Equivalent to ~7.0 scale
+
     return coef, intercept
 
 

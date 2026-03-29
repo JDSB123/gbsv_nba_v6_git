@@ -49,7 +49,8 @@ def _app_build_stamp() -> str:
 # Minimum edge (in points) for a pick to qualify
 MIN_EDGE = 2.0
 # League-average total used as baseline when no market line exists
-_NBA_AVG_TOTAL = 222.0
+# Defaults for when odds aren't available
+_NBA_AVG_TOTAL = 230.0  # Updated to reflect modern scoring (approx 2024-2026 avg)
 
 
 def _fire_emojis(edge: float) -> str:
@@ -78,14 +79,14 @@ _CST = ZoneInfo("US/Central")
 
 
 def _fmt_time_cst(dt: datetime | None) -> str:
-    """Format a datetime as '6:30 PM CT'."""
+    """Format a datetime as 'YYYY-MM-DD 6:30 PM CT' for clarity and sortability."""
     if not dt:
         return "TBD"
     # commence_time is stored as naive UTC; make it aware before converting
     aware = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
     ct = aware.astimezone(_CST)
-    raw = ct.strftime("%I:%M %p")
-    return raw.lstrip("0") + " CT"
+    raw_time = ct.strftime("%I:%M %p").lstrip("0")
+    return f"{ct.strftime('%Y-%m-%d')} {raw_time} CT"
 
 
 def _team_record(team: Any) -> str:
@@ -146,6 +147,22 @@ def _prob_to_american(prob: float) -> str:
     if prob >= 0.5:
         return f"{int(round(-(prob / (1 - prob)) * 100)):+d}"
     return f"+{int(round(((1 - prob) / prob) * 100))}"
+
+
+def _american_to_prob(odds_str: str) -> float | None:
+    """Convert American odds string to implied probability (0-1)."""
+    if not odds_str:
+        return None
+    try:
+        odds = float(odds_str.replace("+", ""))
+        if odds == 0:
+            return 0.5
+        if odds > 0:
+            return 100 / (odds + 100)
+        else:
+            return -odds / (-odds + 100)
+    except ValueError:
+        return None
 
 
 def _consensus_price(books: dict, key: str) -> str:
@@ -484,19 +501,32 @@ def extract_picks(
             )
 
     # ── ML pick ────────────────────────────────────────────────
-    ml_pts_edge = round(abs(fg_spread), 1)
-    if ml_pts_edge >= min_edge:
-        pick_home = fg_spread > 0
-        side = home if pick_home else away
-        # American odds — prefer book consensus, else convert from probability
-        if pick_home:
-            ml_odds = odds_map.get("FG_ML_HOME", "") or _prob_to_american(fg_prob)
-        else:
-            ml_odds = odds_map.get("FG_ML_AWAY", "") or _prob_to_american(1 - fg_prob)
-        win_prob = fg_prob if pick_home else 1 - fg_prob
+    pick_home = fg_spread > 0
+    side = home if pick_home else away
+    win_prob = fg_prob if pick_home else 1 - fg_prob
+
+    # American odds — prefer book consensus, else convert from probability
+    if pick_home:
+        ml_odds = odds_map.get("FG_ML_HOME", "") or _prob_to_american(fg_prob)
+    else:
+        ml_odds = odds_map.get("FG_ML_AWAY", "") or _prob_to_american(1 - fg_prob)
+
+    market_prob = _american_to_prob(ml_odds)
+
+    # Calculate prob edge in percentage points (e.g. 0.05 = 5%).
+    # If market_prob is completely unavailable, fall back to comparing against a baseline of 0.5 (coin flip)
+    # to still surface strong model beliefs when books haven't posted odds.
+    prob_edge = (win_prob - market_prob) if market_prob is not None else (win_prob - 0.5)
+
+    # If the model edge is positive against the market
+    if prob_edge > 0.02:  # Min 2% edge
+        # Scale to "points" equivalent for fire count (approx 3% per point)
+        ml_pts_edge = round(prob_edge * 33.3, 1)
+
+        m_prob_str = f"{market_prob:.0%}" if market_prob is not None else "N/A"
         rationale = (
-            f"Model projects {side} by {ml_pts_edge:.1f}pts "
-            f"({win_prob:.0%} win prob, {ml_odds or 'n/a'})"
+            f"Model projects {side} by {abs(fg_spread):.1f}pts. "
+            f"Edge: {win_prob:.0%} win prob vs {m_prob_str} implied ({ml_odds or 'n/a'})"
         )
         picks.append(
             Pick(
@@ -1132,7 +1162,9 @@ def build_html_slate(
             "</tr>"
         )
 
-    sort_arrow = '<span class="sort-arrow" style="margin-left:4px;font-size:10px">\u25B2\u25BC</span>'
+    sort_arrow = (
+        '<span class="sort-arrow" style="margin-left:4px;font-size:10px">\u25b2\u25bc</span>'
+    )
     table = (
         '<table id="slate" style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
         "<thead><tr>"

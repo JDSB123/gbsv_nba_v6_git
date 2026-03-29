@@ -25,7 +25,7 @@ class ModelService:
         for pred, game in latest_per_game_version.values():
             if game.home_score_fg is None or game.away_score_fg is None:
                 continue
-                
+
             model_version = str(pred.model_version)
             slot = by_model.setdefault(
                 model_version,
@@ -41,12 +41,20 @@ class ModelService:
             )
             slot["count"] = int(slot["count"]) + 1
 
-            slot["home_fg_abs"].append(abs(float(pred.predicted_home_fg) - float(game.home_score_fg)))
-            slot["away_fg_abs"].append(abs(float(pred.predicted_away_fg) - float(game.away_score_fg)))
-            
+            slot["home_fg_abs"].append(
+                abs(float(pred.predicted_home_fg) - float(game.home_score_fg))
+            )
+            slot["away_fg_abs"].append(
+                abs(float(pred.predicted_away_fg) - float(game.away_score_fg))
+            )
+
             if game.home_score_1h is not None and game.away_score_1h is not None:
-                slot["home_1h_abs"].append(abs(float(pred.predicted_home_1h) - float(game.home_score_1h)))
-                slot["away_1h_abs"].append(abs(float(pred.predicted_away_1h) - float(game.away_score_1h)))
+                slot["home_1h_abs"].append(
+                    abs(float(pred.predicted_home_1h) - float(game.home_score_1h))
+                )
+                slot["away_1h_abs"].append(
+                    abs(float(pred.predicted_away_1h) - float(game.away_score_1h))
+                )
 
             if pred.clv_spread is not None:
                 slot["clv_spread"].append(float(pred.clv_spread))

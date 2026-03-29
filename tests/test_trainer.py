@@ -12,6 +12,7 @@ from src.models.trainer import (
 
 # ── _evaluate_promotion ───────────────────────────────────────
 
+
 def test_evaluate_promotion_passes():
     metrics = {
         "model_home_fg_mae": 8.0,
@@ -63,6 +64,7 @@ def test_evaluate_promotion_missing_metric():
 
 # ── _calibrate_probabilities ──────────────────────────────────
 
+
 def test_calibrate_probabilities_returns_floats():
     np.random.seed(42)
     margins = np.random.randn(100) * 10
@@ -72,15 +74,19 @@ def test_calibrate_probabilities_returns_floats():
     assert isinstance(intercept, float)
 
 
-def test_calibrate_probabilities_positive_coef():
-    """When positive margin → win, coef should be positive."""
+def test_calibrate_probabilities_enforce_positive():
+    """When margin is negatively correlated with win, coef should be forced positive."""
+    # Negative correlation: higher margin -> more losses (unrealistic but tests the fix)
     margins = np.array([-15, -10, -5, 5, 10, 15], dtype=float)
-    actuals = np.array([0, 0, 0, 1, 1, 1])
-    coef, _ = _calibrate_probabilities(margins, actuals)
-    assert coef > 0
+    actuals = np.array([1, 1, 1, 0, 0, 0])
+    coef, intercept = _calibrate_probabilities(margins, actuals)
+    # The fix should force a positive fallback (0.15)
+    assert coef == 0.15
+    assert intercept == 0.0
 
 
 # ── Constants ──────────────────────────────────────────────────
+
 
 def test_targets_and_model_names_aligned():
     assert len(TARGETS) == len(MODEL_NAMES)

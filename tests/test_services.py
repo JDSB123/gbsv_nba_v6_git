@@ -18,6 +18,7 @@ from src.services.predictions import (
 #  _as_float / _parse_iso_utc
 # ══════════════════════════════════════════════════════════════════
 
+
 def test_as_float_with_number():
     assert _as_float(3.14) == 3.14
 
@@ -65,6 +66,7 @@ def test_parse_iso_utc_non_string():
 # ══════════════════════════════════════════════════════════════════
 #  PredictionService.format_prediction
 # ══════════════════════════════════════════════════════════════════
+
 
 def _make_prediction(**overrides):
     defaults = dict(
@@ -126,10 +128,13 @@ def test_format_prediction_full():
 def test_format_prediction_missing_team_names():
     pred = _make_prediction()
     game = SimpleNamespace(
-        id=1, odds_api_id="ev1",
+        id=1,
+        odds_api_id="ev1",
         commence_time=datetime(2025, 3, 22, tzinfo=UTC),
-        home_team_id=1, away_team_id=2,
-        home_team=None, away_team=None,
+        home_team_id=1,
+        away_team_id=2,
+        home_team=None,
+        away_team=None,
     )
     svc = PredictionService(None, None, Settings())
     result = svc.format_prediction(pred, game)
@@ -140,10 +145,13 @@ def test_format_prediction_missing_team_names():
 def test_format_prediction_none_commence_time():
     pred = _make_prediction()
     game = SimpleNamespace(
-        id=1, odds_api_id="ev1",
+        id=1,
+        odds_api_id="ev1",
         commence_time=None,
-        home_team_id=1, away_team_id=2,
-        home_team=SimpleNamespace(name="A"), away_team=SimpleNamespace(name="B"),
+        home_team_id=1,
+        away_team_id=2,
+        home_team=SimpleNamespace(name="A"),
+        away_team=SimpleNamespace(name="B"),
     )
     svc = PredictionService(None, None, Settings())
     result = svc.format_prediction(pred, game)
@@ -171,6 +179,7 @@ def test_format_prediction_none_ml_probs_default_to_half():
 #  PredictionService.evaluate_odds_freshness  (additional cases)
 # ══════════════════════════════════════════════════════════════════
 
+
 def test_freshness_all_ok():
     svc = PredictionService(None, None, Settings(odds_freshness_max_age_minutes=60))
     now_str = datetime.now(UTC).isoformat()
@@ -195,6 +204,7 @@ def test_freshness_empty_list():
 # ══════════════════════════════════════════════════════════════════
 #  PredictionService.get_list_predictions  (mocked repo)
 # ══════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_get_list_predictions():
@@ -230,6 +240,7 @@ async def test_get_list_predictions_empty():
 #  PredictionService.get_slate_payload (mocked repo)
 # ══════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_get_slate_payload():
     pred = _make_prediction()
@@ -252,6 +263,7 @@ async def test_get_slate_payload():
 # ══════════════════════════════════════════════════════════════════
 #  PredictionService.get_prediction_detail (mocked repo)
 # ══════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_get_prediction_detail_not_found():
@@ -280,10 +292,20 @@ async def test_get_prediction_detail_no_prediction():
 async def test_get_prediction_detail_with_odds():
     pred = _make_prediction()
     game = _make_game()
-    snap_spread = SimpleNamespace(market="spreads", point=-4.5, outcome_name="Boston Celtics",
-                                  bookmaker="fanduel", captured_at=datetime.now(UTC))
-    snap_total = SimpleNamespace(market="totals", point=220.0, outcome_name="Over",
-                                 bookmaker="fanduel", captured_at=datetime.now(UTC))
+    snap_spread = SimpleNamespace(
+        market="spreads",
+        point=-4.5,
+        outcome_name="Boston Celtics",
+        bookmaker="fanduel",
+        captured_at=datetime.now(UTC),
+    )
+    snap_total = SimpleNamespace(
+        market="totals",
+        point=220.0,
+        outcome_name="Over",
+        bookmaker="fanduel",
+        captured_at=datetime.now(UTC),
+    )
 
     repo = AsyncMock()
     repo.get_game_with_teams = AsyncMock(return_value=game)
@@ -301,8 +323,17 @@ async def test_get_prediction_detail_with_odds():
 #  ModelService.get_performance
 # ══════════════════════════════════════════════════════════════════
 
-def _make_perf_pred(game_id, model_version, home_fg=110, away_fg=105, home_1h=55, away_1h=52,
-                    clv_spread=0.5, clv_total=-0.3):
+
+def _make_perf_pred(
+    game_id,
+    model_version,
+    home_fg=110,
+    away_fg=105,
+    home_1h=55,
+    away_1h=52,
+    clv_spread=0.5,
+    clv_total=-0.3,
+):
     return SimpleNamespace(
         game_id=game_id,
         model_version=model_version,
@@ -362,8 +393,9 @@ async def test_model_service_get_performance_empty():
 @pytest.mark.asyncio
 async def test_model_service_skips_games_without_scores():
     pred = _make_perf_pred(1, "v6.2.0")
-    game = SimpleNamespace(id=1, home_score_fg=None, away_score_fg=None,
-                           home_score_1h=None, away_score_1h=None)
+    game = SimpleNamespace(
+        id=1, home_score_fg=None, away_score_fg=None, home_score_1h=None, away_score_1h=None
+    )
 
     repo = AsyncMock()
     repo.get_finished_game_predictions = AsyncMock(return_value=[(pred, game)])
@@ -397,8 +429,9 @@ async def test_model_service_multiple_versions():
 @pytest.mark.asyncio
 async def test_model_service_handles_none_1h_scores():
     pred = _make_perf_pred(1, "v6.2.0")
-    game = SimpleNamespace(id=1, home_score_fg=110, away_score_fg=105,
-                           home_score_1h=None, away_score_1h=None)
+    game = SimpleNamespace(
+        id=1, home_score_fg=110, away_score_fg=105, home_score_1h=None, away_score_1h=None
+    )
 
     repo = AsyncMock()
     repo.get_finished_game_predictions = AsyncMock(return_value=[(pred, game)])

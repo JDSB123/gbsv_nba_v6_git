@@ -88,7 +88,8 @@ async def poll_1h_odds() -> None:
                 if client._should_skip():
                     logger.warning(
                         "Quota low — stopped 1H poll after %d/%d events",
-                        fetched, len(events),
+                        fetched,
+                        len(events),
                     )
                     break
                 data = await client.fetch_event_odds(event_id)
@@ -125,7 +126,8 @@ async def poll_player_props() -> None:
                 if client._should_skip():
                     logger.warning(
                         "Quota low — stopped props poll after %d/%d events",
-                        fetched, len(events),
+                        fetched,
+                        len(events),
                     )
                     break
                 data = await client.fetch_player_props(event_id)
@@ -172,7 +174,10 @@ async def poll_stats() -> None:
                     total_games += persisted
             logger.info(
                 "poll_stats: ingested %d games for %s / %s / %s",
-                total_games, yesterday, today, tomorrow,
+                total_games,
+                yesterday,
+                today,
+                tomorrow,
             )
 
             result = await db.execute(select(Team.id))
@@ -326,9 +331,7 @@ async def sync_events_to_games() -> None:
                 ct = parse_api_datetime(commence)
 
                 # Skip if already linked by odds_api_id
-                existing = await db.execute(
-                    select(Game).where(Game.odds_api_id == odds_id)
-                )
+                existing = await db.execute(select(Game).where(Game.odds_api_id == odds_id))
                 if existing.scalar_one_or_none() is not None:
                     continue
 
@@ -596,7 +599,9 @@ async def generate_predictions_and_publish() -> None:
             if pred_count < ns_game_count:
                 logger.warning(
                     "INCOMPLETE COVERAGE: predicted %d / %d NS games (%d missing)",
-                    pred_count, ns_game_count, ns_game_count - pred_count,
+                    pred_count,
+                    ns_game_count,
+                    ns_game_count - pred_count,
                 )
             else:
                 logger.info("Full coverage: predicted %d / %d NS games", pred_count, ns_game_count)
@@ -645,9 +650,7 @@ async def generate_predictions_and_publish() -> None:
                     csv_url: str | None = None
                     try:
                         csv_content = build_slate_csv(rows)
-                        csv_filename = (
-                            f"nba_slate_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.csv"
-                        )
+                        csv_filename = f"nba_slate_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.csv"
                         csv_url = await upload_csv_to_channel(
                             _s.teams_team_id,
                             _s.teams_channel_id,

@@ -12,13 +12,15 @@ from src.models.predictor import Predictor
 def _as_float(value: Any, default: float = 0.0) -> float:
     return float(value) if value is not None else default
 
+
 def _parse_iso_utc(ts: Any) -> datetime | None:
     if not isinstance(ts, str) or not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace('Z', '+00:00')).astimezone(UTC)
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(UTC)
     except ValueError:
         return None
+
 
 class PredictionService:
     def __init__(self, repo: PredictionRepository, predictor: Predictor, settings: Settings):
@@ -27,14 +29,20 @@ class PredictionService:
         self.settings = settings
 
     def format_prediction(self, pred: Prediction, game: Game) -> dict:
-        home_name = game.home_team.name if game.home_team is not None else f"Team {game.home_team_id}"
-        away_name = game.away_team.name if game.away_team is not None else f"Team {game.away_team_id}"
+        home_name = (
+            game.home_team.name if game.home_team is not None else f"Team {game.home_team_id}"
+        )
+        away_name = (
+            game.away_team.name if game.away_team is not None else f"Team {game.away_team_id}"
+        )
         fg_home_ml_prob = _as_float(pred.fg_home_ml_prob, 0.5)
         h1_home_ml_prob = _as_float(pred.h1_home_ml_prob, 0.5)
         return {
             "game_id": game.id,
             "odds_api_id": game.odds_api_id,
-            "commence_time": game.commence_time.isoformat() if game.commence_time is not None else None,
+            "commence_time": game.commence_time.isoformat()
+            if game.commence_time is not None
+            else None,
             "away_team": away_name,
             "home_team": home_name,
             "predicted_scores": {
@@ -56,7 +64,9 @@ class PredictionService:
                 },
             },
             "model_version": pred.model_version,
-            "predicted_at": pred.predicted_at.isoformat() if pred.predicted_at is not None else None,
+            "predicted_at": pred.predicted_at.isoformat()
+            if pred.predicted_at is not None
+            else None,
             "odds_sourced": pred.odds_sourced,
             "clv": {
                 "opening_spread": pred.opening_spread,
@@ -133,10 +143,10 @@ class PredictionService:
             game = game_by_id.get(int(cast(Any, pred.game_id)))
             if game:
                 rows.append((pred, game))
-        
+
         odds_pulled_at = await self.repo.get_latest_odds_pull_timestamp()
         return rows, odds_pulled_at
-        
+
     async def get_prediction_detail(self, game_id: int):
         game = await self.repo.get_game_with_teams(game_id)
         if not game:
@@ -145,21 +155,30 @@ class PredictionService:
         pred = await self.repo.get_latest_prediction_for_game(game_id)
         if not pred:
             return {"game": game, "pred": None}
-            
+
         result = self.format_prediction(pred, game)
         odds = await self.repo.get_recent_odds_snapshots(game_id, limit=50)
-        
+
         if odds:
-            spreads = [float(cast(Any, o.point)) for o in odds if cast(Any, o.market) == "spreads" and o.point is not None]
-            totals = [float(cast(Any, o.point)) for o in odds if cast(Any, o.market) == "totals" and o.point is not None]
+            spreads = [
+                float(cast(Any, o.point))
+                for o in odds
+                if cast(Any, o.market) == "spreads" and o.point is not None
+            ]
+            totals = [
+                float(cast(Any, o.point))
+                for o in odds
+                if cast(Any, o.market) == "totals" and o.point is not None
+            ]
 
             if spreads:
                 mkt_spread = float(np.mean(spreads))
                 result["markets"]["fg_spread"]["market_line"] = mkt_spread
-                result["markets"]["fg_spread"]["edge"] = round(_as_float(pred.fg_spread) - mkt_spread, 1)
+                # Fixed opposing sign conventions: pred.fg_spread (margin, positive=Home) and mkt_spread (betting, negative=Home favored)
+                result["markets"]["fg_spread"]["edge"] = round(
+                    _as_float(pred.fg_spread) + mkt_spread, 1
+                )
             if totals:
                 mkt_total = float(np.mean(totals))
                 result["markets"]["fg_total"]["market_line"] = mkt_total
-                result["markets"]["fg_total"]["edge"] = round(_as_float(pred.fg_total) - mkt_total, 1)
-                
         return {"game": game, "pred": pred, "result": result}

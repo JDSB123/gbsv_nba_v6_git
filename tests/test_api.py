@@ -13,12 +13,14 @@ from src.services.predictions import PredictionService
 def anyio_backend():
     return "asyncio"
 
+
 @pytest.mark.anyio
 async def test_health():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/health")
     assert resp.status_code == 200
+
 
 @pytest.mark.anyio
 async def test_model_status():
@@ -27,13 +29,15 @@ async def test_model_status():
         resp = await client.get("/model/status")
     assert resp.status_code == 200
 
+
 @pytest.mark.anyio
 async def test_predictions_requires_ready_models_list():
     class _DummyPredictor:
         is_ready = False
+
         def get_runtime_status(self):
             return {"ready": False, "reason": "Not loaded"}
-            
+
     app.dependency_overrides[get_predictor] = lambda: _DummyPredictor()
     try:
         transport = ASGITransport(app=app)
@@ -44,10 +48,12 @@ async def test_predictions_requires_ready_models_list():
     finally:
         app.dependency_overrides.clear()
 
+
 @pytest.mark.anyio
 async def test_predictions_requires_ready_models_detail():
     class _DummyPredictor:
         is_ready = False
+
         def get_runtime_status(self):
             return {"ready": False, "reason": "Not loaded"}
 
@@ -60,6 +66,7 @@ async def test_predictions_requires_ready_models_detail():
         assert resp.json()["detail"] == "Models not ready"
     finally:
         app.dependency_overrides.clear()
+
 
 def test_odds_freshness_summary_flags_stale_and_missing():
     service = PredictionService(None, None, Settings(odds_freshness_max_age_minutes=1))

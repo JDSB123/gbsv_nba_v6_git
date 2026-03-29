@@ -19,7 +19,9 @@ def _ts(days_ago=0):
     return datetime(2025, 1, 15, 19, 0, tzinfo=UTC) - timedelta(days=days_ago)
 
 
-def _make_snapshot(bk="pinnacle", mkt="spreads", outcome="Boston Celtics", price=-110, point=-5.5, ts=None):
+def _make_snapshot(
+    bk="pinnacle", mkt="spreads", outcome="Boston Celtics", price=-110, point=-5.5, ts=None
+):
     return SimpleNamespace(
         bookmaker=bk,
         market=mkt,
@@ -60,13 +62,17 @@ class TestLatestSnapshots:
 
 class TestBuildOddsDetail:
     def test_spreads_extraction(self):
-        snaps = [_make_snapshot(bk="pinnacle", mkt="spreads", outcome="BOS", point=-5.5, price=-110)]
+        snaps = [
+            _make_snapshot(bk="pinnacle", mkt="spreads", outcome="BOS", point=-5.5, price=-110)
+        ]
         detail = Predictor._build_odds_detail(snaps, "BOS", "LAL", _ts(0))
         assert "pinnacle" in detail["books"]
         assert detail["books"]["pinnacle"]["spread"] == -5.5
 
     def test_totals_extraction(self):
-        snaps = [_make_snapshot(bk="fanduel", mkt="totals", outcome="Over", point=220.5, price=-110)]
+        snaps = [
+            _make_snapshot(bk="fanduel", mkt="totals", outcome="Over", point=220.5, price=-110)
+        ]
         detail = Predictor._build_odds_detail(snaps, "BOS", "LAL", _ts(0))
         assert detail["books"]["fanduel"]["total"] == 220.5
 
@@ -178,7 +184,9 @@ class TestPredictGame:
         pred._calibration = {}
 
         db = AsyncMock()
-        game = SimpleNamespace(id=1, home_team=SimpleNamespace(name="A"), away_team=SimpleNamespace(name="B"))
+        game = SimpleNamespace(
+            id=1, home_team=SimpleNamespace(name="A"), away_team=SimpleNamespace(name="B")
+        )
         result = await pred.predict_game(game, db)
         assert result is None
 
@@ -201,7 +209,8 @@ class TestPredictGame:
 
         game = SimpleNamespace(
             id=1,
-            home_team_id=1, away_team_id=2,
+            home_team_id=1,
+            away_team_id=2,
             home_team=SimpleNamespace(name="BOS"),
             away_team=SimpleNamespace(name="LAL"),
             commence_time=_ts(0),
@@ -247,9 +256,13 @@ class TestPredictAndStore:
             m.predict.return_value = np.array([100.0])
 
         game = SimpleNamespace(
-            id=1, home_team_id=1, away_team_id=2,
-            home_team=SimpleNamespace(name="A"), away_team=SimpleNamespace(name="B"),
-            commence_time=_ts(0), season="2024-2025",
+            id=1,
+            home_team_id=1,
+            away_team_id=2,
+            home_team=SimpleNamespace(name="A"),
+            away_team=SimpleNamespace(name="B"),
+            commence_time=_ts(0),
+            season="2024-2025",
         )
 
         monkeypatch.setattr(
@@ -267,6 +280,7 @@ class TestPredictAndStore:
         version_result.scalar_one_or_none.return_value = "v6"
 
         call_n = {"n": 0}
+
         async def mock_exec(stmt, *a, **kw):
             call_n["n"] += 1
             result = MagicMock()

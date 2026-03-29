@@ -100,9 +100,7 @@ async def health_freshness(db: AsyncSession = Depends(get_db)):
         sources["odds"] = {"status": "missing"}
 
     # Injuries
-    latest_injury = (
-        await db.execute(select(sa_func.max(Injury.reported_at)))
-    ).scalar_one_or_none()
+    latest_injury = (await db.execute(select(sa_func.max(Injury.reported_at)))).scalar_one_or_none()
     if latest_injury:
         age = (datetime.now(UTC) - latest_injury.replace(tzinfo=UTC)).total_seconds() / 60
         sources["injuries"] = {
@@ -128,14 +126,10 @@ async def health_freshness(db: AsyncSession = Depends(get_db)):
 
     # Games coverage
     ns_count = (
-        await db.execute(
-            select(sa_func.count()).select_from(Game).where(Game.status == "NS")
-        )
+        await db.execute(select(sa_func.count()).select_from(Game).where(Game.status == "NS"))
     ).scalar()
     ft_count = (
-        await db.execute(
-            select(sa_func.count()).select_from(Game).where(Game.status == "FT")
-        )
+        await db.execute(select(sa_func.count()).select_from(Game).where(Game.status == "FT"))
     ).scalar()
     sources["games"] = {"upcoming": ns_count, "completed": ft_count}
 

@@ -28,11 +28,51 @@ $ENV_FILE = Join-Path $ROOT ".env"
 if (-not (Test-Path (Join-Path $VENV "Scripts\python.exe"))) {
   Write-Host "Creating virtual environment..." -ForegroundColor Cyan
   python -m venv $VENV
+  if ($LASTEXITCODE -ne 0) { Write-Error "Failed to create venv"; exit 1 }
 }
 
 $pip = Join-Path $VENV "Scripts\pip.exe"
+$python = Join-Path $VENV "Scripts\python.exe"
+Write-Host "Upgrading pip..." -ForegroundColor Cyan
+& $python -m pip install --quiet --upgrade pip
+
 Write-Host "Installing dependencies..." -ForegroundColor Cyan
-& $pip install --quiet -r (Join-Path $ROOT "requirements-dev.txt")
+
+# Workaround for Python 3.14 + binary dependencies
+# Try binary install first for sensitive packages to avoid build failures on 3.14
+& $pip install --quiet --only-binary :all: scikit-learn xgboost pandas numpy asyncpg psycopg2-binary
+
+# Filter out packages already installed as binaries from requirements pass
+$reqPath = Join-Path $ROOT "requirements-dev.txt"
+$runtimeReqPath = Join-Path $ROOT "requirements.txt"
+$tempReq = Join-Path $ROOT "temp-requirements.txt"
+
+# Helper to filter a file
+function Filter-Requirements($path) {
+    if (Test-Path $path) {
+        return Get-Content $path | Where-Object { 
+            $_ -notmatch "^scikit-learn" -and 
+            $_ -notmatch "^xgboost" -and 
+            $_ -notmatch "^pandas" -and 
+            $_ -notmatch "^numpy" -and
+            $_ -notmatch "^asyncpg" -and
+            $_ -notmatch "^psycopg2-binary" -and
+            $_ -notmatch "^-r" -and
+            $_ -notmatch "^\s*$" 
+        }
+    }
+    return @()
+}
+
+Write-Host "Installing remaining dependencies..." -ForegroundColor Cyan
+$combinedReqs = @()
+$combinedReqs += Filter-Requirements $runtimeReqPath
+$combinedReqs += Filter-Requirements $reqPath
+$combinedReqs | Set-Content $tempReq
+
+& $pip install --quiet -r $tempReq
+Remove-Item $tempReq
+
 Write-Host "Dependencies installed." -ForegroundColor Green
 
 # ── 2. Pull secrets from ACA ─────────────────────────────────────
@@ -48,15 +88,30 @@ if ((Test-Path $ENV_FILE) -and -not $Force) {
 
 Write-Host "Pulling secrets from ACA ($APP in $RG)..." -ForegroundColor Cyan
 
-# Fetch secrets
-$dbUrl = az containerapp secret show -n $APP -g $RG --secret-name database-url --query "value" -o tsv
-$oddsKey = az containerapp secret show -n $APP -g $RG --secret-name odds-api-key --query "value" -o tsv
-$bballKey = az containerapp secret show -n $APP -g $RG --secret-name basketball-api-key --query "value" -o tsv
-$teamsWebhook = az containerapp secret show -n $APP -g $RG --secret-name teams-webhook-url --query "value" -o tsv 2>$null
-
-if (-not $dbUrl -or -not $oddsKey -or -not $bballKey) {
-  Write-Error "Failed to retrieve one or more secrets from ACA. Are you logged in? (az login)"
-  exit 1
+# Check if logged in before trying to pull secrets
+try {
+  $azActive = az account show --query "environment" -o tsv 2>$null
+  if (-not $azActive) {
+      throw "Not logged into az CLI"
+  }
+  
+  # Fetch secrets
+  $dbUrl = az containerapp secret show -n $APP -g $RG --secret-name database-url --query "value" -o tsv
+  $oddsKey = az containerapp secret show -n $APP -g $RG --secret-name odds-api-key --query "value" -o tsv
+  $bballKey = az containerapp secret show -n $APP -g $RG --secret-name basketball-api-key --query "value" -o tsv
+  $teamsWebhook = az containerapp secret show -n $APP -g $RG --secret-name teams-webhook-url --query "value" -o tsv 2>$null
+  
+  if (-not $dbUrl -or -not $oddsKey -or -not $bballKey) {
+    throw "Failed to retrieve one or more secrets from ACA."
+  }
+} catch {
+    Write-Host "Warning: Could not fetch secrets from ACA ($($_.Exception.Message))." -ForegroundColor Yellow
+    Write-Host "Proceeding with dummy/placeholder values for local development." -ForegroundColor Yellow
+    
+    $dbUrl = "postgresql://postgres:postgres@localhost:5432/nba_gbsv_v6"
+    $oddsKey = "YOUR_ODDS_API_KEY"
+    $bballKey = "YOUR_BASKETBALL_API_KEY"
+    $teamsWebhook = "YOUR_TEAMS_WEBHOOK_URL"
 }
 
 # Build .env content

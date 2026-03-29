@@ -12,6 +12,7 @@ from src.data.seasons import (
 
 # ── format_season ──────────────────────────────────────────────
 
+
 def test_format_season():
     assert format_season(2024) == "2024-2025"
     assert format_season(2025) == "2025-2026"
@@ -22,6 +23,7 @@ def test_format_season_edge():
 
 
 # ── parse_season ───────────────────────────────────────────────
+
 
 def test_parse_season_valid():
     start, end = parse_season("2024-2025")
@@ -40,6 +42,7 @@ def test_parse_season_invalid_reversed():
 
 
 # ── season_bounds ──────────────────────────────────────────────
+
 
 def test_season_bounds():
     start, end = season_bounds("2024-2025")

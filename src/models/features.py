@@ -801,6 +801,26 @@ async def build_feature_vector(
         "away_rest_days", NaN
     )
 
+    # ── Matchup & Situational Styles ────────────────────────────
+    _h_3pt = features.get("home_player_3pt_pct", NaN)
+    _a_3pt = features.get("away_player_3pt_pct", NaN)
+    features["matchup_3pt_diff"] = _h_3pt - _a_3pt
+
+    month = game.commence_time.month if game.commence_time else 1
+    urgency = 0.0
+    if month in (3, 4):  # Late season (March/April)
+        _h_win_pct = features.get("home_win_pct", 0.5)
+        _a_win_pct = features.get("away_win_pct", 0.5)
+        if _h_win_pct < 0.35:
+            urgency -= 1.0  # Home tanking penalty
+        elif _h_win_pct > 0.60:
+            urgency += 0.5  # Home clinch push
+        if _a_win_pct < 0.35:
+            urgency += 1.0  # Away tanking penalty
+        elif _a_win_pct > 0.60:
+            urgency -= 0.5  # Away clinch push
+    features["situational_urgency"] = urgency
+
     # ── Market signals (latest odds) ────────────────────────────
     if odds_snapshots is None:
         # Training path: read historical cached odds from DB
@@ -1032,7 +1052,10 @@ async def build_feature_vector(
     if total_feats > 0 and nan_count / total_feats > 0.3:
         logger.warning(
             "High NaN prevalence in features for game %s: %d/%d (%.0f%%) are NaN",
-            game.id, nan_count, total_feats, nan_count / total_feats * 100,
+            game.id,
+            nan_count,
+            total_feats,
+            nan_count / total_feats * 100,
         )
 
     return features
@@ -1165,6 +1188,13 @@ def get_feature_columns() -> list[str]:
             "prop_dd_count",
             "prop_td_count",
             "prop_sharp_square_diff",
+        ]
+    )
+    # ── Matchup & Situational Styles (New/Future-proofing) ──────
+    cols.extend(
+        [
+            "matchup_3pt_diff",
+            "situational_urgency",
         ]
     )
     return cols
