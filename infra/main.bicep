@@ -4,7 +4,7 @@ targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 
 @description('Location for PostgreSQL (use if primary region is restricted)')
-param postgresLocation string = location
+param postgresLocation string = 'centralus'
 
 @description('Environment name')
 @allowed(['dev', 'prod'])
@@ -26,12 +26,18 @@ param basketballApiKey string
 @description('Teams webhook URL (Power Automate Workflow)')
 param teamsWebhookUrl string = ''
 
+@description('Existing Container Apps Environment resource ID to host the API and worker apps.')
+param containerAppsEnvironmentResourceId string
+
 var prefix = 'nba-gbsv-v6'
+var uniqueSuffix = toLower(uniqueString(subscription().id, resourceGroup().id, prefix))
+var shortSuffix = take(uniqueSuffix, 6)
+var postgresSuffix = take(uniqueString(postgresLocation, resourceGroup().id, prefix), 6)
 
 // ── Log Analytics ────────────────────────────────────────────────
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: 'log-${prefix}'
+  name: 'log-${prefix}-${shortSuffix}'
   location: location
   properties: {
     sku: { name: 'PerGB2018' }
@@ -42,7 +48,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // ── Key Vault ────────────────────────────────────────────────────
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: 'kv-${prefix}'
+  name: 'kv-${prefix}-${shortSuffix}'
   location: location
   properties: {
     tenantId: subscription().tenantId
@@ -74,7 +80,7 @@ resource secretDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 // ── Storage Account (model artifacts) ────────────────────────────
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: 'stnbagbsvv6'
+  name: 'st${uniqueSuffix}'
   location: location
   kind: 'StorageV2'
   sku: { name: 'Standard_LRS' }
@@ -99,7 +105,7 @@ resource modelContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
 // ── Container Registry ───────────────────────────────────────────
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
-  name: 'acrnbagbsvv6'
+  name: 'acr${uniqueSuffix}'
   location: location
   sku: { name: 'Basic' }
   properties: { adminUserEnabled: true }
@@ -108,7 +114,7 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
 // ── PostgreSQL Flexible Server ───────────────────────────────────
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
-  name: 'psql-${prefix}-db'
+  name: 'psql-${prefix}-${postgresSuffix}'
   location: postgresLocation
   sku: {
     name: 'Standard_B1ms'
@@ -142,22 +148,6 @@ resource postgresFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRul
   }
 }
 
-// ── Container Apps Environment ───────────────────────────────────
-
-resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: 'cae-${prefix}'
-  location: location
-  properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: logAnalytics.properties.customerId
-        sharedKey: logAnalytics.listKeys().primarySharedKey
-      }
-    }
-  }
-}
-
 // ── Container App: API ───────────────────────────────────────────
 
 var dbConnectionString = 'postgresql+asyncpg://pgadmin:${postgresPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/nba_gbsv?ssl=require'
@@ -166,7 +156,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${prefix}-api'
   location: location
   properties: {
-    managedEnvironmentId: cae.id
+    managedEnvironmentId: containerAppsEnvironmentResourceId
     configuration: {
       ingress: {
         external: true
@@ -224,7 +214,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${prefix}-worker'
   location: location
   properties: {
-    managedEnvironmentId: cae.id
+    managedEnvironmentId: containerAppsEnvironmentResourceId
     configuration: {
       registries: [
         {
