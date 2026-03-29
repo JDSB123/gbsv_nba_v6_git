@@ -4,7 +4,8 @@ $ErrorActionPreference = "Stop"
 $ResourceGroup = "nba_gbsv_v6_az"
 $AcrName = "acrnbagbsvv6"
 $AcrLoginServer = "acrnbagbsvv6.azurecr.io"
-$ImageName = "$AcrLoginServer/nba-gbsv-v6:latest"
+$Tag = (Get-Date -Format "yyyyMMdd-HHmmss")
+$ImageName = "$AcrLoginServer/nba-gbsv-v6:$Tag"
 $ApiApp = "ca-nba-gbsv-v6-api"
 $WorkerApp = "ca-nba-gbsv-v6-worker"
 
