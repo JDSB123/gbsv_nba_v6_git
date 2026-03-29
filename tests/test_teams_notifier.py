@@ -184,12 +184,16 @@ def test_extract_picks_produces_spread_total_ml():
         h1_spread=4.0,
         h1_total=116.0,
         opening_spread=None,
+        opening_total=220.0,
         predicted_home_fg=120.0,
         predicted_away_fg=112.0,
         predicted_home_1h=60.0,
         predicted_away_1h=56.0,
     )
-    picks = extract_picks(pred, game)
+    # Provide book ML odds implying lower probability than the model's 75%,
+    # so the model has a positive edge and produces an ML pick.
+    odds_map = {"FG_ML_HOME": "-150"}
+    picks = extract_picks(pred, game, odds_map=odds_map)
 
     labels = [p.label for p in picks]
     # Should have spread, total, and ML picks

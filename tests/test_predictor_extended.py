@@ -47,7 +47,7 @@ def test_margin_to_prob_symmetry():
 
 def test_predictor_has_feature_cols():
     predictor = Predictor()
-    assert len(predictor.feature_cols) == 122
+    assert len(predictor.feature_cols) == 124
 
 
 def test_predictor_model_version():

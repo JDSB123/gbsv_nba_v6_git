@@ -136,7 +136,7 @@ class Predictor:
                 "Compatibility mode enabled: models expect %d features, current vector has %d. "
                 "Using first %d features for inference. Retrain recommended.",
                 model_feature_count,
-                expected_features,
+                expected_count,
                 model_feature_count,
             )
             # Fire-and-forget alert — import here to avoid circular dependency

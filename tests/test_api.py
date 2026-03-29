@@ -3,9 +3,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from unittest.mock import AsyncMock
+
 from src.api.dependencies import get_predictor
 from src.api.main import app
 from src.config import Settings
+from src.db.session import get_db
 from src.services.predictions import PredictionService
 
 
@@ -39,6 +42,7 @@ async def test_predictions_requires_ready_models_list():
             return {"ready": False, "reason": "Not loaded"}
 
     app.dependency_overrides[get_predictor] = lambda: _DummyPredictor()
+    app.dependency_overrides[get_db] = lambda: AsyncMock()
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -58,6 +62,7 @@ async def test_predictions_requires_ready_models_detail():
             return {"ready": False, "reason": "Not loaded"}
 
     app.dependency_overrides[get_predictor] = lambda: _DummyPredictor()
+    app.dependency_overrides[get_db] = lambda: AsyncMock()
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:

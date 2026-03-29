@@ -1,0 +1,320 @@
+"""Tests for __main__.py: cmd_work, cmd_train, cmd_audit, main() parser,
+worker.py shim, and config.py edge cases."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import os
+import runpy
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+_MAIN_MOD = "src.__main__"
+
+
+class TestCmdWork:
+    def test_cmd_work_starts_scheduler(self):
+        """cmd_work should create scheduler, start it, and run event loop."""
+        with (
+            patch(f"{_MAIN_MOD}._setup_logging"),
+            patch(f"{_MAIN_MOD}.asyncio.run") as mock_run,
+        ):
+            from src.__main__ import cmd_work
+
+            cmd_work(argparse.Namespace())
+            mock_run.assert_called_once()
+
+    def test_cmd_work_runs_scheduler_shutdown_path(self):
+        real_run = asyncio.run
+        scheduler = MagicMock()
+        scheduler.get_jobs.return_value = [1, 2]
+
+        stop_event = MagicMock()
+        stop_event.wait = AsyncMock(side_effect=KeyboardInterrupt)
+        stop_event.set = MagicMock()
+
+        loop = MagicMock()
+
+        def _add_signal_handler(sig, callback):
+            if loop.add_signal_handler.call_count == 0:
+                raise NotImplementedError()
+            callback()
+
+        loop.add_signal_handler = MagicMock(side_effect=_add_signal_handler)
+
+        with (
+            patch(f"{_MAIN_MOD}._setup_logging"),
+            patch("src.data.scheduler.create_scheduler", return_value=scheduler),
+            patch(f"{_MAIN_MOD}.asyncio.Event", return_value=stop_event),
+            patch(f"{_MAIN_MOD}.asyncio.get_running_loop", return_value=loop),
+            patch(f"{_MAIN_MOD}.asyncio.run", side_effect=lambda coro: real_run(coro)),
+        ):
+            from src.__main__ import cmd_work
+
+            cmd_work(argparse.Namespace())
+
+        scheduler.start.assert_called_once()
+        scheduler.shutdown.assert_called_once_with(wait=True)
+        assert loop.add_signal_handler.call_count == 2
+        assert stop_event.set.call_count >= 1
+
+
+class TestCmdTrain:
+    def test_cmd_train_invokes_asyncio_run(self):
+        with (
+            patch(f"{_MAIN_MOD}._setup_logging"),
+            patch(f"{_MAIN_MOD}.asyncio.run") as mock_run,
+        ):
+            from src.__main__ import cmd_train
+
+            cmd_train(argparse.Namespace())
+            mock_run.assert_called_once()
+
+
+class TestRunTrain:
+    @pytest.mark.anyio
+    async def test_run_train_with_metrics(self, capsys):
+        mock_trainer = MagicMock()
+        mock_trainer.train = AsyncMock(return_value={"mae": 5.0, "rmse": 7.0})
+
+        mock_db = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        with (
+            patch("src.db.session.async_session_factory", mock_factory),
+            patch("src.models.trainer.ModelTrainer", return_value=mock_trainer),
+        ):
+            from src.__main__ import _run_train
+
+            await _run_train()
+
+        captured = capsys.readouterr()
+        assert "Training complete" in captured.out
+
+    @pytest.mark.anyio
+    async def test_run_train_no_metrics(self, capsys):
+        mock_trainer = MagicMock()
+        mock_trainer.train = AsyncMock(return_value=None)
+
+        mock_db = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        with (
+            patch("src.db.session.async_session_factory", mock_factory),
+            patch("src.models.trainer.ModelTrainer", return_value=mock_trainer),
+        ):
+            from src.__main__ import _run_train
+
+            await _run_train()
+
+        captured = capsys.readouterr()
+        assert "skipped" in captured.out.lower()
+
+
+class TestRunPredict:
+    @pytest.mark.anyio
+    async def test_run_predict_not_ready(self, capsys):
+        mock_predictor = MagicMock()
+        mock_predictor.is_ready = False
+
+        with patch("src.models.predictor.Predictor", return_value=mock_predictor):
+            from src.__main__ import _run_predict
+
+            await _run_predict()
+
+        captured = capsys.readouterr()
+        assert "not loaded" in captured.out.lower()
+
+    @pytest.mark.anyio
+    async def test_run_predict_with_predictions(self, capsys):
+        mock_predictor = MagicMock()
+        mock_predictor.is_ready = True
+        mock_predictor.predict_upcoming = AsyncMock(return_value=[1, 2, 3])
+
+        mock_db = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        with (
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.db.session.async_session_factory", mock_factory),
+        ):
+            from src.__main__ import _run_predict
+
+            await _run_predict()
+
+        captured = capsys.readouterr()
+        assert "3 predictions" in captured.out.lower()
+
+
+class TestRunPublishTeams:
+    @pytest.mark.anyio
+    async def test_run_publish_not_configured(self, capsys):
+        mock_settings = MagicMock()
+        mock_settings.teams_team_id = ""
+        mock_settings.teams_channel_id = ""
+        mock_settings.teams_webhook_url = ""
+
+        with patch("src.config.get_settings", return_value=mock_settings):
+            from src.__main__ import _run_publish_teams
+
+            await _run_publish_teams()
+
+        captured = capsys.readouterr()
+        assert "not configured" in captured.out.lower()
+
+    @pytest.mark.anyio
+    async def test_run_publish_with_webhook(self, capsys):
+        mock_settings = MagicMock()
+        mock_settings.teams_team_id = ""
+        mock_settings.teams_channel_id = ""
+        mock_settings.teams_webhook_url = "https://hook.example.com"
+
+        with (
+            patch("src.config.get_settings", return_value=mock_settings),
+            patch("src.data.scheduler.generate_predictions_and_publish", new_callable=AsyncMock),
+        ):
+            from src.__main__ import _run_publish_teams
+
+            await _run_publish_teams()
+
+        captured = capsys.readouterr()
+        assert "executed" in captured.out.lower()
+
+
+class TestRunAuditEmpty:
+    @pytest.mark.anyio
+    async def test_audit_empty_model_registry(self, capsys):
+        """Cover the '(empty)' print branch in _run_audit."""
+        mock_db = AsyncMock()
+
+        async def _exec(stmt, *a, **kw):
+            result = MagicMock()
+            result.scalar = MagicMock(return_value=0)
+            result.scalar_one_or_none = MagicMock(return_value=None)
+            result.all = MagicMock(return_value=[])
+            result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+            return result
+
+        mock_db.execute = AsyncMock(side_effect=_exec)
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        with patch("src.db.session.async_session_factory", mock_factory):
+            from src.__main__ import _run_audit
+
+            await _run_audit()
+
+        captured = capsys.readouterr()
+        assert "(empty)" in captured.out
+
+
+class TestMainParser:
+    def test_main_calls_func(self):
+        """Cover main() which parses args and calls func."""
+        with (
+            patch("sys.argv", ["src", "work"]),
+            patch(f"{_MAIN_MOD}.cmd_work") as mock_work,
+        ):
+            from src.__main__ import main
+
+            main()
+            mock_work.assert_called_once()
+
+
+class TestMainEntrypoint:
+    def test_module_main_guard_invokes_main(self):
+        mock_func = MagicMock()
+
+        with patch("argparse.ArgumentParser.parse_args", return_value=SimpleNamespace(func=mock_func)):
+            runpy.run_module("src.__main__", run_name="__main__")
+
+        mock_func.assert_called_once()
+
+
+class TestWorkerShim:
+    def test_worker_main_calls_cmd_work(self):
+        with patch("src.worker.cmd_work") as mock_cmd:
+            from src.worker import main
+
+            main()
+            mock_cmd.assert_called_once()
+
+    def test_worker_module_main_guard_calls_main(self):
+        with patch(f"{_MAIN_MOD}.cmd_work") as mock_cmd:
+            runpy.run_module("src.worker", run_name="__main__")
+
+        mock_cmd.assert_called_once()
+
+
+class TestConfigEnvFiles:
+    def test_env_files_with_specific_env_file(self, tmp_path, monkeypatch):
+        """Cover line 22: .env.{env} file exists."""
+        monkeypatch.setenv("APP_ENV", "staging")
+        env_file = tmp_path / ".env.staging"
+        env_file.write_text("FOO=bar")
+        monkeypatch.chdir(tmp_path)
+
+        from src.config import _env_files
+
+        result = _env_files()
+        assert ".env.staging" in result
+
+    def test_env_files_without_specific_env_file(self, monkeypatch):
+        """Cover default: .env.{env} file doesn't exist."""
+        monkeypatch.setenv("APP_ENV", "nonexistent")
+        from src.config import _env_files
+
+        result = _env_files()
+        assert ".env" in result
+
+
+class TestConfigRequiredSecrets:
+    def test_missing_required_secrets_raises(self, monkeypatch):
+        """Cover line 101: validation error for missing secrets."""
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.setenv("ODDS_API_KEY", "")
+        monkeypatch.setenv("BASKETBALL_API_KEY", "")
+        monkeypatch.setenv("DATABASE_URL", "")
+
+        from src.config import Settings
+
+        with pytest.raises(Exception, match="Missing required env vars"):
+            Settings(
+                app_env="production",
+                odds_api_key="",
+                basketball_api_key="",
+                database_url="",
+            )
+
+
+class TestResolveDatabaseUrl:
+    def test_resolve_database_url_from_env(self, monkeypatch):
+        """Cover line 119: DATABASE_URL env fallback."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://custom/db")
+        from src.config import resolve_database_url
+
+        result = resolve_database_url()
+        assert result == "postgresql+asyncpg://custom/db"
+
+    def test_resolve_database_url_from_settings(self, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        from src.config import resolve_database_url
+
+        result = resolve_database_url()
+        assert "postgresql" in result

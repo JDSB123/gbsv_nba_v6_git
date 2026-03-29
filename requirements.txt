@@ -1,5 +1,5 @@
 # ── Runtime dependencies ─────────────────────────────────────────
-fastapi==0.115.12
+fastapi==0.116.0
 uvicorn[standard]==0.34.3
 sqlalchemy[asyncio]==2.0.41
 alembic==1.15.2

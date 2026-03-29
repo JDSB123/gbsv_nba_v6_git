@@ -236,6 +236,40 @@ async def test_get_list_predictions_empty():
     assert result["predictions"] == []
 
 
+@pytest.mark.asyncio
+async def test_get_list_predictions_skips_predictions_without_loaded_games():
+    pred1 = _make_prediction(game_id=1)
+    pred2 = _make_prediction(game_id=2)
+    game = _make_game(game_id=1)
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[pred1, pred2])
+    repo.get_games_with_teams = AsyncMock(return_value=[game])
+
+    svc = PredictionService(repo, None, Settings())
+    result = await svc.get_list_predictions()
+
+    assert result["count"] == 1
+    assert result["predictions"][0]["game_id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_list_predictions_skips_none_game_ids():
+    pred1 = _make_prediction(game_id=None)
+    pred2 = _make_prediction(game_id=2)
+    game = _make_game(game_id=2)
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[pred1, pred2])
+    repo.get_games_with_teams = AsyncMock(return_value=[game])
+
+    svc = PredictionService(repo, None, Settings())
+    result = await svc.get_list_predictions()
+
+    assert result["count"] == 1
+    assert result["predictions"][0]["game_id"] == 2
+
+
 # ══════════════════════════════════════════════════════════════════
 #  PredictionService.get_slate_payload (mocked repo)
 # ══════════════════════════════════════════════════════════════════
@@ -258,6 +292,42 @@ async def test_get_slate_payload():
     assert len(rows) == 1
     assert rows[0] == (pred, game)
     assert odds_pulled == ts
+
+
+@pytest.mark.asyncio
+async def test_get_slate_payload_skips_predictions_without_loaded_games():
+    pred1 = _make_prediction(game_id=1)
+    pred2 = _make_prediction(game_id=2)
+    game = _make_game(game_id=1)
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[pred1, pred2])
+    repo.get_games_with_teams_and_stats = AsyncMock(return_value=[game])
+    repo.get_latest_odds_pull_timestamp = AsyncMock(return_value=None)
+
+    svc = PredictionService(repo, None, Settings())
+    rows, odds_pulled = await svc.get_slate_payload()
+
+    assert rows == [(pred1, game)]
+    assert odds_pulled is None
+
+
+@pytest.mark.asyncio
+async def test_get_slate_payload_skips_none_game_ids():
+    pred1 = _make_prediction(game_id=None)
+    pred2 = _make_prediction(game_id=2)
+    game = _make_game(game_id=2)
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[pred1, pred2])
+    repo.get_games_with_teams_and_stats = AsyncMock(return_value=[game])
+    repo.get_latest_odds_pull_timestamp = AsyncMock(return_value=None)
+
+    svc = PredictionService(repo, None, Settings())
+    rows, odds_pulled = await svc.get_slate_payload()
+
+    assert rows == [(pred2, game)]
+    assert odds_pulled is None
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -388,6 +458,23 @@ async def test_model_service_get_performance_empty():
 
     assert result["window"] == 200
     assert result["models"] == []
+
+
+@pytest.mark.asyncio
+async def test_model_service_respects_limit_while_collecting_rows():
+    rows = [
+        (_make_perf_pred(1, "v6.1.0"), _make_perf_game(1)),
+        (_make_perf_pred(2, "v6.2.0"), _make_perf_game(2)),
+    ]
+
+    repo = AsyncMock()
+    repo.get_finished_game_predictions = AsyncMock(return_value=rows)
+
+    svc = ModelService(repo)
+    result = await svc.get_performance(limit=1)
+
+    assert len(result["models"]) == 1
+    assert result["models"][0]["model_version"] == "v6.1.0"
 
 
 @pytest.mark.asyncio
