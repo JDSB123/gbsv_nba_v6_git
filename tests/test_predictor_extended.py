@@ -47,7 +47,7 @@ def test_margin_to_prob_symmetry():
 
 def test_predictor_has_feature_cols():
     predictor = Predictor()
-    assert len(predictor.feature_cols) == 124
+    assert len(predictor.feature_cols) == 114
 
 
 def test_predictor_model_version():
@@ -70,9 +70,12 @@ def test_predictor_is_ready_when_artifacts_exist():
     """If artifacts exist on disk (which they do after training),
     predictor should be ready."""
     predictor = Predictor()
-    # If artifacts directory has all 4 model jsons, should be ready
+    # Existing artifacts must also match the current feature contract.
     all_exist = all((ARTIFACTS_DIR / f"{n}.json").exists() for n in MODEL_NAMES)
-    assert predictor.is_ready == all_exist
+    if all_exist:
+        assert predictor.is_ready == (predictor.get_runtime_status()["reason"] is None)
+    else:
+        assert predictor.is_ready is False
 
 
 # ── Calibration loading ────────────────────────────────────────

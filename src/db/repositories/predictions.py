@@ -20,7 +20,7 @@ class PredictionRepository:
         result = await self._session.execute(
             select(Prediction)
             .join(Game)
-            .where(Game.status == "NS")
+            .where(Game.status == "NS", Game.odds_api_id.is_not(None))
             .order_by(Game.commence_time, Prediction.predicted_at.desc())
         )
         predictions = result.scalars().all()

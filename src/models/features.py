@@ -379,8 +379,6 @@ async def build_feature_vector(
             all_pts = [_as_float(cast(Any, p.points)) for p in pgs_rows]
             all_ast = [_as_float(cast(Any, p.assists)) for p in pgs_rows]
             all_reb = [_as_float(cast(Any, p.rebounds)) for p in pgs_rows]
-            all_tov = [_as_float(cast(Any, p.turnovers)) for p in pgs_rows]
-            all_pm = [_as_float(cast(Any, p.plus_minus)) for p in pgs_rows]
             all_fg = [_as_float(cast(Any, p.fg_pct)) for p in pgs_rows if p.fg_pct is not None]
             all_3pt = [
                 _as_float(cast(Any, p.three_pct)) for p in pgs_rows if p.three_pct is not None
@@ -408,8 +406,6 @@ async def build_feature_vector(
             features[f"{prefix}_player_pts_avg"] = float(np.mean(all_pts))
             features[f"{prefix}_player_ast_avg"] = float(np.mean(all_ast))
             features[f"{prefix}_player_reb_avg"] = float(np.mean(all_reb))
-            features[f"{prefix}_player_tov_avg"] = float(np.mean(all_tov))
-            features[f"{prefix}_player_pm_avg"] = float(np.mean(all_pm))
             features[f"{prefix}_player_fg_pct"] = float(np.mean(all_fg)) if all_fg else NaN
             features[f"{prefix}_player_3pt_pct"] = float(np.mean(all_3pt)) if all_3pt else NaN
             features[f"{prefix}_starter_pts_avg"] = (
@@ -429,8 +425,6 @@ async def build_feature_vector(
                 "player_pts_avg",
                 "player_ast_avg",
                 "player_reb_avg",
-                "player_tov_avg",
-                "player_pm_avg",
                 "player_fg_pct",
                 "player_3pt_pct",
                 "starter_pts_avg",
@@ -489,14 +483,31 @@ async def build_feature_vector(
         "player_triple_double",
     ]
     if odds_snapshots is None:
-        prop_snap_result = await db.execute(
-            select(OddsSnapshot)
+        ranked_props = (
+            select(
+                OddsSnapshot.id.label("snapshot_id"),
+                func.row_number()
+                .over(
+                    partition_by=(
+                        OddsSnapshot.bookmaker,
+                        OddsSnapshot.market,
+                        OddsSnapshot.description,
+                        OddsSnapshot.outcome_name,
+                    ),
+                    order_by=OddsSnapshot.captured_at.desc(),
+                )
+                .label("row_num"),
+            )
             .where(
                 OddsSnapshot.game_id == game.id,
                 OddsSnapshot.market.in_(prop_markets),
             )
-            .order_by(OddsSnapshot.captured_at.desc())
-            .limit(500)
+            .subquery()
+        )
+        prop_snap_result = await db.execute(
+            select(OddsSnapshot)
+            .join(ranked_props, OddsSnapshot.id == ranked_props.c.snapshot_id)
+            .where(ranked_props.c.row_num == 1)
         )
         prop_snaps = prop_snap_result.scalars().all()
     else:
@@ -1143,12 +1154,14 @@ async def build_feature_vector(
     total_feats = len(features)
     nan_count = sum(1 for v in features.values() if isinstance(v, float) and math.isnan(v))
     if total_feats > 0 and nan_count / total_feats > 0.3:
+        nan_keys = [k for k, v in features.items() if isinstance(v, float) and math.isnan(v)]
         logger.warning(
-            "High NaN prevalence in features for game %s: %d/%d (%.0f%%) are NaN",
+            "High NaN prevalence in features for game %s: %d/%d (%.0f%%) are NaN. Missing keys: %s",
             game.id,
             nan_count,
             total_feats,
             nan_count / total_feats * 100,
+            ", ".join(nan_keys[:20]) + ("..." if len(nan_keys) > 20 else ""),
         )
 
     # ── Referee History ──────────────────────────────────────────
@@ -1256,8 +1269,6 @@ def get_feature_columns() -> list[str]:
                 f"{prefix}_player_pts_avg",
                 f"{prefix}_player_ast_avg",
                 f"{prefix}_player_reb_avg",
-                f"{prefix}_player_tov_avg",
-                f"{prefix}_player_pm_avg",
                 f"{prefix}_player_fg_pct",
                 f"{prefix}_player_3pt_pct",
                 f"{prefix}_starter_pts_avg",
@@ -1308,9 +1319,6 @@ def get_feature_columns() -> list[str]:
             "mkt_spread_std",
             "mkt_total_avg",
             "mkt_total_std",
-            "mkt_1h_spread_avg",
-            "mkt_1h_total_avg",
-            "mkt_1h_home_ml_prob",
             "mkt_home_ml_prob",
             # Sharp vs. Square analysis
             "sharp_spread",
@@ -1336,9 +1344,6 @@ def get_feature_columns() -> list[str]:
             "prop_ast_avg_line",
             "prop_reb_avg_line",
             "prop_threes_avg_line",
-            "prop_blk_avg_line",
-            "prop_stl_avg_line",
-            "prop_tov_avg_line",
             "prop_pra_avg_line",
             "prop_dd_count",
             "prop_td_count",

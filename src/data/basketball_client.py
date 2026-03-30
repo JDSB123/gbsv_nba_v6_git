@@ -180,6 +180,19 @@ def _compute_advanced_stats(
     return None, None, None
 
 
+def _player_box_stat(entry: dict[str, Any], *names: str) -> Any:
+    """Return the first matching player-box field from flat or nested payloads."""
+    for name in names:
+        if name in entry:
+            return entry.get(name)
+    stats_obj = entry.get("statistics")
+    if isinstance(stats_obj, dict):
+        for name in names:
+            if name in stats_obj:
+                return stats_obj.get(name)
+    return None
+
+
 class BasketballClient:
     """Client for api-sports.io Basketball API v1."""
 
@@ -536,10 +549,9 @@ class BasketballClient:
         """Upsert player box score stats for a game.
 
         The Basketball API v1 ``/games/statistics/players`` endpoint returns a
-        **flat list** of per-player objects, each containing top-level keys:
-        ``player``, ``team``, ``game``, ``points``, ``assists``, ``rebounds``,
-        ``field_goals``, ``threepoint_goals``, ``freethrows_goals``, ``minutes``,
-        etc.
+        per-player list, but the exact stat fields vary by upstream schema.
+        Persist the fields that are actually present and handle both flat keys
+        and nested ``statistics`` payloads.
         """
         count = 0
         for p in stats_data:
@@ -595,31 +607,33 @@ class BasketballClient:
                     player_id=player_id,
                     game_id=game_id,
                     minutes=minutes,
-                    points=_safe_int(p.get("points")),
+                    points=_safe_int(_player_box_stat(p, "points")),
                     rebounds=_safe_int(reb.get("total")),
-                    assists=_safe_int(p.get("assists")),
-                    steals=_safe_int(p.get("steals")),
-                    blocks=_safe_int(p.get("blocks")),
-                    turnovers=_safe_int(p.get("turnovers")),
+                    assists=_safe_int(_player_box_stat(p, "assists")),
+                    steals=_safe_int(_player_box_stat(p, "steals")),
+                    blocks=_safe_int(_player_box_stat(p, "blocks")),
+                    turnovers=_safe_int(_player_box_stat(p, "turnovers", "turnover")),
                     fg_pct=fg_pct,
                     three_pct=three_pct,
                     ft_pct=ft_pct,
-                    plus_minus=_safe_float(p.get("plusMinus")),
+                    plus_minus=_safe_float(_player_box_stat(p, "plusMinus", "plus_minus")),
                 )
                 .on_conflict_do_update(
                     constraint="uq_player_game",
                     set_={
                         "minutes": minutes,
-                        "points": _safe_int(p.get("points")),
+                        "points": _safe_int(_player_box_stat(p, "points")),
                         "rebounds": _safe_int(reb.get("total")),
-                        "assists": _safe_int(p.get("assists")),
-                        "steals": _safe_int(p.get("steals")),
-                        "blocks": _safe_int(p.get("blocks")),
-                        "turnovers": _safe_int(p.get("turnovers")),
+                        "assists": _safe_int(_player_box_stat(p, "assists")),
+                        "steals": _safe_int(_player_box_stat(p, "steals")),
+                        "blocks": _safe_int(_player_box_stat(p, "blocks")),
+                        "turnovers": _safe_int(_player_box_stat(p, "turnovers", "turnover")),
                         "fg_pct": fg_pct,
                         "three_pct": three_pct,
                         "ft_pct": ft_pct,
-                        "plus_minus": _safe_float(p.get("plusMinus")),
+                        "plus_minus": _safe_float(
+                            _player_box_stat(p, "plusMinus", "plus_minus")
+                        ),
                     },
                 )
             )

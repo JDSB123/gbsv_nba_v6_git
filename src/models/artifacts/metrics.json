@@ -1,0 +1,20 @@
+{
+  "model_home_fg_train_rows": 1296.0,
+  "model_home_fg_mae": 9.673452998973705,
+  "model_home_fg_rmse": 12.428480239594908,
+  "model_away_fg_train_rows": 1296.0,
+  "model_away_fg_mae": 9.152167814749259,
+  "model_away_fg_rmse": 11.741672924892226,
+  "model_home_1h_train_rows": 1296.0,
+  "model_home_1h_mae": 6.888145365538421,
+  "model_home_1h_rmse": 8.63484293594622,
+  "model_away_1h_train_rows": 1296.0,
+  "model_away_1h_mae": 6.63856305722837,
+  "model_away_1h_rmse": 8.253530850262482,
+  "calibration_fg_coef": 0.18603824608132732,
+  "calibration_fg_intercept": 0.2845240949354222,
+  "calibration_1h_coef": 0.14910372087795226,
+  "calibration_1h_intercept": 0.172387683837525,
+  "row_count": 1296.0,
+  "promoted": 1.0
+}

@@ -473,6 +473,36 @@ class TestPersistPlayerGameStats:
         assert count == 1
 
     @pytest.mark.anyio
+    async def test_reads_nested_player_box_stats_when_present(self, client, mock_db):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = 52
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        stats_data = [
+            {
+                "player": {"id": 52, "name": "Nested Player"},
+                "team": {"id": 1},
+                "minutes": "30:00",
+                "rebounds": {"total": 7},
+                "field_goals": {"percentage": "50.0"},
+                "threepoint_goals": {"percentage": "40.0"},
+                "freethrows_goals": {"percentage": "90.0"},
+                "statistics": {
+                    "points": 18,
+                    "assists": 6,
+                    "steals": 2,
+                    "blocks": 1,
+                    "turnovers": 4,
+                    "plus_minus": "8.5",
+                },
+            }
+        ]
+
+        count = await client.persist_player_game_stats(4003, stats_data, mock_db)
+        assert count == 1
+        mock_db.commit.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_persist_injuries_empty_name_skipped(self, client, mock_db):
         """Injuries with empty team/player names are skipped."""
         mock_db.begin_nested = MagicMock(return_value=AsyncMock())

@@ -646,7 +646,10 @@ class Predictor:
                 selectinload(Game.away_team),
                 selectinload(Game.referees),
             )
-            .where(Game.status == "NS")
+            .where(
+                Game.status == "NS",
+                Game.odds_api_id.is_not(None),
+            )
             .order_by(Game.commence_time)
         )
         games = result.scalars().all()

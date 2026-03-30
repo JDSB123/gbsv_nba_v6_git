@@ -177,6 +177,16 @@ def _valid_target_mask(df: pd.DataFrame, target_cols: list[str]) -> np.ndarray:
     return mask
 
 
+def _all_nan_feature_columns(df: pd.DataFrame, feature_cols: list[str]) -> list[str]:
+    """Return feature columns with no finite values across the training set."""
+    dead: list[str] = []
+    for col in feature_cols:
+        series = pd.to_numeric(df[col], errors="coerce")
+        if int(series.notna().sum()) == 0:
+            dead.append(col)
+    return dead
+
+
 class ModelTrainer:
     def __init__(self, run_optuna: bool = True) -> None:
         self.feature_cols = get_feature_columns()
@@ -295,6 +305,14 @@ class ModelTrainer:
         if df.empty or len(df) < 50:
             logger.warning("Not enough data after integrity filtering (%d rows)", len(df))
             return {}
+
+        dead_features = _all_nan_feature_columns(df, self.feature_cols)
+        if dead_features:
+            sample = ", ".join(dead_features[:10])
+            raise ValueError(
+                "Training aborted: feature columns have no finite values in the dataset: "
+                f"{sample}"
+            )
 
         # ── Outlier detection on target variables ─────────────────
         for target in TARGETS:

@@ -681,7 +681,7 @@ class TestPregameCheckTrigger:
         sched._pregame_published_date = None
         try:
             et = ZoneInfo("US/Eastern")
-            now = datetime.now(et)
+            now = datetime(2026, 3, 29, 19, 0, tzinfo=et)
             # A game starting 30 minutes from now (within default 60-min lead)
             game_ct_utc = (now + timedelta(minutes=30)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
@@ -690,10 +690,18 @@ class TestPregameCheckTrigger:
             result.scalar_one_or_none.return_value = game_ct_utc
             mock_db.execute = AsyncMock(return_value=result)
 
+            class _FixedDateTime(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    if tz is None:
+                        return now.replace(tzinfo=None)
+                    return now.astimezone(tz)
+
             with (
                 patch(f"{_SCHED}.async_session_factory", mock_sf),
                 patch(f"{_SCHED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
                 patch(f"{_SCHED}.get_settings") as mock_s,
+                patch(f"{_SCHED}.datetime", _FixedDateTime),
             ):
                 mock_s.return_value.pregame_lead_minutes = 60
                 await pregame_check()

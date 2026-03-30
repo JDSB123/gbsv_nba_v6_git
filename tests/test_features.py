@@ -165,6 +165,24 @@ def test_feature_columns_include_rest_and_b2b():
     assert "rest_diff" in cols
 
 
+def test_feature_columns_exclude_live_unavailable_box_score_fields():
+    cols = get_feature_columns()
+    assert "home_player_tov_avg" not in cols
+    assert "home_player_pm_avg" not in cols
+    assert "away_player_tov_avg" not in cols
+    assert "away_player_pm_avg" not in cols
+
+
+def test_feature_columns_exclude_sparse_live_market_fields():
+    cols = get_feature_columns()
+    assert "mkt_1h_spread_avg" not in cols
+    assert "mkt_1h_total_avg" not in cols
+    assert "mkt_1h_home_ml_prob" not in cols
+    assert "prop_blk_avg_line" not in cols
+    assert "prop_stl_avg_line" not in cols
+    assert "prop_tov_avg_line" not in cols
+
+
 # ── Reset Elo cache ────────────────────────────────────────────
 
 

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.dialects import sqlite
 
 from src.db.repositories.predictions import PredictionRepository
 
@@ -34,6 +35,20 @@ class TestGetLatestPredictionsForUpcomingGames:
         session.execute = AsyncMock(return_value=mock_result)
         result = await r.get_latest_predictions_for_upcoming_games()
         assert result == []
+
+    @pytest.mark.anyio
+    async def test_filters_to_linked_upcoming_games(self, repo):
+        r, session = repo
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        session.execute = AsyncMock(return_value=mock_result)
+
+        await r.get_latest_predictions_for_upcoming_games()
+
+        stmt = session.execute.await_args.args[0]
+        sql = str(stmt.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True}))
+        assert "games.status = 'NS'" in sql
+        assert "games.odds_api_id IS NOT NULL" in sql
 
 
 class TestGetGamesWithTeamsAndStats:
