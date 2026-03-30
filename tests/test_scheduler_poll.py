@@ -1,6 +1,6 @@
 """Tests for scheduler poll functions and sync/CLV/publish flows."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -224,11 +224,13 @@ class TestPollStats:
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.basketball_api_breaker") as mock_b,
             patch("src.data.basketball_client.BasketballClient", return_value=mock_client),
+            patch(f"{_SCHED}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=2) as mock_reconcile,
         ):
             mock_b.should_skip.return_value = False
             await poll_stats()
         # 3 dates × 1 game each = 3 calls
         assert mock_client.fetch_games.call_count == 3
+        mock_reconcile.assert_awaited_once_with(mock_db)
         mock_b.record_success.assert_called_once()
 
 
@@ -440,6 +442,53 @@ class TestSyncEventsToGames:
             mock_cls.return_value.fetch_events = AsyncMock(side_effect=RuntimeError("fail"))
             await sync_events_to_games()
 
+    @pytest.mark.anyio
+    async def test_existing_synthetic_reconciles_to_real_game(self):
+        from src.data.scheduler import sync_events_to_games
+
+        mock_sf, mock_db = _mock_session()
+        synthetic_game = SimpleNamespace(id=-100, odds_api_id="evt1")
+        real_game = SimpleNamespace(id=500, odds_api_id=None)
+
+        call_n = {"n": 0}
+
+        async def mock_exec(stmt, *a, **kw):
+            call_n["n"] += 1
+            result = MagicMock()
+            sql = str(stmt).lower()
+            if "select teams" in sql:
+                result.all.return_value = [(1, "Lakers"), (2, "Celtics")]
+                return result
+            if "where games.odds_api_id" in sql:
+                result.scalar_one_or_none.return_value = synthetic_game
+                return result
+            result.scalar_one_or_none.return_value = None
+            result.all.return_value = []
+            return result
+
+        mock_db.execute = mock_exec
+        mock_db.commit = AsyncMock()
+
+        mock_client = MagicMock()
+        mock_client.fetch_events = AsyncMock(
+            return_value=[{
+                "id": "evt1",
+                "commence_time": "2024-11-01T00:00:00Z",
+                "home_team": "Lakers",
+                "away_team": "Celtics",
+            }]
+        )
+
+        with (
+            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch("src.data.odds_client.OddsClient", return_value=mock_client),
+            patch(f"{_SCHED}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
+            patch(f"{_SCHED}._find_matching_game", new_callable=AsyncMock, return_value=real_game),
+            patch(f"{_SCHED}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
+        ):
+            await sync_events_to_games()
+        mock_merge.assert_awaited_once_with(mock_db, synthetic_game, real_game)
+
 
 # ── fill_clv ─────────────────────────────────────────────────────
 
@@ -511,6 +560,112 @@ class TestFillClv:
             mock_sf.return_value.__aenter__ = AsyncMock(side_effect=RuntimeError("db"))
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             await fill_clv()
+
+
+class TestGameReconciliationHelpers:
+    @pytest.mark.anyio
+    async def test_reconcile_duplicate_games_merges_recent_synthetic_rows(self):
+        from src.data.scheduler import reconcile_duplicate_games
+
+        mock_db = AsyncMock()
+        synthetic_game = SimpleNamespace(
+            id=-50,
+            home_team_id=1,
+            away_team_id=2,
+            commence_time=datetime(2026, 3, 29, 19, 0),
+        )
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [synthetic_game]
+        mock_db.execute = AsyncMock(return_value=result)
+
+        with (
+            patch(f"{_SCHED}._find_matching_game", new_callable=AsyncMock, return_value=SimpleNamespace(id=10)),
+            patch(f"{_SCHED}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
+        ):
+            reconciled = await reconcile_duplicate_games(mock_db, lookback_days=None)
+
+        assert reconciled == 1
+        mock_merge.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_merge_game_records_prefers_odds_backed_prediction(self):
+        from src.data.scheduler import _merge_game_records
+
+        mock_db = AsyncMock()
+        source_game = SimpleNamespace(id=-10, odds_api_id="evt-1")
+        target_game = SimpleNamespace(id=100, odds_api_id=None)
+
+        def _prediction(**overrides):
+            base = {
+                "game_id": -10,
+                "model_version": "v1",
+                "predicted_home_fg": 110.0,
+                "predicted_away_fg": 104.0,
+                "predicted_home_1h": 54.0,
+                "predicted_away_1h": 50.0,
+                "fg_spread": 6.0,
+                "fg_total": 214.0,
+                "fg_home_ml_prob": 0.63,
+                "h1_spread": 4.0,
+                "h1_total": 104.0,
+                "h1_home_ml_prob": 0.61,
+                "opening_spread": -5.5,
+                "opening_total": 219.5,
+                "closing_spread": None,
+                "closing_total": None,
+                "clv_spread": None,
+                "clv_total": None,
+                "odds_sourced": None,
+                "predicted_at": datetime(2026, 3, 29, 8, 0),
+            }
+            base.update(overrides)
+            return SimpleNamespace(**base)
+
+        target_pred = _prediction(
+            game_id=100,
+            opening_spread=None,
+            opening_total=None,
+            closing_spread=-4.0,
+            clv_spread=1.0,
+            predicted_at=datetime(2026, 3, 29, 7, 0),
+        )
+        source_pred = _prediction(
+            odds_sourced={"captured_at": "2026-03-29T12:00:00Z"},
+            predicted_at=datetime(2026, 3, 29, 9, 0),
+        )
+
+        target_pred_result = MagicMock()
+        target_pred_result.scalars.return_value.all.return_value = [target_pred]
+        source_pred_result = MagicMock()
+        source_pred_result.scalars.return_value.all.return_value = [source_pred]
+        target_players_result = MagicMock()
+        target_players_result.scalars.return_value.all.return_value = [7]
+        noop_result = MagicMock()
+
+        mock_db.execute = AsyncMock(
+            side_effect=[
+                target_pred_result,
+                source_pred_result,
+                target_players_result,
+                noop_result,
+                noop_result,
+                noop_result,
+                noop_result,
+                noop_result,
+            ]
+        )
+        mock_db.delete = AsyncMock()
+        mock_db.flush = AsyncMock()
+
+        merged = await _merge_game_records(mock_db, source_game, target_game)
+
+        assert merged is True
+        assert target_game.odds_api_id == "evt-1"
+        assert source_game.odds_api_id is None
+        assert target_pred.odds_sourced == {"captured_at": "2026-03-29T12:00:00Z"}
+        assert target_pred.opening_spread == -5.5
+        assert target_pred.closing_spread == -4.0
+        assert mock_db.delete.await_count == 2
 
 
 # ── pregame_check trigger ────────────────────────────────────────
@@ -679,7 +834,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
-            patch("src.notifications.teams.build_teams_card", return_value={"body": []}) as mock_card,
+            patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
             patch("src.notifications.teams.send_card_to_teams", new_callable=AsyncMock) as mock_send,
         ):
             await generate_predictions_and_publish()
@@ -733,7 +888,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
-            patch("src.notifications.teams.build_teams_card", return_value={"body": []}) as mock_card,
+            patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
             patch("src.notifications.teams.build_slate_csv", return_value="csv_data"),
             patch("src.notifications.teams.upload_csv_to_channel", new_callable=AsyncMock, return_value="https://csv.url"),
             patch("src.notifications.teams.send_card_via_graph", new_callable=AsyncMock) as mock_graph,
@@ -788,7 +943,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
-            patch("src.notifications.teams.build_teams_card", return_value={"body": []}) as mock_card,
+            patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
         ):
             await generate_predictions_and_publish()
 

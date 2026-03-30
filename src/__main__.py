@@ -124,8 +124,13 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 async def _run_predict() -> None:
+    from src.data.scheduler import poll_1h_odds, poll_fg_odds, poll_stats
     from src.db.session import async_session_factory
     from src.models.predictor import Predictor
+
+    await poll_stats()
+    await poll_fg_odds()
+    await poll_1h_odds()
 
     predictor = Predictor()
     if not predictor.is_ready:
@@ -203,12 +208,12 @@ def cmd_odds(args: argparse.Namespace) -> None:
 async def _run_perf() -> None:
     import json
 
-    from src.db.session import async_session_factory
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
+    from src.api.routes.performance import _build_stats, _clv_summary, _grade_game, _score_accuracy
     from src.db.models import Game, Prediction
-    from src.api.routes.performance import _grade_game, _build_stats, _score_accuracy, _clv_summary
+    from src.db.session import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -268,11 +273,19 @@ def cmd_migrate(args: argparse.Namespace) -> None:
 
 
 async def _run_audit() -> None:
-    from sqlalchemy import func as sa_func, select, text
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import select
 
     from src.db.models import (
-        Game, Injury, ModelRegistry, OddsSnapshot, Player,
-        PlayerGameStats, Prediction, Team, TeamSeasonStats,
+        Game,
+        Injury,
+        ModelRegistry,
+        OddsSnapshot,
+        Player,
+        PlayerGameStats,
+        Prediction,
+        Team,
+        TeamSeasonStats,
     )
     from src.db.session import async_session_factory
 

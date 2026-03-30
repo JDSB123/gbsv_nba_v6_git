@@ -1,6 +1,5 @@
 """Tests for __main__.py CLI routing and setup functions."""
 
-import argparse
 import logging
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.__main__ import _setup_logging, main
-
 
 # ── _setup_logging ───────────────────────────────────────────────
 
@@ -60,80 +58,75 @@ class TestMainArgParsing:
     @patch("src.__main__.get_settings")
     def test_serve_command(self, mock_settings, mock_log):
         mock_settings.return_value = MagicMock(app_env="development")
-        with patch("sys.argv", ["src", "serve", "--port", "9000"]):
-            with patch("uvicorn.run") as mock_uvicorn:
-                main()
-                mock_uvicorn.assert_called_once()
-                call_kwargs = mock_uvicorn.call_args
-                assert call_kwargs[1]["port"] == 9000 or call_kwargs[0][0] == "src.api.main:app"
+        with patch("sys.argv", ["src", "serve", "--port", "9000"]), patch(
+            "uvicorn.run"
+        ) as mock_uvicorn:
+            main()
+            mock_uvicorn.assert_called_once()
+            call_kwargs = mock_uvicorn.call_args
+            assert call_kwargs[1]["port"] == 9000 or call_kwargs[0][0] == "src.api.main:app"
 
     @patch("src.__main__._setup_logging")
     def test_train_command(self, mock_log):
-        with patch("sys.argv", ["src", "train"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "train"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_predict_command(self, mock_log):
-        with patch("sys.argv", ["src", "predict"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "predict"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_backfill_command_with_season(self, mock_log):
-        with patch("sys.argv", ["src", "backfill", "--season", "2024-2025", "--days", "30"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch(
+            "sys.argv", ["src", "backfill", "--season", "2024-2025", "--days", "30"]
+        ), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_migrate_command(self, mock_log):
-        with patch("sys.argv", ["src", "migrate"]):
-            with patch("alembic.command.upgrade") as mock_upgrade:
-                main()
-                mock_upgrade.assert_called_once()
+        with patch("sys.argv", ["src", "migrate"]), patch(
+            "alembic.command.upgrade"
+        ) as mock_upgrade:
+            main()
+            mock_upgrade.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_sync_command(self, mock_log):
-        with patch("sys.argv", ["src", "sync"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "sync"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_odds_command(self, mock_log):
-        with patch("sys.argv", ["src", "odds"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "odds"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_perf_command(self, mock_log):
-        with patch("sys.argv", ["src", "perf"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "perf"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_audit_command(self, mock_log):
-        with patch("sys.argv", ["src", "audit"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "audit"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_publish_teams_command(self, mock_log):
-        with patch("sys.argv", ["src", "publish-teams"]):
-            with patch("asyncio.run") as mock_run:
-                main()
-                mock_run.assert_called_once()
+        with patch("sys.argv", ["src", "publish-teams"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
 
     def test_missing_command_exits(self):
-        with patch("sys.argv", ["src"]):
-            with pytest.raises(SystemExit):
-                main()
+        with patch("sys.argv", ["src"]), pytest.raises(SystemExit):
+            main()
 
 
 # ── Async runners ────────────────────────────────────────────────
@@ -178,7 +171,12 @@ class TestRunPredict:
         mock_predictor = MagicMock()
         mock_predictor.is_ready = False
 
-        with patch("src.models.predictor.Predictor", return_value=mock_predictor):
+        with (
+            patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+        ):
             await _run_predict()
             output = capsys.readouterr().out
             assert "not loaded" in output.lower() or "not ready" in output.lower()
@@ -191,14 +189,22 @@ class TestRunPredict:
         mock_predictor.is_ready = True
         mock_predictor.predict_upcoming = AsyncMock(return_value=[1, 2, 3])
 
-        with patch("src.models.predictor.Predictor", return_value=mock_predictor):
-            with patch("src.db.session.async_session_factory") as mock_sf:
-                mock_db = AsyncMock()
-                mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-                mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-                await _run_predict()
-                output = capsys.readouterr().out
-                assert "3" in output
+        with (
+            patch("src.data.scheduler.poll_stats", new_callable=AsyncMock) as mock_stats,
+            patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock) as mock_fg,
+            patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock) as mock_h1,
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.db.session.async_session_factory") as mock_sf,
+        ):
+            mock_db = AsyncMock()
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
+            await _run_predict()
+            output = capsys.readouterr().out
+            assert "3" in output
+        mock_stats.assert_awaited_once()
+        mock_fg.assert_awaited_once()
+        mock_h1.assert_awaited_once()
 
 
 class TestRunPublishTeams:
@@ -283,8 +289,9 @@ class TestRunPerf:
 
     @pytest.mark.anyio
     async def test_perf_with_rows(self, capsys):
+        from datetime import UTC, datetime
+
         from src.__main__ import _run_perf
-        from datetime import datetime, UTC
 
         pred = MagicMock()
         pred.predicted_at = datetime(2024, 3, 15, tzinfo=UTC)
@@ -298,11 +305,13 @@ class TestRunPerf:
             mock_db.execute = AsyncMock(return_value=mock_result)
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-            with patch("src.api.routes.performance._grade_game", return_value=[]):
-                with patch("src.api.routes.performance._score_accuracy", return_value={"fg_ats": 0}):
-                    with patch("src.api.routes.performance._build_stats", return_value={}):
-                        with patch("src.api.routes.performance._clv_summary", return_value={}):
-                            await _run_perf()
+            with (
+                patch("src.api.routes.performance._grade_game", return_value=[]),
+                patch("src.api.routes.performance._score_accuracy", return_value={"fg_ats": 0}),
+                patch("src.api.routes.performance._build_stats", return_value={}),
+                patch("src.api.routes.performance._clv_summary", return_value={}),
+            ):
+                await _run_perf()
             output = capsys.readouterr().out
             assert "games_graded" in output
 
@@ -310,8 +319,9 @@ class TestRunPerf:
 class TestRunAudit:
     @pytest.mark.anyio
     async def test_audit_runs_with_data(self, capsys):
+        from datetime import UTC, datetime
+
         from src.__main__ import _run_audit
-        from datetime import datetime, UTC
 
         # Build a mock that works as both model registry entry and prediction
         mock_pred = MagicMock()

@@ -4,18 +4,27 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.orm import selectinload
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
-from src.db.models import Game, Team
+from src.db.models import (
+    Game,
+    GameReferee,
+    OddsSnapshot,
+    PlayerGameStats,
+    Prediction,
+    RotationChange,
+    Team,
+)
 from src.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 
 # Dedup flag: tracks the date for which pregame publish already fired
 _pregame_published_date: date | None = None
+_GAME_MATCH_WINDOW = timedelta(hours=12)
 
 
 async def _record_failure(job_name: str, error: Exception) -> None:
@@ -33,6 +42,215 @@ async def _record_failure(job_name: str, error: Exception) -> None:
             await db.commit()
     except Exception:
         logger.debug("Failed to record ingestion failure for %s", job_name, exc_info=True)
+
+
+def _prediction_has_odds_snapshot(prediction: Prediction) -> bool:
+    odds_sourced = cast(Any, prediction.odds_sourced)
+    return isinstance(odds_sourced, dict) and bool(odds_sourced.get("captured_at"))
+
+
+def _prediction_rank(prediction: Prediction) -> tuple[int, datetime]:
+    predicted_at = cast(Any, prediction.predicted_at)
+    if not isinstance(predicted_at, datetime):
+        predicted_at = datetime.min
+    elif predicted_at.tzinfo is not None:
+        predicted_at = predicted_at.replace(tzinfo=None)
+    return (1 if _prediction_has_odds_snapshot(prediction) else 0, predicted_at)
+
+
+def _copy_prediction_payload(
+    target: Prediction,
+    preferred: Prediction,
+    fallback: Prediction | None = None,
+) -> None:
+    fields = [
+        "predicted_home_fg",
+        "predicted_away_fg",
+        "predicted_home_1h",
+        "predicted_away_1h",
+        "fg_spread",
+        "fg_total",
+        "fg_home_ml_prob",
+        "h1_spread",
+        "h1_total",
+        "h1_home_ml_prob",
+        "opening_spread",
+        "opening_total",
+        "closing_spread",
+        "closing_total",
+        "clv_spread",
+        "clv_total",
+        "odds_sourced",
+        "predicted_at",
+    ]
+    for field in fields:
+        preferred_value = getattr(preferred, field)
+        if preferred_value is not None:
+            setattr(target, field, preferred_value)
+            continue
+        if fallback is not None:
+            setattr(target, field, getattr(fallback, field))
+
+
+async def _find_matching_game(
+    db: Any,
+    home_team_id: int | None,
+    away_team_id: int | None,
+    commence_time: datetime,
+    *,
+    real_only: bool = False,
+    exclude_game_id: int | None = None,
+) -> Game | None:
+    if home_team_id is None or away_team_id is None:
+        return None
+
+    filters = [
+        Game.home_team_id == home_team_id,
+        Game.away_team_id == away_team_id,
+        Game.commence_time.between(
+            commence_time - _GAME_MATCH_WINDOW,
+            commence_time + _GAME_MATCH_WINDOW,
+        ),
+    ]
+    if real_only:
+        filters.append(Game.id > 0)
+    if exclude_game_id is not None:
+        filters.append(Game.id != exclude_game_id)
+
+    result = await db.execute(
+        select(Game)
+        .where(*filters)
+        .order_by(
+            case((Game.id > 0, 0), else_=1),
+            func.abs(func.extract("epoch", Game.commence_time - commence_time)),
+            Game.commence_time,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _merge_game_records(db: Any, source_game: Game, target_game: Game) -> bool:
+    if source_game.id == target_game.id:
+        return False
+
+    if source_game.id > 0 and target_game.id < 0:
+        source_game, target_game = target_game, source_game
+
+    source_id = int(cast(Any, source_game.id))
+    target_id = int(cast(Any, target_game.id))
+    if source_id > 0 or target_id < 0:
+        logger.warning(
+            "Refusing non-canonical game merge: source=%s target=%s",
+            source_id,
+            target_id,
+        )
+        return False
+
+    source_odds_id = cast(Any, source_game.odds_api_id)
+    target_odds_id = cast(Any, target_game.odds_api_id)
+    if target_odds_id is None and source_odds_id is not None:
+        source_game.odds_api_id = None
+        target_game.odds_api_id = source_odds_id
+    elif target_odds_id not in (None, source_odds_id) and source_odds_id is not None:
+        logger.warning(
+            "Conflicting odds_api_id during merge: keeping real game %s=%s and dropping synthetic %s=%s",
+            target_id,
+            target_odds_id,
+            source_id,
+            source_odds_id,
+        )
+
+    target_preds = (
+        await db.execute(select(Prediction).where(Prediction.game_id == target_id))
+    ).scalars().all()
+    source_preds = (
+        await db.execute(select(Prediction).where(Prediction.game_id == source_id))
+    ).scalars().all()
+    target_by_version = {
+        str(cast(Any, pred.model_version)): pred for pred in target_preds if pred.model_version is not None
+    }
+
+    for source_pred in source_preds:
+        model_version = str(cast(Any, source_pred.model_version))
+        existing = target_by_version.get(model_version)
+        if existing is None:
+            source_pred.game_id = target_id
+            continue
+
+        preferred = max((existing, source_pred), key=_prediction_rank)
+        fallback = source_pred if preferred is existing else existing
+        _copy_prediction_payload(existing, preferred, fallback)
+        await db.delete(source_pred)
+
+    target_player_ids = set(
+        (
+            await db.execute(
+                select(PlayerGameStats.player_id).where(PlayerGameStats.game_id == target_id)
+            )
+        ).scalars().all()
+    )
+    if target_player_ids:
+        await db.execute(
+            delete(PlayerGameStats).where(
+                PlayerGameStats.game_id == source_id,
+                PlayerGameStats.player_id.in_(target_player_ids),
+            )
+        )
+
+    await db.execute(
+        update(OddsSnapshot)
+        .where(OddsSnapshot.game_id == source_id)
+        .values(game_id=target_id)
+    )
+    await db.execute(
+        update(PlayerGameStats)
+        .where(PlayerGameStats.game_id == source_id)
+        .values(game_id=target_id)
+    )
+    await db.execute(
+        update(GameReferee)
+        .where(GameReferee.game_id == source_id)
+        .values(game_id=target_id)
+    )
+    await db.execute(
+        update(RotationChange)
+        .where(RotationChange.game_id == source_id)
+        .values(game_id=target_id)
+    )
+
+    await db.flush()
+    await db.delete(source_game)
+    logger.info(
+        "Reconciled synthetic game %s into official game %s",
+        source_id,
+        target_id,
+    )
+    return True
+
+
+async def reconcile_duplicate_games(db: Any, lookback_days: int | None = 7) -> int:
+    query = select(Game).where(Game.id < 0).order_by(Game.commence_time)
+    if lookback_days is not None:
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=lookback_days)
+        query = query.where(Game.commence_time >= cutoff)
+
+    synthetic_games = (await db.execute(query)).scalars().all()
+    reconciled = 0
+    for synthetic_game in synthetic_games:
+        real_match = await _find_matching_game(
+            db,
+            int(cast(Any, synthetic_game.home_team_id)),
+            int(cast(Any, synthetic_game.away_team_id)),
+            cast(Any, synthetic_game.commence_time),
+            real_only=True,
+            exclude_game_id=int(cast(Any, synthetic_game.id)),
+        )
+        if real_match is None:
+            continue
+        if await _merge_game_records(db, synthetic_game, real_match):
+            reconciled += 1
+    return reconciled
 
 
 # ── Scheduled jobs ─────────────────────────────────────────────────
@@ -176,6 +394,7 @@ async def poll_stats() -> None:
                 if games:
                     persisted = await client.persist_games(games, db)
                     total_games += persisted
+            reconciled = await reconcile_duplicate_games(db)
             logger.info(
                 "poll_stats: ingested %d games for %s / %s / %s",
                 total_games,
@@ -183,6 +402,8 @@ async def poll_stats() -> None:
                 today,
                 tomorrow,
             )
+            if reconciled:
+                logger.warning("poll_stats: reconciled %d synthetic/official duplicates", reconciled)
 
             result = await db.execute(select(Team.id))
             team_ids = [row[0] for row in result.fetchall()]
@@ -319,6 +540,7 @@ async def sync_events_to_games() -> None:
         events = await client.fetch_events()
         matched = 0
         created = 0
+        reconciled = 0
         async with async_session_factory() as db:
             # Pre-load team name → id map for fallback game creation
             team_rows = (await db.execute(select(Team.id, Team.name))).all()
@@ -333,20 +555,42 @@ async def sync_events_to_games() -> None:
                     continue
 
                 ct = parse_api_datetime(commence)
+                home_id = team_by_name.get(home_team_name)
+                away_id = team_by_name.get(away_team_name)
 
                 # Skip if already linked by odds_api_id
                 existing = await db.execute(select(Game).where(Game.odds_api_id == odds_id))
-                if existing.scalar_one_or_none() is not None:
+                existing_game = existing.scalar_one_or_none()
+                if existing_game is not None:
+                    existing_game_id = int(cast(Any, getattr(existing_game, "id", 0)))
+                    if existing_game_id < 0:
+                        real_match = await _find_matching_game(
+                            db,
+                            home_id,
+                            away_id,
+                            ct,
+                            real_only=True,
+                            exclude_game_id=existing_game_id,
+                        )
+                        if real_match is not None and await _merge_game_records(
+                            db,
+                            existing_game,
+                            real_match,
+                        ):
+                            reconciled += 1
                     continue
 
-                # 1) Exact commence_time match
-                result = await db.execute(select(Game).where(Game.commence_time == ct))
-                game = result.scalar_one_or_none()
+                game = await _find_matching_game(db, home_id, away_id, ct)
 
-                # 2) Fallback: same home team within ±12 hours (pick closest)
+                # 2) Fallback: exact commence_time match
+                if game is None:
+                    result = await db.execute(select(Game).where(Game.commence_time == ct))
+                    game = result.scalar_one_or_none()
+
+                # 3) Fallback: same home team within ±12 hours (pick closest)
                 if game is None and home_team_name:
-                    window_start = ct - timedelta(hours=12)
-                    window_end = ct + timedelta(hours=12)
+                    window_start = ct - _GAME_MATCH_WINDOW
+                    window_end = ct + _GAME_MATCH_WINDOW
                     result = await db.execute(
                         select(Game)
                         .join(Team, Game.home_team_id == Team.id)
@@ -364,10 +608,15 @@ async def sync_events_to_games() -> None:
                     if game_odds_api_id is None:
                         game.odds_api_id = odds_id
                         matched += 1
+                    elif game_odds_api_id != odds_id:
+                        logger.warning(
+                            "Odds event %s matched game %s already linked to %s",
+                            odds_id,
+                            game.id,
+                            game_odds_api_id,
+                        )
                 else:
-                    # 3) No matching game — create one from Odds API data
-                    home_id = team_by_name.get(home_team_name)
-                    away_id = team_by_name.get(away_team_name)
+                    # 4) No matching game — create one from Odds API data
                     if home_id and away_id:
                         # Synthetic negative ID derived from odds_api_id hash
                         # to avoid collision with Basketball API integer IDs.
@@ -408,7 +657,12 @@ async def sync_events_to_games() -> None:
                             away_id,
                         )
             await db.commit()
-        logger.info("Synced events: %d matched, %d created", matched, created)
+        logger.info(
+            "Synced events: %d matched, %d created, %d reconciled",
+            matched,
+            created,
+            reconciled,
+        )
     except Exception:
         logger.exception("Error syncing events")
 
