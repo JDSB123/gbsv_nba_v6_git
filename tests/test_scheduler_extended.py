@@ -125,10 +125,15 @@ class TestGeneratePredictionsAndPublish:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
+            patch("src.data.scheduler.async_session_factory") as mock_sf,
+            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor") as mock_cls,
             patch("src.models.features.reset_elo_cache"),
             patch("src.data.scheduler.get_settings") as mock_s,
         ):
+            mock_db = AsyncMock()
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             mock_cls.return_value = MagicMock(is_ready=False)
             mock_s.return_value = MagicMock()
             await generate_predictions_and_publish()

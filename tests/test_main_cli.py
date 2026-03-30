@@ -170,6 +170,7 @@ class TestRunPredict:
 
         mock_predictor = MagicMock()
         mock_predictor.is_ready = False
+        mock_db = AsyncMock()
 
         with (
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
@@ -179,8 +180,12 @@ class TestRunPredict:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
+            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.db.session.async_session_factory") as mock_sf,
         ):
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             await _run_predict()
             output = capsys.readouterr().out
             assert "not loaded" in output.lower() or "not ready" in output.lower()
@@ -201,8 +206,20 @@ class TestRunPredict:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock) as mock_fg,
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock) as mock_h1,
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock) as mock_props,
+            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.db.session.async_session_factory") as mock_sf,
+            patch(
+                "src.__main__._summarize_upcoming_coverage",
+                new_callable=AsyncMock,
+                return_value={
+                    "ns_game_count": 5,
+                    "linked_ns_game_count": 3,
+                    "awaiting_odds_games": [
+                        "Phoenix Suns @ Orlando Magic (2026-03-31T23:00:00)"
+                    ],
+                },
+            ),
         ):
             mock_db = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -210,6 +227,7 @@ class TestRunPredict:
             await _run_predict()
             output = capsys.readouterr().out
             assert "3" in output
+            assert "waiting on odds coverage" in output.lower()
         mock_stats.assert_awaited_once()
         mock_box.assert_awaited_once()
         mock_inj.assert_awaited_once()
@@ -244,10 +262,15 @@ class TestRunPublishTeams:
                 teams_channel_id=None,
                 teams_webhook_url="https://webhook.example.com",
             )
-            with patch("src.data.scheduler.generate_predictions_and_publish", new_callable=AsyncMock):
+            with patch(
+                "src.data.scheduler.generate_predictions_and_publish",
+                new_callable=AsyncMock,
+                return_value=8,
+            ):
                 await _run_publish_teams()
                 output = capsys.readouterr().out
                 assert "executed" in output.lower()
+                assert "8 predictions" in output.lower()
 
 
 # ── Additional async runner tests ────────────────────────────────

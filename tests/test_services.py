@@ -76,10 +76,10 @@ def _make_prediction(**overrides):
         predicted_away_fg=108.3,
         predicted_home_1h=55.0,
         predicted_away_1h=53.0,
-        fg_spread=-4.2,
+        fg_spread=4.2,
         fg_total=220.8,
         fg_home_ml_prob=0.62,
-        h1_spread=-2.0,
+        h1_spread=2.0,
         h1_total=108.0,
         h1_home_ml_prob=0.58,
         model_version="v6.2.0",
@@ -119,7 +119,7 @@ def test_format_prediction_full():
     assert result["away_team"] == "Los Angeles Lakers"
     assert result["predicted_scores"]["full_game"]["home"] == 112.5
     assert result["predicted_scores"]["first_half"]["away"] == 53.0
-    assert result["markets"]["fg_spread"]["prediction"] == -4.2
+    assert result["markets"]["fg_spread"]["prediction"] == 4.2
     assert result["markets"]["fg_moneyline"]["home_prob"] == 0.62
     assert abs(result["markets"]["fg_moneyline"]["away_prob"] - 0.38) < 0.001
     assert result["model_version"] == "v6.2.0"
@@ -294,6 +294,32 @@ async def test_get_list_predictions_skips_none_game_ids():
     assert result["predictions"][0]["game_id"] == 2
 
 
+@pytest.mark.asyncio
+async def test_get_list_predictions_skips_invalid_payloads():
+    invalid_pred = _make_prediction(
+        predicted_home_fg=-4.0,
+        predicted_away_fg=100.0,
+        predicted_home_1h=-2.0,
+        predicted_away_1h=50.0,
+        fg_spread=-104.0,
+        fg_total=96.0,
+        h1_spread=-52.0,
+        h1_total=48.0,
+    )
+    game = _make_game()
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[invalid_pred])
+    repo.get_games_with_teams = AsyncMock(return_value=[game])
+
+    svc = PredictionService(repo, None, Settings())
+    result = await svc.get_list_predictions()
+
+    assert result["count"] == 0
+    assert result["predictions"] == []
+    assert result["freshness"]["filtered_out_non_fresh"] == 0
+
+
 # ══════════════════════════════════════════════════════════════════
 #  PredictionService.get_slate_payload (mocked repo)
 # ══════════════════════════════════════════════════════════════════
@@ -378,6 +404,33 @@ async def test_get_slate_payload_skips_none_game_ids():
     assert odds_pulled is None
 
 
+@pytest.mark.asyncio
+async def test_get_slate_payload_skips_invalid_predictions():
+    invalid_pred = _make_prediction(
+        predicted_home_fg=-4.0,
+        predicted_away_fg=100.0,
+        predicted_home_1h=-2.0,
+        predicted_away_1h=50.0,
+        fg_spread=-104.0,
+        fg_total=96.0,
+        h1_spread=-52.0,
+        h1_total=48.0,
+    )
+    game = _make_game()
+    ts = datetime.now(UTC)
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[invalid_pred])
+    repo.get_games_with_teams_and_stats = AsyncMock(return_value=[game])
+    repo.get_latest_odds_pull_timestamp = AsyncMock(return_value=ts)
+
+    svc = PredictionService(repo, None, Settings())
+    rows, odds_pulled = await svc.get_slate_payload()
+
+    assert rows == []
+    assert odds_pulled == ts
+
+
 # ══════════════════════════════════════════════════════════════════
 #  PredictionService.get_prediction_detail (mocked repo)
 # ══════════════════════════════════════════════════════════════════
@@ -458,6 +511,30 @@ async def test_get_prediction_detail_with_odds():
     assert result["result"]["markets"]["fg_total"]["market_line"] == 220.0
 
 
+@pytest.mark.asyncio
+async def test_get_prediction_detail_hides_invalid_prediction():
+    invalid_pred = _make_prediction(
+        predicted_home_fg=-4.0,
+        predicted_away_fg=100.0,
+        predicted_home_1h=-2.0,
+        predicted_away_1h=50.0,
+        fg_spread=-104.0,
+        fg_total=96.0,
+        h1_spread=-52.0,
+        h1_total=48.0,
+    )
+    game = _make_game()
+    repo = AsyncMock()
+    repo.get_game_with_teams = AsyncMock(return_value=game)
+    repo.get_latest_prediction_for_game = AsyncMock(return_value=invalid_pred)
+
+    svc = PredictionService(repo, None, Settings())
+    result = await svc.get_prediction_detail(1)
+
+    assert result["game"] == game
+    assert result["pred"] is None
+
+
 # ══════════════════════════════════════════════════════════════════
 #  ModelService.get_performance
 # ══════════════════════════════════════════════════════════════════
@@ -470,9 +547,21 @@ def _make_perf_pred(
     away_fg=105,
     home_1h=55,
     away_1h=52,
+    fg_spread=None,
+    fg_total=None,
+    h1_spread=None,
+    h1_total=None,
     clv_spread=0.5,
     clv_total=-0.3,
 ):
+    if fg_spread is None:
+        fg_spread = home_fg - away_fg
+    if fg_total is None:
+        fg_total = home_fg + away_fg
+    if h1_spread is None:
+        h1_spread = home_1h - away_1h
+    if h1_total is None:
+        h1_total = home_1h + away_1h
     return SimpleNamespace(
         game_id=game_id,
         model_version=model_version,
@@ -480,6 +569,10 @@ def _make_perf_pred(
         predicted_away_fg=away_fg,
         predicted_home_1h=home_1h,
         predicted_away_1h=away_1h,
+        fg_spread=fg_spread,
+        fg_total=fg_total,
+        h1_spread=h1_spread,
+        h1_total=h1_total,
         clv_spread=clv_spread,
         clv_total=clv_total,
     )
@@ -580,6 +673,27 @@ async def test_model_service_multiple_versions():
     assert versions == {"v6.1.0", "v6.2.0"}
     # v6.2.0 has 2 samples, should be first (sorted desc)
     assert result["models"][0]["sample_size"] == 2
+
+
+@pytest.mark.asyncio
+async def test_model_service_skips_implausible_score_payloads():
+    invalid_pred = _make_perf_pred(
+        1,
+        "v6.2.0",
+        home_fg=4.3,
+        away_fg=7.8,
+        home_1h=2.1,
+        away_1h=5.3,
+    )
+    game = _make_perf_game(1)
+
+    repo = AsyncMock()
+    repo.get_finished_game_predictions = AsyncMock(return_value=[(invalid_pred, game)])
+
+    svc = ModelService(repo)
+    result = await svc.get_performance()
+
+    assert result["models"] == []
 
 
 @pytest.mark.asyncio

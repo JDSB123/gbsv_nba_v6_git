@@ -7,6 +7,7 @@ from src.config import Settings
 from src.db.models import Game, Prediction
 from src.db.repositories.predictions import PredictionRepository
 from src.models.predictor import Predictor
+from src.services.prediction_integrity import prediction_has_valid_payload
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -139,6 +140,8 @@ class PredictionService:
         for pred in latest:
             if pred.game_id is None:
                 continue
+            if not prediction_has_valid_payload(pred):
+                continue
             game = game_by_id.get(int(cast(Any, pred.game_id)))
             if game:
                 output.append(self.format_prediction(pred, game))
@@ -158,6 +161,8 @@ class PredictionService:
         for pred in latest:
             if pred.game_id is None:
                 continue
+            if not prediction_has_valid_payload(pred):
+                continue
             if not self._prediction_has_fresh_odds(pred):
                 continue
             game = game_by_id.get(int(cast(Any, pred.game_id)))
@@ -173,7 +178,7 @@ class PredictionService:
             return None
 
         pred = await self.repo.get_latest_prediction_for_game(game_id)
-        if not pred or not self._prediction_has_fresh_odds(pred):
+        if not pred or not prediction_has_valid_payload(pred) or not self._prediction_has_fresh_odds(pred):
             return {"game": game, "pred": None}
 
         result = self.format_prediction(pred, game)

@@ -143,11 +143,16 @@ class TestGeneratePredictionsException:
             patch(f"{_MOD}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_MOD}.poll_1h_odds", new_callable=AsyncMock),
             patch(f"{_MOD}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_MOD}.async_session_factory") as mock_sf,
+            patch(f"{_MOD}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch(f"{_MOD}.get_settings"),
             patch("src.models.features.reset_elo_cache"),
             patch("src.models.predictor.Predictor", side_effect=RuntimeError("model load boom")),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
         ):
+            mock_db = AsyncMock()
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             from src.data.scheduler import generate_predictions_and_publish
 
             await generate_predictions_and_publish()

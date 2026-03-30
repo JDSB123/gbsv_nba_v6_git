@@ -124,9 +124,15 @@ class TestRunPredict:
     async def test_run_predict_not_ready(self, capsys):
         mock_predictor = MagicMock()
         mock_predictor.is_ready = False
+        mock_db = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
 
         with (
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.db.session.async_session_factory", mock_factory),
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
@@ -134,6 +140,7 @@ class TestRunPredict:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
+            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
         ):
             from src.__main__ import _run_predict
 
@@ -164,6 +171,18 @@ class TestRunPredict:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
+            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                "src.__main__._summarize_upcoming_coverage",
+                new_callable=AsyncMock,
+                return_value={
+                    "ns_game_count": 5,
+                    "linked_ns_game_count": 3,
+                    "awaiting_odds_games": [
+                        "Phoenix Suns @ Orlando Magic (2026-03-31T23:00:00)"
+                    ],
+                },
+            ),
         ):
             from src.__main__ import _run_predict
 
@@ -171,6 +190,7 @@ class TestRunPredict:
 
         captured = capsys.readouterr()
         assert "3 predictions" in captured.out.lower()
+        assert "waiting on odds coverage" in captured.out.lower()
 
 
 class TestRunPublishTeams:
@@ -198,7 +218,11 @@ class TestRunPublishTeams:
 
         with (
             patch("src.config.get_settings", return_value=mock_settings),
-            patch("src.data.scheduler.generate_predictions_and_publish", new_callable=AsyncMock),
+            patch(
+                "src.data.scheduler.generate_predictions_and_publish",
+                new_callable=AsyncMock,
+                return_value=8,
+            ),
         ):
             from src.__main__ import _run_publish_teams
 
@@ -206,6 +230,7 @@ class TestRunPublishTeams:
 
         captured = capsys.readouterr()
         assert "executed" in captured.out.lower()
+        assert "8 predictions" in captured.out.lower()
 
 
 class TestRunAuditEmpty:

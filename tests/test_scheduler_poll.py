@@ -763,6 +763,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings") as mock_s,
             patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
         ):
@@ -792,6 +793,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings") as mock_s,
             patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
@@ -799,6 +801,121 @@ class TestPublishFlow:
             mock_s.return_value = MagicMock()
             await generate_predictions_and_publish()
         mock_alert.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_no_linked_games_waits_for_odds_without_alert(self, caplog):
+        """NS games without odds links should not be treated as data loss."""
+        from src.data.scheduler import generate_predictions_and_publish
+
+        mock_sf, mock_db = _mock_session()
+        call_n = {"n": 0}
+
+        async def mock_exec(stmt, *a, **kw):
+            call_n["n"] += 1
+            result = MagicMock()
+            if call_n["n"] == 1:
+                result.scalar.return_value = 2
+            elif call_n["n"] == 2:
+                result.scalar.return_value = 0
+            else:
+                result.scalar.return_value = 0
+            return result
+
+        mock_db.execute = mock_exec
+
+        mock_predictor = MagicMock(is_ready=True)
+        mock_predictor.predict_upcoming = AsyncMock(return_value=[])
+
+        with (
+            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_SCHED}.get_settings", return_value=MagicMock()),
+            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.models.features.reset_elo_cache"),
+            patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
+        ):
+            with caplog.at_level("INFO"):
+                result = await generate_predictions_and_publish()
+
+        assert result == 0
+        mock_alert.assert_not_awaited()
+        assert "waiting on odds coverage" in caplog.text.lower()
+
+    @pytest.mark.anyio
+    async def test_full_eligible_coverage_ignores_unlinked_games(self, caplog):
+        """Coverage warnings should compare against odds-linked games, not all NS games."""
+        from src.data.scheduler import generate_predictions_and_publish
+
+        mock_sf, mock_db = _mock_session()
+
+        mock_pred_1 = MagicMock(game_id=1)
+        mock_pred_2 = MagicMock(game_id=2)
+        mock_pred_3 = MagicMock(game_id=3)
+        mock_game_1 = MagicMock(id=1)
+        mock_game_2 = MagicMock(id=2)
+        mock_game_3 = MagicMock(id=3)
+
+        call_n = {"n": 0}
+
+        async def mock_exec(stmt, *a, **kw):
+            call_n["n"] += 1
+            result = MagicMock()
+            if call_n["n"] == 1:
+                result.scalar.return_value = 5
+                return result
+            if call_n["n"] == 2:
+                result.scalar.return_value = 3
+                return result
+            if call_n["n"] == 3:
+                result.scalars.return_value.all.return_value = [mock_game_1, mock_game_2, mock_game_3]
+                return result
+            if call_n["n"] == 4:
+                result.scalar_one_or_none.return_value = datetime.now()
+                return result
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        mock_db.execute = mock_exec
+
+        mock_predictor = MagicMock(is_ready=True)
+        mock_predictor.predict_upcoming = AsyncMock(return_value=[mock_pred_1, mock_pred_2, mock_pred_3])
+
+        mock_settings = MagicMock()
+        mock_settings.teams_team_id = ""
+        mock_settings.teams_channel_id = ""
+        mock_settings.teams_webhook_url = ""
+        mock_settings.api_base_url = ""
+        mock_settings.teams_max_games_per_message = 10
+
+        with (
+            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
+            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.models.features.reset_elo_cache"),
+            patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
+        ):
+            with caplog.at_level("INFO"):
+                result = await generate_predictions_and_publish()
+
+        assert result == 3
+        assert "full eligible coverage: predicted 3 / 3 odds-linked ns games" in caplog.text.lower()
+        assert "incomplete eligible coverage" not in caplog.text.lower()
+        assert "waiting on odds coverage for 2 / 5 ns games" in caplog.text.lower()
 
     @pytest.mark.anyio
     async def test_webhook_publish(self):
@@ -849,6 +966,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings", return_value=mock_settings),
             patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -906,6 +1024,7 @@ class TestPublishFlow:
             patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings", return_value=mock_settings),
             patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -964,11 +1083,104 @@ class TestPublishFlow:
             patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings", return_value=mock_settings),
             patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
         ):
             await generate_predictions_and_publish()
+
+
+class TestPurgeInvalidUpcomingPredictions:
+    @pytest.mark.anyio
+    async def test_removes_unlinked_and_malformed_rows(self):
+        from src.data.scheduler import purge_invalid_upcoming_predictions
+
+        good_pred = MagicMock(
+            odds_sourced={"captured_at": "2026-03-30T05:20:00Z"},
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
+        )
+        malformed_pred = MagicMock(
+            odds_sourced={"captured_at": "2026-03-30T05:20:00Z"},
+            predicted_home_fg=-6.0,
+            predicted_away_fg=1.0,
+            predicted_home_1h=-3.0,
+            predicted_away_1h=1.0,
+            fg_spread=-7.0,
+            fg_total=-5.0,
+            h1_spread=-4.0,
+            h1_total=-2.0,
+        )
+        unlinked_pred = MagicMock(
+            odds_sourced={"captured_at": "2026-03-30T05:20:00Z"},
+            predicted_home_fg=112.0,
+            predicted_away_fg=109.0,
+            predicted_home_1h=56.0,
+            predicted_away_1h=54.0,
+            fg_spread=3.0,
+            fg_total=221.0,
+            h1_spread=2.0,
+            h1_total=110.0,
+        )
+        linked_game = MagicMock(odds_api_id="ev1")
+        unlinked_game = MagicMock(odds_api_id=None)
+
+        result = MagicMock()
+        result.all.return_value = [
+            (good_pred, linked_game),
+            (malformed_pred, linked_game),
+            (unlinked_pred, unlinked_game),
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=result)
+        mock_db.delete = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        removed = await purge_invalid_upcoming_predictions(mock_db)
+
+        assert removed == 2
+        mock_db.delete.assert_any_await(malformed_pred)
+        mock_db.delete.assert_any_await(unlinked_pred)
+        mock_db.commit.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_noop_when_all_rows_are_valid(self):
+        from src.data.scheduler import purge_invalid_upcoming_predictions
+
+        good_pred = MagicMock(
+            odds_sourced={"captured_at": "2026-03-30T05:20:00Z"},
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
+        )
+        linked_game = MagicMock(odds_api_id="ev1")
+
+        result = MagicMock()
+        result.all.return_value = [(good_pred, linked_game)]
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=result)
+        mock_db.delete = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        removed = await purge_invalid_upcoming_predictions(mock_db)
+
+        assert removed == 0
+        mock_db.delete.assert_not_awaited()
+        mock_db.commit.assert_not_awaited()
 
 
 # ── prune_old_odds log ───────────────────────────────────────────

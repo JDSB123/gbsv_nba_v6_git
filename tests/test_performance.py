@@ -525,6 +525,45 @@ def _make_pred_game_row():
     return pred, game
 
 
+def _make_implausible_pred_game_row():
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    pred = SimpleNamespace(
+        predicted_home_fg=4.3,
+        predicted_away_fg=7.8,
+        predicted_home_1h=2.1,
+        predicted_away_1h=5.3,
+        fg_spread=-3.5,
+        fg_total=12.1,
+        h1_spread=-3.2,
+        h1_total=7.3,
+        fg_home_ml_prob=0.65,
+        h1_home_ml_prob=0.60,
+        opening_spread=-3.5,
+        opening_total=220.0,
+        opening_h1_spread=None,
+        opening_h1_total=None,
+        clv_spread=1.0,
+        clv_total=-0.5,
+        predicted_at=datetime(2024, 12, 2, 15, 0, tzinfo=UTC),
+        game_id=1,
+        odds_sourced={"captured_at": "2024-12-02T15:00:00Z"},
+    )
+    game = SimpleNamespace(
+        id=1,
+        home_team=SimpleNamespace(name="Lakers"),
+        away_team=SimpleNamespace(name="Celtics"),
+        home_score_fg=112,
+        away_score_fg=108,
+        home_score_1h=56,
+        away_score_1h=50,
+        status="FT",
+        commence_time=datetime(2024, 12, 1, 19, 0, tzinfo=UTC),
+    )
+    return pred, game
+
+
 @pytest.mark.anyio
 async def test_performance_endpoint_with_data():
     """Performance endpoint with actual game data returns ok status."""
@@ -586,5 +625,38 @@ async def test_performance_dashboard_with_data():
         assert resp.status_code == 200
         assert "Overview" in resp.text
         assert "Performance by Market" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+async def test_performance_endpoint_skips_implausible_latest_prediction():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from httpx import ASGITransport, AsyncClient
+
+    from src.api.main import app
+    from src.db.session import get_db
+
+    good_row = _make_pred_game_row()
+    bad_row = _make_implausible_pred_game_row()
+
+    mock_db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.all.return_value = [good_row, bad_row]
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/performance")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["games_graded"] == 1
     finally:
         app.dependency_overrides.clear()

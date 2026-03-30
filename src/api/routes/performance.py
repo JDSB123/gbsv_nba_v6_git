@@ -13,6 +13,10 @@ from sqlalchemy.orm import selectinload
 
 from src.db.models import Game, Prediction
 from src.db.session import get_db
+from src.services.prediction_integrity import (
+    prediction_has_valid_score_payload,
+    prediction_score_rank,
+)
 
 router = APIRouter(prefix="/performance", tags=["performance"])
 
@@ -340,6 +344,25 @@ def _recent_results(graded: list[GradedPick], limit: int = 50) -> list[dict]:
     ]
 
 
+def _latest_valid_score_rows(rows: list[tuple[Any, Any]]) -> list[tuple[Any, Any]]:
+    seen: dict[int, tuple[Any, Any]] = {}
+    ordered_game_ids: list[int] = []
+    for pred, game in rows:
+        gid = int(cast(Any, game.id))
+        existing = seen.get(gid)
+        if existing is None:
+            ordered_game_ids.append(gid)
+            seen[gid] = (pred, game)
+            continue
+        if prediction_score_rank(pred) > prediction_score_rank(existing[0]):
+            seen[gid] = (pred, game)
+    return [
+        seen[gid]
+        for gid in ordered_game_ids
+        if prediction_has_valid_score_payload(seen[gid][0])
+    ]
+
+
 # ── API endpoints ────────────────────────────────────────────
 
 
@@ -367,14 +390,7 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
             "games_graded": 0,
         }
 
-    # Deduplicate to latest prediction per game
-    seen: dict[int, tuple[Any, Any]] = {}
-    for pred, game in rows:
-        gid = int(cast(Any, game.id))
-        existing = seen.get(gid)
-        if existing is None or pred.predicted_at > existing[0].predicted_at:
-            seen[gid] = (pred, game)
-    unique_rows = list(seen.values())
+    unique_rows = _latest_valid_score_rows(rows)
 
     # Grade all picks
     all_graded: list[GradedPick] = []
@@ -409,14 +425,7 @@ async def performance_dashboard(db: AsyncSession = Depends(get_db)):
     )
     rows = result.all()
 
-    # Deduplicate
-    seen: dict[int, tuple[Any, Any]] = {}
-    for pred, game in rows:
-        gid = int(cast(Any, game.id))
-        existing = seen.get(gid)
-        if existing is None or pred.predicted_at > existing[0].predicted_at:
-            seen[gid] = (pred, game)
-    unique_rows = list(seen.values())
+    unique_rows = _latest_valid_score_rows(rows)
 
     # Grade
     all_graded: list[GradedPick] = []

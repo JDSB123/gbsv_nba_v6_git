@@ -20,6 +20,10 @@ from src.db.models import (
     Team,
 )
 from src.db.session import async_session_factory
+from src.services.prediction_integrity import (
+    prediction_payload_has_integrity_issues,
+    prediction_rank,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +47,6 @@ async def _record_failure(job_name: str, error: Exception) -> None:
             await db.commit()
     except Exception:
         logger.debug("Failed to record ingestion failure for %s", job_name, exc_info=True)
-
-
-def _prediction_has_odds_snapshot(prediction: Prediction) -> bool:
-    odds_sourced = cast(Any, prediction.odds_sourced)
-    return isinstance(odds_sourced, dict) and bool(odds_sourced.get("captured_at"))
-
-
-def _prediction_rank(prediction: Prediction) -> tuple[int, datetime]:
-    predicted_at = cast(Any, prediction.predicted_at)
-    if not isinstance(predicted_at, datetime):
-        predicted_at = datetime.min
-    elif predicted_at.tzinfo is not None:
-        predicted_at = predicted_at.replace(tzinfo=None)
-    return (1 if _prediction_has_odds_snapshot(prediction) else 0, predicted_at)
 
 
 def _copy_prediction_payload(
@@ -91,6 +81,33 @@ def _copy_prediction_payload(
             continue
         if fallback is not None:
             setattr(target, field, getattr(fallback, field))
+
+
+async def purge_invalid_upcoming_predictions(db: Any) -> int:
+    """Remove malformed upcoming predictions that cannot be safely published.
+
+    Upcoming predictions should always be tied to an odds-linked game and
+    carry a parseable odds capture timestamp plus internally consistent
+    score/spread/total fields. Legacy or corrupt rows are deleted so they
+    cannot outrank fresh rows or confuse operators.
+    """
+    result = await db.execute(
+        select(Prediction, Game)
+        .join(Game, Prediction.game_id == Game.id)
+        .where(Game.status == "NS")
+    )
+    rows = result.all()
+
+    removed = 0
+    for prediction, game in rows:
+        game_odds_api_id = cast(Any, getattr(game, "odds_api_id", None))
+        if game_odds_api_id is None or prediction_payload_has_integrity_issues(prediction):
+            await db.delete(prediction)
+            removed += 1
+
+    if removed:
+        await db.commit()
+    return removed
 
 
 async def _find_matching_game(
@@ -179,7 +196,7 @@ async def _merge_game_records(db: Any, source_game: Game, target_game: Game) -> 
             source_pred.game_id = target_id
             continue
 
-        preferred = max((existing, source_pred), key=_prediction_rank)
+        preferred = max((existing, source_pred), key=prediction_rank)
         fallback = source_pred if preferred is existing else existing
         _copy_prediction_payload(existing, preferred, fallback)
         await db.delete(source_pred)
@@ -834,49 +851,91 @@ async def generate_predictions_and_publish() -> int:
         await poll_1h_odds()
         await poll_player_props()
 
-        predictor = Predictor()
-        if not predictor.is_ready:
-            logger.warning("Models not ready; skipping prediction publish")
-            return 0
-
         async with async_session_factory() as db:
-            # Pre-check: how many NS games do we have?
+            purged_count = await purge_invalid_upcoming_predictions(db)
+            if purged_count:
+                logger.warning(
+                    "Purged %d malformed upcoming predictions before publish",
+                    purged_count,
+                )
+
+            predictor = Predictor()
+            if not predictor.is_ready:
+                logger.warning("Models not ready; skipping prediction publish")
+                return 0
+
+            # Pre-check: how many NS games do we have, and how many are
+            # already linked to Odds API events and therefore eligible
+            # for fresh prediction generation right now?
             ns_count_result = await db.execute(
                 select(sa_func.count(Game.id)).where(Game.status == "NS")
             )
             ns_game_count = ns_count_result.scalar() or 0
-            logger.info("Found %d NS (not-started) games in database", ns_game_count)
+            linked_ns_count_result = await db.execute(
+                select(sa_func.count(Game.id)).where(
+                    Game.status == "NS",
+                    Game.odds_api_id.is_not(None),
+                )
+            )
+            linked_ns_game_count = linked_ns_count_result.scalar() or 0
+            unlinked_ns_game_count = max(ns_game_count - linked_ns_game_count, 0)
+            logger.info(
+                "Found %d NS games in database (%d odds-linked, %d awaiting odds coverage)",
+                ns_game_count,
+                linked_ns_game_count,
+                unlinked_ns_game_count,
+            )
 
             predictions = await predictor.predict_upcoming(db)
             if not predictions:
                 if ns_game_count == 0:
                     logger.info("No NS games in database \u2014 nothing to predict")
+                elif linked_ns_game_count == 0:
+                    logger.info(
+                        "No odds-linked NS games yet — waiting on odds coverage for %d games",
+                        ns_game_count,
+                    )
                 else:
                     logger.error(
-                        "DATA LOSS: %d NS games in DB but 0 predictions generated",
+                        "DATA LOSS: 0 predictions generated for %d odds-linked NS games "
+                        "(%d total NS games in DB)",
+                        linked_ns_game_count,
                         ns_game_count,
                     )
                     from src.notifications.teams import send_alert
 
                     await send_alert(
-                        "DATA LOSS — 0 Predictions",
-                        f"{ns_game_count} NS games in DB but the prediction pipeline "
-                        f"produced 0 predictions. Check model readiness and feature "
-                        f"availability.",
+                        "DATA LOSS — 0 Eligible Predictions",
+                        f"{linked_ns_game_count} odds-linked NS games were eligible, but "
+                        f"the prediction pipeline produced 0 predictions. Total NS games "
+                        f"in DB: {ns_game_count}. Check model readiness, stored odds "
+                        f"freshness, and feature availability.",
                         "error",
                     )
                 return 0
 
             pred_count = len(predictions)
-            if pred_count < ns_game_count:
-                logger.warning(
-                    "INCOMPLETE COVERAGE: predicted %d / %d NS games (%d missing)",
-                    pred_count,
+            if unlinked_ns_game_count:
+                logger.info(
+                    "Waiting on odds coverage for %d / %d NS games",
+                    unlinked_ns_game_count,
                     ns_game_count,
-                    ns_game_count - pred_count,
+                )
+            if pred_count < linked_ns_game_count:
+                logger.warning(
+                    "INCOMPLETE ELIGIBLE COVERAGE: predicted %d / %d odds-linked NS games "
+                    "(%d missing, %d awaiting odds coverage)",
+                    pred_count,
+                    linked_ns_game_count,
+                    linked_ns_game_count - pred_count,
+                    unlinked_ns_game_count,
                 )
             else:
-                logger.info("Full coverage: predicted %d / %d NS games", pred_count, ns_game_count)
+                logger.info(
+                    "Full eligible coverage: predicted %d / %d odds-linked NS games",
+                    pred_count,
+                    linked_ns_game_count,
+                )
 
             game_ids = [int(cast(Any, p.game_id)) for p in predictions]
             game_result = await db.execute(

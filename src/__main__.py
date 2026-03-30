@@ -123,8 +123,41 @@ def cmd_train(args: argparse.Namespace) -> None:
     asyncio.run(_run_train())
 
 
+async def _summarize_upcoming_coverage(db: Any) -> dict[str, Any]:
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from src.db.models import Game
+
+    result = await db.execute(
+        select(Game)
+        .options(selectinload(Game.home_team), selectinload(Game.away_team))
+        .where(Game.status == "NS")
+        .order_by(Game.commence_time)
+    )
+    games = result.scalars().all()
+
+    linked_games = [game for game in games if getattr(game, "odds_api_id", None)]
+    awaiting_odds_games = []
+    for game in games:
+        if getattr(game, "odds_api_id", None):
+            continue
+        away_name = getattr(getattr(game, "away_team", None), "name", "?")
+        home_name = getattr(getattr(game, "home_team", None), "name", "?")
+        commence_time = getattr(game, "commence_time", None)
+        when = commence_time.isoformat() if commence_time is not None else "unknown time"
+        awaiting_odds_games.append(f"{away_name} @ {home_name} ({when})")
+
+    return {
+        "ns_game_count": len(games),
+        "linked_ns_game_count": len(linked_games),
+        "awaiting_odds_games": awaiting_odds_games,
+    }
+
+
 async def _run_predict() -> None:
     from src.data.scheduler import (
+        purge_invalid_upcoming_predictions,
         poll_1h_odds,
         poll_fg_odds,
         poll_injuries,
@@ -144,13 +177,36 @@ async def _run_predict() -> None:
     await poll_1h_odds()
     await poll_player_props()
 
-    predictor = Predictor()
-    if not predictor.is_ready:
-        print("Models not loaded. Run `python -m src train` first.")
-        return
     async with async_session_factory() as db:
+        purged_count = await purge_invalid_upcoming_predictions(db)
+        if purged_count:
+            print(f"Purged {purged_count} malformed upcoming predictions before refresh.")
+        predictor = Predictor()
+        if not predictor.is_ready:
+            print("Models not loaded. Run `python -m src train` first.")
+            return
+        coverage = await _summarize_upcoming_coverage(db)
         predictions = await predictor.predict_upcoming(db)
-    print(f"Generated {len(predictions)} predictions (fresh data).")
+    linked_ns_game_count = int(coverage["linked_ns_game_count"])
+    awaiting_odds_games = list(coverage["awaiting_odds_games"])
+    ns_game_count = int(coverage["ns_game_count"])
+
+    print(
+        f"Generated {len(predictions)} predictions for "
+        f"{linked_ns_game_count} odds-linked upcoming games."
+    )
+    if len(predictions) < linked_ns_game_count:
+        print(
+            f"Eligible coverage incomplete: {len(predictions)} / "
+            f"{linked_ns_game_count} odds-linked games predicted."
+        )
+    if awaiting_odds_games:
+        print(
+            f"Waiting on odds coverage for {len(awaiting_odds_games)} / "
+            f"{ns_game_count} upcoming games:"
+        )
+        for summary in awaiting_odds_games[:10]:
+            print(f"  {summary}")
 
 
 def cmd_predict(args: argparse.Namespace) -> None:
@@ -169,8 +225,8 @@ async def _run_publish_teams() -> None:
     if not has_graph and not has_webhook:
         print("Teams delivery not configured. Set TEAMS_WEBHOOK_URL or TEAMS_TEAM_ID + TEAMS_CHANNEL_ID.")
         return
-    await generate_predictions_and_publish()
-    print("Prediction publish job executed.")
+    published_count = await generate_predictions_and_publish()
+    print(f"Prediction publish job executed. Published {published_count} predictions.")
 
 
 def cmd_publish_teams(args: argparse.Namespace) -> None:

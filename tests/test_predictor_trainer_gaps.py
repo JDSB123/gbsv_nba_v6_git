@@ -203,6 +203,8 @@ class TestServicesModelGetPerformance:
             game_id=1, model_version="v6-test",
             predicted_home_fg=110.0, predicted_away_fg=105.0,
             predicted_home_1h=55.0, predicted_away_1h=52.0,
+            fg_spread=5.0, fg_total=215.0,
+            h1_spread=3.0, h1_total=107.0,
             clv_spread=-0.5, clv_total=1.0,
             predicted_at=None,
         )
@@ -293,6 +295,9 @@ class TestServicesPredictionsGetList:
         pred = SimpleNamespace(
             game_id=1,
             predicted_home_fg=110.0, predicted_away_fg=105.0,
+            predicted_home_1h=55.0, predicted_away_1h=52.0,
+            fg_spread=5.0, fg_total=215.0,
+            h1_spread=3.0, h1_total=107.0,
             odds_sourced={
                 "captured_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace(
                     "+00:00", "Z"

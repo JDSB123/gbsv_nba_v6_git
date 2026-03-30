@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any, cast
 
 from sqlalchemy import func, select
@@ -7,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.db.models import Game, OddsSnapshot, Prediction, Team
+from src.services.prediction_integrity import prediction_has_valid_payload, prediction_rank
 
 
 class PredictionRepository:
@@ -25,14 +25,21 @@ class PredictionRepository:
         )
         predictions = result.scalars().all()
 
-        seen: set[int] = set()
-        latest: list[Prediction] = []
+        ordered_game_ids: list[int] = []
+        latest_by_game: dict[int, Prediction] = {}
         for pred in predictions:
             game_id = int(cast(Any, pred.game_id))
-            if game_id not in seen:
-                seen.add(game_id)
-                latest.append(pred)
-        return latest
+            if game_id not in latest_by_game:
+                ordered_game_ids.append(game_id)
+                latest_by_game[game_id] = pred
+                continue
+            if prediction_rank(pred) > prediction_rank(latest_by_game[game_id]):
+                latest_by_game[game_id] = pred
+        return [
+            latest_by_game[game_id]
+            for game_id in ordered_game_ids
+            if prediction_has_valid_payload(latest_by_game[game_id])
+        ]
 
     async def get_games_with_teams_and_stats(self, game_ids: list[int]) -> Sequence[Game]:
         """Fetch games by ID, eagerly loading home/away teams AND their season stats."""
@@ -72,9 +79,14 @@ class PredictionRepository:
             select(Prediction)
             .where(Prediction.game_id == game_id)
             .order_by(Prediction.predicted_at.desc())
-            .limit(1)
         )
-        return result.scalar_one_or_none()
+        predictions = result.scalars().all()
+        if not predictions:
+            return None
+        best_prediction = max(predictions, key=prediction_rank)
+        if not prediction_has_valid_payload(best_prediction):
+            return None
+        return best_prediction
 
     async def get_recent_odds_snapshots(
         self, game_id: int, limit: int = 50
