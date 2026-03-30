@@ -187,5 +187,13 @@ async def refresh_predictions(
     """
     from src.data.scheduler import generate_predictions_and_publish
 
-    await generate_predictions_and_publish()
-    return {"message": "Fresh odds pulled, predictions generated, and slate published"}
+    generated_count = await generate_predictions_and_publish()
+    if generated_count <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=_not_ready_detail("No fresh predictions available"),
+        )
+    return {
+        "message": "Fresh odds pulled, predictions generated, and slate published",
+        "count": generated_count,
+    }

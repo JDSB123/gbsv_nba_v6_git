@@ -4,6 +4,7 @@ and trainer.py gaps (lines 274-285 Optuna, 395-402 feature importance drift)."""
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -248,7 +249,11 @@ class TestServicesPredictionsGetList:
             clv_h1_spread=None, clv_h1_total=None,
             model_version="v6-test",
             predicted_at=None,
-            odds_sourced=None,
+            odds_sourced={
+                "captured_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace(
+                    "+00:00", "Z"
+                )
+            },
         )
         game = SimpleNamespace(
             id=1,
@@ -288,6 +293,11 @@ class TestServicesPredictionsGetList:
         pred = SimpleNamespace(
             game_id=1,
             predicted_home_fg=110.0, predicted_away_fg=105.0,
+            odds_sourced={
+                "captured_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace(
+                    "+00:00", "Z"
+                )
+            },
         )
         game = SimpleNamespace(id=1)
 

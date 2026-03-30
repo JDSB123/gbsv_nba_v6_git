@@ -113,6 +113,22 @@ class PredictionService:
             "stale_ratio": round(stale_count / usable, 3) if usable else None,
         }
 
+    def _prediction_has_fresh_odds(self, pred_or_row: Prediction | dict[str, Any]) -> bool:
+        if isinstance(pred_or_row, dict):
+            odds_sourced = pred_or_row.get("odds_sourced")
+        else:
+            odds_sourced = getattr(pred_or_row, "odds_sourced", None)
+
+        if not isinstance(odds_sourced, dict):
+            return False
+
+        captured_at = _parse_iso_utc(odds_sourced.get("captured_at"))
+        if captured_at is None:
+            return False
+
+        age_minutes = (datetime.now(UTC) - captured_at).total_seconds() / 60.0
+        return age_minutes <= self.settings.odds_freshness_max_age_minutes
+
     async def get_list_predictions(self):
         latest = await self.repo.get_latest_predictions_for_upcoming_games()
         game_ids = [int(cast(Any, p.game_id)) for p in latest if p.game_id is not None]
@@ -128,7 +144,9 @@ class PredictionService:
                 output.append(self.format_prediction(pred, game))
 
         freshness = self.evaluate_odds_freshness(output)
-        return {"predictions": output, "count": len(output), "freshness": freshness}
+        fresh_output = [row for row in output if self._prediction_has_fresh_odds(row)]
+        freshness["filtered_out_non_fresh"] = len(output) - len(fresh_output)
+        return {"predictions": fresh_output, "count": len(fresh_output), "freshness": freshness}
 
     async def get_slate_payload(self) -> tuple[list, Any]:
         latest = await self.repo.get_latest_predictions_for_upcoming_games()
@@ -139,6 +157,8 @@ class PredictionService:
         rows = []
         for pred in latest:
             if pred.game_id is None:
+                continue
+            if not self._prediction_has_fresh_odds(pred):
                 continue
             game = game_by_id.get(int(cast(Any, pred.game_id)))
             if game:
@@ -153,7 +173,7 @@ class PredictionService:
             return None
 
         pred = await self.repo.get_latest_prediction_for_game(game_id)
-        if not pred:
+        if not pred or not self._prediction_has_fresh_odds(pred):
             return {"game": game, "pred": None}
 
         result = self.format_prediction(pred, game)

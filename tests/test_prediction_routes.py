@@ -279,11 +279,30 @@ async def test_model_retrain():
 
 @pytest.mark.anyio
 async def test_refresh_predictions():
-    with patch("src.data.scheduler.generate_predictions_and_publish", new_callable=AsyncMock) as mock_gen:
+    with patch(
+        "src.data.scheduler.generate_predictions_and_publish",
+        new_callable=AsyncMock,
+        return_value=3,
+    ) as mock_gen:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post("/predictions/refresh")
         assert resp.status_code == 200
+        mock_gen.assert_called_once()
+        assert resp.json()["count"] == 3
+
+
+@pytest.mark.anyio
+async def test_refresh_predictions_no_fresh_rows():
+    with patch(
+        "src.data.scheduler.generate_predictions_and_publish",
+        new_callable=AsyncMock,
+        return_value=0,
+    ) as mock_gen:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/predictions/refresh")
+        assert resp.status_code == 400
         mock_gen.assert_called_once()
 
 

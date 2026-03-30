@@ -798,7 +798,7 @@ async def pregame_check() -> None:
         logger.exception("Error in pregame check")
 
 
-async def generate_predictions_and_publish() -> None:
+async def generate_predictions_and_publish() -> int:
     """Generate upcoming predictions and publish formatted output to Teams."""
     logger.info("Generating predictions and publishing to Teams...")
     try:
@@ -837,7 +837,7 @@ async def generate_predictions_and_publish() -> None:
         predictor = Predictor()
         if not predictor.is_ready:
             logger.warning("Models not ready; skipping prediction publish")
-            return
+            return 0
 
         async with async_session_factory() as db:
             # Pre-check: how many NS games do we have?
@@ -865,7 +865,7 @@ async def generate_predictions_and_publish() -> None:
                         f"availability.",
                         "error",
                     )
-                return
+                return 0
 
             pred_count = len(predictions)
             if pred_count < ns_game_count:
@@ -978,6 +978,7 @@ async def generate_predictions_and_publish() -> None:
                     logger.info("Published %d predictions to Teams (webhook)", len(rows))
                 else:
                     logger.info("No Teams delivery configured; skipping publish")
+            return len(rows)
     except Exception:
         logger.exception("Error generating/publishing predictions")
         from src.notifications.teams import send_alert
@@ -987,6 +988,7 @@ async def generate_predictions_and_publish() -> None:
             "generate_predictions_and_publish raised an exception. Check worker logs.",
             "error",
         )
+        return 0
 
 
 async def check_prediction_drift() -> None:

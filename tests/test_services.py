@@ -1,6 +1,6 @@
 """Tests for PredictionService and ModelService."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -69,6 +69,7 @@ def test_parse_iso_utc_non_string():
 
 
 def _make_prediction(**overrides):
+    captured_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     defaults = dict(
         game_id=1,
         predicted_home_fg=112.5,
@@ -83,7 +84,7 @@ def _make_prediction(**overrides):
         h1_home_ml_prob=0.58,
         model_version="v6.2.0",
         predicted_at=datetime(2025, 3, 22, 12, 0, tzinfo=UTC),
-        odds_sourced={"captured_at": "2025-03-22T11:30:00Z"},
+        odds_sourced={"captured_at": captured_at},
         opening_spread=-3.5,
         opening_total=219.0,
         closing_spread=-4.5,
@@ -224,6 +225,29 @@ async def test_get_list_predictions():
 
 
 @pytest.mark.asyncio
+async def test_get_list_predictions_filters_stale_rows():
+    stale_pred = _make_prediction(
+        odds_sourced={
+            "captured_at": (
+                datetime.now(UTC) - timedelta(hours=2)
+            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        },
+    )
+    game = _make_game()
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[stale_pred])
+    repo.get_games_with_teams = AsyncMock(return_value=[game])
+
+    svc = PredictionService(repo, None, Settings(odds_freshness_max_age_minutes=30))
+    result = await svc.get_list_predictions()
+
+    assert result["count"] == 0
+    assert result["predictions"] == []
+    assert result["freshness"]["filtered_out_non_fresh"] == 1
+
+
+@pytest.mark.asyncio
 async def test_get_list_predictions_empty():
     repo = AsyncMock()
     repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[])
@@ -295,6 +319,30 @@ async def test_get_slate_payload():
 
 
 @pytest.mark.asyncio
+async def test_get_slate_payload_filters_stale_predictions():
+    stale_pred = _make_prediction(
+        odds_sourced={
+            "captured_at": (
+                datetime.now(UTC) - timedelta(hours=2)
+            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        },
+    )
+    game = _make_game()
+    ts = datetime.now(UTC)
+
+    repo = AsyncMock()
+    repo.get_latest_predictions_for_upcoming_games = AsyncMock(return_value=[stale_pred])
+    repo.get_games_with_teams_and_stats = AsyncMock(return_value=[game])
+    repo.get_latest_odds_pull_timestamp = AsyncMock(return_value=ts)
+
+    svc = PredictionService(repo, None, Settings(odds_freshness_max_age_minutes=30))
+    rows, odds_pulled = await svc.get_slate_payload()
+
+    assert rows == []
+    assert odds_pulled == ts
+
+
+@pytest.mark.asyncio
 async def test_get_slate_payload_skips_predictions_without_loaded_games():
     pred1 = _make_prediction(game_id=1)
     pred2 = _make_prediction(game_id=2)
@@ -354,6 +402,27 @@ async def test_get_prediction_detail_no_prediction():
 
     svc = PredictionService(repo, None, Settings())
     result = await svc.get_prediction_detail(1)
+    assert result["game"] == game
+    assert result["pred"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_prediction_detail_hides_stale_prediction():
+    stale_pred = _make_prediction(
+        odds_sourced={
+            "captured_at": (
+                datetime.now(UTC) - timedelta(hours=2)
+            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        },
+    )
+    game = _make_game()
+    repo = AsyncMock()
+    repo.get_game_with_teams = AsyncMock(return_value=game)
+    repo.get_latest_prediction_for_game = AsyncMock(return_value=stale_pred)
+
+    svc = PredictionService(repo, None, Settings(odds_freshness_max_age_minutes=30))
+    result = await svc.get_prediction_detail(1)
+
     assert result["game"] == game
     assert result["pred"] is None
 
