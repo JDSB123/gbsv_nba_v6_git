@@ -68,8 +68,15 @@ class Settings(BaseSettings):
     # ── Quota management ──────────────────────────────────────────
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
 
+    # ── Database pool ──────────────────────────────────────────────
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+
     # ── Prediction reliability ────────────────────────────────────
     odds_freshness_max_age_minutes: int = 30
+
+    # ── NBA constants (notifications) ─────────────────────────────
+    nba_avg_total: float = 230.0  # league-average total for edge calcs
 
     # ── Model governance / promotion gates ─────────────────────
     model_gate_min_rows: int = 200

@@ -269,12 +269,44 @@ async def test_model_retrain():
             mock_trainer = MagicMock()
             mock_trainer.train = AsyncMock(return_value={"rmse": 5.0})
             mock_trainer_cls.return_value = mock_trainer
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                resp = await client.post("/model/retrain")
+            with patch("src.api.routes.model.get_settings") as mock_gs:
+                mock_settings = MagicMock()
+                mock_settings.api_key = "test-key"
+                mock_gs.return_value = mock_settings
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    resp = await client.post(
+                        "/model/retrain", headers={"X-API-Key": "test-key"}
+                    )
             assert resp.status_code == 200
             data = resp.json()
             assert data["status"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_model_retrain_requires_auth():
+    """Retrain endpoint rejects requests without a valid API key."""
+    with patch("src.api.routes.model.get_settings") as mock_gs:
+        mock_settings = MagicMock()
+        mock_settings.api_key = "real-secret"
+        mock_gs.return_value = mock_settings
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/model/retrain")
+        assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_model_retrain_rejects_unconfigured_key():
+    """Retrain endpoint returns 403 if api_key is not configured on server."""
+    with patch("src.api.routes.model.get_settings") as mock_gs:
+        mock_settings = MagicMock()
+        mock_settings.api_key = ""
+        mock_gs.return_value = mock_settings
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/model/retrain")
+        assert resp.status_code == 403
 
 
 @pytest.mark.anyio

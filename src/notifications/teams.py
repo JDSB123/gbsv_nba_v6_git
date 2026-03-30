@@ -50,7 +50,15 @@ def _app_build_stamp() -> str:
 MIN_EDGE = 2.0
 # League-average total used as baseline when no market line exists
 # Defaults for when odds aren't available
-_NBA_AVG_TOTAL = 230.0  # Updated to reflect modern scoring (approx 2024-2026 avg)
+_NBA_AVG_TOTAL: float = 230.0  # default; overridden from settings at runtime
+
+
+def _get_nba_avg_total() -> float:
+    try:
+        from src.config import get_settings
+        return get_settings().nba_avg_total
+    except Exception:
+        return _NBA_AVG_TOTAL
 
 
 def _fire_emojis(edge: float) -> str:
@@ -362,11 +370,12 @@ def extract_picks(
                 )
             )
     else:
-        total_diff = abs(fg_total - _NBA_AVG_TOTAL)
+        nba_avg = _get_nba_avg_total()
+        total_diff = abs(fg_total - nba_avg)
         if total_diff >= 5:
-            direction = "OVER" if fg_total > _NBA_AVG_TOTAL else "UNDER"
+            direction = "OVER" if fg_total > nba_avg else "UNDER"
             e = round(total_diff, 1)
-            rationale = f"Model total {fg_total:.1f} vs NBA avg {_NBA_AVG_TOTAL:.0f} → {e:.1f}pt {direction.lower()}"
+            rationale = f"Model total {fg_total:.1f} vs NBA avg {nba_avg:.0f} → {e:.1f}pt {direction.lower()}"
             picks.append(
                 Pick(
                     f"{direction} {fg_total:.1f}",
@@ -474,7 +483,7 @@ def extract_picks(
                 )
             )
     else:
-        h1_avg = _NBA_AVG_TOTAL / 2
+        h1_avg = _get_nba_avg_total() / 2
         h1_total_diff = abs(h1_total - h1_avg)
         if h1_total_diff >= 4:
             direction = "OVER" if h1_total > h1_avg else "UNDER"

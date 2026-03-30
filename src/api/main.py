@@ -64,7 +64,7 @@ async def add_security_headers(request: Request, call_next) -> Response:
 
 
 # ── API key authentication ────────────────────────────────────────
-_AUTH_EXEMPT = {"/health", "/health/deep", "/docs", "/openapi.json"}
+_AUTH_EXEMPT = {"/health", "/health/deep", "/health/freshness", "/docs", "/openapi.json"}
 
 
 @app.middleware("http")

@@ -26,6 +26,10 @@ param basketballApiKey string
 @description('Teams webhook URL (Power Automate Workflow)')
 param teamsWebhookUrl string = ''
 
+@secure()
+@description('API key for X-API-Key authentication')
+param apiKey string = ''
+
 @description('Existing Container Apps Environment resource ID to host the API and worker apps.')
 param containerAppsEnvironmentResourceId string
 
@@ -41,7 +45,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   location: location
   properties: {
     sku: { name: 'PerGB2018' }
-    retentionInDays: 30
+    retentionInDays: 90
   }
 }
 
@@ -75,6 +79,12 @@ resource secretDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'postgres-password'
   properties: { value: postgresPassword }
+}
+
+resource secretApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'api-key'
+  properties: { value: apiKey }
 }
 
 // ── Storage Account (model artifacts) ────────────────────────────
@@ -176,6 +186,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
         { name: 'teams-webhook-url', value: teamsWebhookUrl }
+        { name: 'api-key', value: apiKey }
       ]
     }
     template: {
@@ -189,8 +200,23 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }
             { name: 'BASKETBALL_API_KEY', secretRef: 'basketball-api-key' }
             { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
+            { name: 'API_KEY', secretRef: 'api-key' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: { path: '/health', port: 8000 }
+              initialDelaySeconds: 15
+              periodSeconds: 30
+            }
+            {
+              type: 'Readiness'
+              httpGet: { path: '/health/deep', port: 8000 }
+              initialDelaySeconds: 20
+              periodSeconds: 60
+            }
           ]
         }
       ]
@@ -229,6 +255,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
         { name: 'teams-webhook-url', value: teamsWebhookUrl }
+        { name: 'api-key', value: apiKey }
       ]
     }
     template: {
@@ -243,6 +270,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }
             { name: 'BASKETBALL_API_KEY', secretRef: 'basketball-api-key' }
             { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
+            { name: 'API_KEY', secretRef: 'api-key' }
             { name: 'API_BASE_URL', value: 'https://${apiApp.properties.configuration.ingress.fqdn}' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }

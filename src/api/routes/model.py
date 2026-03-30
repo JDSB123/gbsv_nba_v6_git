@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
+from src.api.rate_limit import limiter
+from src.config import get_settings
 from src.db.repositories.models import ModelRepository
 from src.db.session import get_db
 from src.models.predictor import Predictor
@@ -9,6 +11,16 @@ from src.models.versioning import MODEL_VERSION
 from src.services.model import ModelService
 
 router = APIRouter(prefix="/model", tags=["model"])
+
+
+def _require_api_key(request: Request) -> None:
+    """Enforce API key authentication for sensitive model operations."""
+    settings = get_settings()
+    if not settings.api_key:
+        raise HTTPException(status_code=403, detail="API key not configured on server")
+    provided = request.headers.get("X-API-Key", "")
+    if provided != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 async def get_model_service(db: AsyncSession = Depends(get_db)):
@@ -56,7 +68,8 @@ async def model_performance(
 
 
 @router.post("/retrain")
-async def retrain():
+@limiter.limit("2/hour")
+async def retrain(request: Request, _auth: None = Depends(_require_api_key)):
     from src.db.session import async_session_factory
     from src.models.trainer import ModelTrainer
 

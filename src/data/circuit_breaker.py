@@ -5,10 +5,31 @@ consecutive failures the circuit opens and calls are skipped for
 ``cooldown_seconds``.  A successful call resets the counter.
 """
 
+import asyncio
 import logging
 import time
 
 logger = logging.getLogger(__name__)
+
+
+def _fire_alert(name: str, failures: int, cooldown: int) -> None:
+    """Best-effort async alert when a circuit breaker opens."""
+    try:
+        from src.notifications.teams import send_alert
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(
+                send_alert(
+                    f"Circuit Breaker OPEN — {name}",
+                    f"Service '{name}' has failed {failures} consecutive times. "
+                    f"Calls will be skipped for {cooldown}s. Check API keys, "
+                    f"rate limits, and upstream availability.",
+                    "error",
+                )
+            )
+    except Exception:
+        pass  # alerting is best-effort
 
 
 class CircuitBreaker:
@@ -43,6 +64,7 @@ class CircuitBreaker:
                 self._consecutive_failures,
                 self.cooldown_seconds,
             )
+            _fire_alert(self.name, self._consecutive_failures, self.cooldown_seconds)
 
     def should_skip(self) -> bool:
         if self.is_open:

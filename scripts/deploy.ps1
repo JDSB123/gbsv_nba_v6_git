@@ -1,4 +1,9 @@
 # deployment script targeting existing nba_gbsv_v6_az environment
+param(
+    [switch]$Rollback,
+    [string]$RollbackTag = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 $ResourceGroup = "nba_gbsv_v6_az"
@@ -8,6 +13,30 @@ $Tag = (Get-Date -Format "yyyyMMdd-HHmmss")
 $ImageName = "$AcrLoginServer/nba-gbsv-v6:$Tag"
 $ApiApp = "ca-nba-gbsv-v6-api"
 $WorkerApp = "ca-nba-gbsv-v6-worker"
+
+if ($Rollback) {
+    if (-not $RollbackTag) {
+        Write-Host "Fetching available tags..."
+        $tags = az acr repository show-tags --name $AcrName --repository nba-gbsv-v6 --orderby time_desc --top 5 -o tsv
+        Write-Host "Recent tags:"
+        $tags | ForEach-Object { Write-Host "  $_" }
+        Write-Error "Specify -RollbackTag <tag> to roll back. Use one of the tags above."
+        return
+    }
+    $rollbackImage = "$AcrLoginServer/nba-gbsv-v6:$RollbackTag"
+    Write-Host "Rolling back to image: $rollbackImage"
+    az containerapp update -n $ApiApp -g $ResourceGroup --image $rollbackImage
+    az containerapp update -n $WorkerApp -g $ResourceGroup --image $rollbackImage
+    Write-Host "Rollback to $RollbackTag complete."
+    return
+}
+
+Write-Host "Saving current image tags for rollback..."
+$currentApiImage = az containerapp show -n $ApiApp -g $ResourceGroup --query "properties.template.containers[0].image" -o tsv
+$currentWorkerImage = az containerapp show -n $WorkerApp -g $ResourceGroup --query "properties.template.containers[0].image" -o tsv
+Write-Host "  API:    $currentApiImage"
+Write-Host "  Worker: $currentWorkerImage"
+Write-Host "  To rollback: .\deploy.ps1 -Rollback -RollbackTag <previous-tag>"
 
 Write-Host "Logging into Azure Container Registry: $AcrName..."
 az acr login --name $AcrName

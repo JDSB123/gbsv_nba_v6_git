@@ -100,12 +100,18 @@ class Predictor:
         for name in MODEL_NAMES:
             path = ARTIFACTS_DIR / f"{name}.json"
             if path.exists():
-                model = xgb.XGBRegressor()
-                model.load_model(str(path))
-                actual_features = int(model.get_booster().num_features())
-                self._model_feature_counts[name] = actual_features
-                self.models[name] = model
-                logger.info("Loaded model %s", name)
+                try:
+                    model = xgb.XGBRegressor()
+                    model.load_model(str(path))
+                    actual_features = int(model.get_booster().num_features())
+                    self._model_feature_counts[name] = actual_features
+                    self.models[name] = model
+                    logger.info("Loaded model %s", name)
+                except Exception as exc:
+                    self._last_error = f"Failed to load model {name}: {exc}"
+                    logger.error(self._last_error)
+                    self.models = {}
+                    return
             else:
                 logger.warning("Model file not found: %s", path)
 
