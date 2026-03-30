@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.config import get_settings
 from src.db.models import Game, ModelRegistry, OddsSnapshot, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
 from src.models.versioning import MODEL_VERSION
@@ -254,13 +255,17 @@ class Predictor:
         return {}
 
     def _sanitize_features(self, features: dict[str, Any]) -> tuple[dict[str, float], int]:
-        """Replace non-finite values with saved fill values."""
+        """Normalize features to floats and count any invalid entries."""
         imputation_values = getattr(self, "_imputation_values", {})
         sanitized: dict[str, float] = {}
         imputed_count = 0
         for col in self._inference_feature_cols:
             fill_value = imputation_values.get(col, 0.0)
-            raw_value = features.get(col, fill_value)
+            if col not in features:
+                sanitized[col] = fill_value
+                imputed_count += 1
+                continue
+            raw_value = features[col]
             try:
                 value = float(raw_value)
             except (TypeError, ValueError):
@@ -365,11 +370,33 @@ class Predictor:
         )
         raw_snapshots = list(result.scalars().all())
         if not raw_snapshots:
-            logger.warning(
-                "No odds snapshots for game %s — prediction will have no opening lines",
+            logger.error(
+                "Prediction skipped for game %s: no stored odds snapshots available",
                 game.id,
             )
+            return None
         stored_snapshots, odds_ts = self._latest_snapshots(raw_snapshots)
+        if odds_ts is None:
+            logger.error(
+                "Prediction skipped for game %s: stored odds snapshots have no capture timestamp",
+                game.id,
+            )
+            return None
+        if odds_ts.tzinfo is None:
+            odds_ts_utc = odds_ts.replace(tzinfo=UTC)
+        else:
+            odds_ts_utc = odds_ts.astimezone(UTC)
+        max_age_minutes = get_settings().odds_freshness_max_age_minutes
+        odds_age_minutes = (datetime.now(UTC) - odds_ts_utc).total_seconds() / 60.0
+        if odds_age_minutes > max_age_minutes:
+            logger.error(
+                "Prediction skipped for game %s: stale odds snapshot %.1f minutes old "
+                "(limit=%d minutes)",
+                game.id,
+                odds_age_minutes,
+                max_age_minutes,
+            )
+            return None
 
         home_name = game.home_team.name if game.home_team else ""
         away_name = game.away_team.name if game.away_team else ""
@@ -380,16 +407,14 @@ class Predictor:
             return None
 
         sanitized_features, imputed_count = self._sanitize_features(features)
-        if self._inference_feature_cols:
-            imputed_ratio = imputed_count / len(self._inference_feature_cols)
-            if imputed_ratio > 0.5:
-                logger.error(
-                    "Feature integrity gate tripped for game %s: %d/%d features required imputation",
-                    game.id,
-                    imputed_count,
-                    len(self._inference_feature_cols),
-                )
-                return None
+        if imputed_count:
+            logger.error(
+                "Prediction skipped for game %s: %d/%d features were missing or non-finite",
+                game.id,
+                imputed_count,
+                len(self._inference_feature_cols),
+            )
+            return None
 
         X = np.array([[sanitized_features[c] for c in self._inference_feature_cols]])
 

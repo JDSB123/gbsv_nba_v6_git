@@ -358,7 +358,7 @@ class TestSyncEventsToGames:
         assert mock_game.odds_api_id == "evt1"
 
     @pytest.mark.anyio
-    async def test_synthetic_game_creation(self):
+    async def test_unmatched_events_are_skipped_without_synthetic_creation(self):
         from src.data.scheduler import sync_events_to_games
 
         mock_sf, mock_db = _mock_session()
@@ -369,7 +369,7 @@ class TestSyncEventsToGames:
             if "select teams" in sql:
                 result.all.return_value = [(1, "Lakers"), (2, "Celtics")]
                 return result
-            # Return None for all game lookups → triggers synthetic creation
+            # Return None for all game lookups -> unmatched event should be skipped.
             result.scalar_one_or_none.return_value = None
             result.all.return_value = []
             return result
@@ -394,7 +394,7 @@ class TestSyncEventsToGames:
             patch(f"{_SCHED}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
         ):
             await sync_events_to_games()
-        mock_db.add.assert_called_once()
+        mock_db.add.assert_not_called()
 
     @pytest.mark.anyio
     async def test_team_lookup_failed(self):

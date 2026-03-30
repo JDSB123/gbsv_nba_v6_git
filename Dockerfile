@@ -22,6 +22,9 @@ COPY --from=builder /install /usr/local
 COPY src/ src/
 COPY alembic.ini .
 
+# Copy model artifacts into the container
+COPY src/models/artifacts/ src/models/artifacts/
+
 EXPOSE 8000
 
 # Single entry point.  Override CMD for different modes:

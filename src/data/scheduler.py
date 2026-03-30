@@ -523,26 +523,18 @@ async def sync_events_to_games() -> None:
     by home-team name within the same calendar day (UTC).  This handles
     the common case where the Basketball API and Odds API report
     slightly different tip-off times for the same game.
-
-    If no matching Game row exists at all and both teams can be
-    resolved by name, a new Game row is created with a synthetic ID
-    (negative, derived from the odds_api_id hash) so that predictions
-    are never blocked by the Basketball API being slow to list a game.
     """
     logger.info("Syncing events to games...")
     try:
-        import hashlib
-
         from src.data.odds_client import OddsClient
-        from src.data.seasons import current_nba_season
 
         client = OddsClient()
         events = await client.fetch_events()
         matched = 0
-        created = 0
+        skipped = 0
         reconciled = 0
         async with async_session_factory() as db:
-            # Pre-load team name → id map for fallback game creation
+            # Pre-load team name -> id map so Odds events can be matched to official games.
             team_rows = (await db.execute(select(Team.id, Team.name))).all()
             team_by_name: dict[str, int] = {name: tid for tid, name in team_rows}
 
@@ -616,39 +608,18 @@ async def sync_events_to_games() -> None:
                             game_odds_api_id,
                         )
                 else:
-                    # 4) No matching game — create one from Odds API data
-                    if home_id and away_id:
-                        # Synthetic negative ID derived from odds_api_id hash
-                        # to avoid collision with Basketball API integer IDs.
-                        synth_id = -(
-                            int(hashlib.md5(odds_id.encode()).hexdigest()[:8], 16)  # noqa: S324
-                            % 2_000_000_000
-                        )
-                        # Check synthetic id doesn't already exist
-                        dup = await db.execute(select(Game.id).where(Game.id == synth_id))
-                        if dup.scalar_one_or_none() is not None:
-                            continue
-                        season = current_nba_season(ct.date() if isinstance(ct, datetime) else ct)
-                        new_game = Game(
-                            id=synth_id,
-                            home_team_id=home_id,
-                            away_team_id=away_id,
-                            commence_time=ct,
-                            status="NS",
-                            season=season,
-                            odds_api_id=odds_id,
-                        )
-                        db.add(new_game)
-                        created += 1
-                        logger.info(
-                            "Created game from Odds API: %s vs %s (synth id %d)",
+                    skipped += 1
+                    if home_id is not None and away_id is not None:
+                        logger.warning(
+                            "Skipping odds event %s: no matching official game found for %s @ %s at %s",
+                            odds_id,
                             away_team_name,
                             home_team_name,
-                            synth_id,
+                            ct.isoformat() if isinstance(ct, datetime) else ct,
                         )
                     else:
                         logger.warning(
-                            "Cannot create game from Odds API event %s: "
+                            "Skipping odds event %s: "
                             "team lookup failed (home=%r→%s, away=%r→%s)",
                             odds_id,
                             home_team_name,
@@ -658,9 +629,9 @@ async def sync_events_to_games() -> None:
                         )
             await db.commit()
         logger.info(
-            "Synced events: %d matched, %d created, %d reconciled",
+            "Synced events: %d matched, %d skipped, %d reconciled",
             matched,
-            created,
+            skipped,
             reconciled,
         )
     except Exception:

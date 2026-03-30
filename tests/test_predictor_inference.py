@@ -16,7 +16,7 @@ from src.models.predictor import MODEL_NAMES, Predictor
 
 
 def _ts(days_ago=0):
-    return datetime(2025, 1, 15, 19, 0, tzinfo=UTC) - timedelta(days=days_ago)
+    return datetime.now(UTC) - timedelta(days=days_ago)
 
 
 def _make_snapshot(
@@ -220,7 +220,7 @@ class TestPredictGame:
         # Mock DB
         db = AsyncMock()
         snap_result = MagicMock()
-        snap_result.scalars.return_value.all.return_value = []
+        snap_result.scalars.return_value.all.return_value = [_make_snapshot(outcome="BOS")]
         db.execute.return_value = snap_result
 
         # Mock build_feature_vector
@@ -271,13 +271,6 @@ class TestPredictAndStore:
         )
 
         db = AsyncMock()
-        snap_result = MagicMock()
-        snap_result.scalars.return_value.all.return_value = []
-        snap_result.scalar_one_or_none.return_value = None
-
-        # resolve_model_version
-        version_result = MagicMock()
-        version_result.scalar_one_or_none.return_value = "v6"
 
         call_n = {"n": 0}
 
@@ -286,7 +279,7 @@ class TestPredictAndStore:
             result = MagicMock()
             if call_n["n"] <= 1:
                 # snapshot query
-                result.scalars.return_value.all.return_value = []
+                result.scalars.return_value.all.return_value = [_make_snapshot(outcome="A")]
             elif call_n["n"] == 2:
                 # resolve model version
                 result.scalar_one_or_none.return_value = "v6"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,6 +25,24 @@ def _make_mock_model(num_features: int, feature_names=None):
     model.predict.return_value = np.array([105.0])
     model.feature_importances_ = np.ones(num_features) / num_features
     return model
+
+
+def _make_snapshot(
+    bookmaker: str = "fanduel",
+    market: str = "spreads",
+    outcome_name: str = "Lakers",
+    price: int = -110,
+    point: float | None = -3.5,
+    captured_at: datetime | None = None,
+):
+    return SimpleNamespace(
+        bookmaker=bookmaker,
+        market=market,
+        outcome_name=outcome_name,
+        price=price,
+        point=point,
+        captured_at=captured_at or datetime.now(UTC),
+    )
 
 
 class TestLoadModelsAllPresent:
@@ -226,9 +244,8 @@ class TestPredictGame:
             away_team=SimpleNamespace(name="Celtics"),
         )
         db = AsyncMock()
-        # Return empty odds snapshots
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
+        mock_result.scalars.return_value.all.return_value = [_make_snapshot()]
         db.execute.return_value = mock_result
 
         with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
@@ -270,19 +287,19 @@ class TestPredictGame:
 
         snap1 = SimpleNamespace(
             bookmaker="fanduel", market="spreads", outcome_name="Lakers",
-            captured_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC), price=-110, point=-3.5,
+            captured_at=datetime.now(UTC), price=-110, point=-3.5,
         )
         snap2 = SimpleNamespace(
             bookmaker="fanduel", market="totals", outcome_name="Over",
-            captured_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC), price=-110, point=220.5,
+            captured_at=datetime.now(UTC), price=-110, point=220.5,
         )
         snap3 = SimpleNamespace(
             bookmaker="fanduel", market="spreads_h1", outcome_name="Lakers",
-            captured_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC), price=-110, point=-1.5,
+            captured_at=datetime.now(UTC), price=-110, point=-1.5,
         )
         snap4 = SimpleNamespace(
             bookmaker="fanduel", market="totals_h1", outcome_name="Over",
-            captured_at=datetime(2024, 3, 15, 12, 0, tzinfo=UTC), price=-110, point=110.5,
+            captured_at=datetime.now(UTC), price=-110, point=110.5,
         )
 
         db = AsyncMock()
@@ -325,7 +342,7 @@ class TestPredictGame:
         )
         db = AsyncMock()
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
+        mock_result.scalars.return_value.all.return_value = [_make_snapshot(outcome_name="A")]
         db.execute.return_value = mock_result
 
         with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
@@ -359,7 +376,7 @@ class TestPredictGame:
         )
         db = AsyncMock()
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
+        mock_result.scalars.return_value.all.return_value = [_make_snapshot(outcome_name="A")]
         db.execute.return_value = mock_result
 
         with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
@@ -368,7 +385,7 @@ class TestPredictGame:
                 await p.predict_game(game, db)
 
     @pytest.mark.anyio
-    async def test_prediction_imputes_non_finite_features(self):
+    async def test_prediction_rejects_non_finite_features(self):
         from src.models.predictor import Predictor
 
         home_fg = MagicMock(return_value=np.array([110.0]))
@@ -396,31 +413,68 @@ class TestPredictGame:
         )
         db = AsyncMock()
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
+        mock_result.scalars.return_value.all.return_value = [_make_snapshot()]
         db.execute.return_value = mock_result
 
         with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
             mock_feat.return_value = {"f1": float("nan"), "f2": 2.0}
             result = await p.predict_game(game, db)
 
-        assert result is not None
-        X = home_fg.call_args[0][0]
-        assert X[0, 0] == 1.5
-        assert X[0, 1] == 2.0
+        assert result is None
+        home_fg.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_prediction_skips_when_too_many_features_need_imputation(self):
+    async def test_prediction_rejects_missing_features(self):
         from src.models.predictor import Predictor
 
+        home_fg = MagicMock(return_value=np.array([110.0]))
         p = Predictor.__new__(Predictor)
-        p.feature_cols = ["f1", "f2", "f3", "f4"]
-        p._inference_feature_cols = ["f1", "f2", "f3", "f4"]
+        p.feature_cols = ["f1", "f2"]
+        p._inference_feature_cols = ["f1", "f2"]
         p._compatibility_mode = False
         p._last_error = None
         p._calibration = {}
         p._incompatible_models = {}
         p._model_feature_counts = {}
-        p._imputation_values = {"f1": 0.0, "f2": 0.0, "f3": 0.0, "f4": 0.0}
+        p._imputation_values = {"f1": 1.5, "f2": 2.5}
+        p.model_version = "test"
+        p.models = {
+            "model_home_fg": MagicMock(predict=home_fg),
+            "model_away_fg": MagicMock(predict=MagicMock(return_value=np.array([105.0]))),
+            "model_home_1h": MagicMock(predict=MagicMock(return_value=np.array([55.0]))),
+            "model_away_1h": MagicMock(predict=MagicMock(return_value=np.array([52.0]))),
+        }
+
+        game = SimpleNamespace(
+            id=1,
+            home_team=SimpleNamespace(name="Lakers"),
+            away_team=SimpleNamespace(name="Celtics"),
+        )
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [_make_snapshot()]
+        db.execute.return_value = mock_result
+
+        with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
+            mock_feat.return_value = {"f1": 1.0}
+            result = await p.predict_game(game, db)
+
+        assert result is None
+        home_fg.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_prediction_returns_none_when_odds_are_stale(self):
+        from src.models.predictor import Predictor
+
+        p = Predictor.__new__(Predictor)
+        p.feature_cols = ["f1"]
+        p._inference_feature_cols = ["f1"]
+        p._compatibility_mode = False
+        p._last_error = None
+        p._calibration = {}
+        p._incompatible_models = {}
+        p._model_feature_counts = {}
+        p._imputation_values = {"f1": 0.0}
         p.model_version = "test"
         p.models = {
             "model_home_fg": MagicMock(),
@@ -436,16 +490,19 @@ class TestPredictGame:
         )
         db = AsyncMock()
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
+        mock_result.scalars.return_value.all.return_value = [
+            _make_snapshot(
+                outcome_name="A",
+                captured_at=datetime.now(UTC) - timedelta(minutes=120),
+            )
+        ]
         db.execute.return_value = mock_result
 
-        with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
-            mock_feat.return_value = {
-                "f1": float("nan"),
-                "f2": float("nan"),
-                "f3": float("nan"),
-                "f4": 1.0,
-            }
+        with (
+            patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat,
+            patch(f"{_MOD}.get_settings", return_value=SimpleNamespace(odds_freshness_max_age_minutes=30)),
+        ):
+            mock_feat.return_value = {"f1": 1.0}
             result = await p.predict_game(game, db)
 
         assert result is None
