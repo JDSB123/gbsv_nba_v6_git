@@ -17,7 +17,6 @@ from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
 from src.db.models import (
     Game,
-    GameReferee,
     Injury,
     Player,
     PlayerGameStats,

@@ -324,20 +324,22 @@ async def test_slate_html_success():
 
     app.dependency_overrides[get_db] = override_db
     try:
-        with patch(
+        with (
+            patch(
             "src.services.predictions.PredictionService.get_slate_payload",
             new_callable=AsyncMock,
             return_value=([("pred_mock", "game_mock")], None),
-        ):
-            with patch(
+            ),
+            patch(
                 "src.notifications.teams.build_html_slate",
                 return_value="<html>slate</html>",
-            ) as mock_build:
-                transport = ASGITransport(app=app)
-                async with AsyncClient(transport=transport, base_url="http://test") as client:
-                    resp = await client.get("/predictions/slate.html")
-                assert resp.status_code == 200
-                assert "text/html" in resp.headers["content-type"]
+            ),
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/predictions/slate.html")
+            assert resp.status_code == 200
+            assert "text/html" in resp.headers["content-type"]
     finally:
         app.dependency_overrides.clear()
 
@@ -352,20 +354,22 @@ async def test_slate_csv_success():
 
     app.dependency_overrides[get_db] = override_db
     try:
-        with patch(
-            "src.services.predictions.PredictionService.get_slate_payload",
-            new_callable=AsyncMock,
-            return_value=([("pred_mock", "game_mock")], None),
-        ):
-            with patch(
+        with (
+            patch(
+                "src.services.predictions.PredictionService.get_slate_payload",
+                new_callable=AsyncMock,
+                return_value=([("pred_mock", "game_mock")], None),
+            ),
+            patch(
                 "src.notifications.teams.build_slate_csv",
                 return_value=b"col1,col2\nval1,val2\n",
-            ):
-                transport = ASGITransport(app=app)
-                async with AsyncClient(transport=transport, base_url="http://test") as client:
-                    resp = await client.get("/predictions/slate.csv")
-                assert resp.status_code == 200
-                assert "text/csv" in resp.headers["content-type"]
+            ),
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/predictions/slate.csv")
+            assert resp.status_code == 200
+            assert "text/csv" in resp.headers["content-type"]
     finally:
         app.dependency_overrides.clear()
 
@@ -433,24 +437,26 @@ async def test_publish_teams_success():
                 api_base_url="https://api.example.com",
                 teams_max_games_per_message=10,
             )
-            with patch(
-                "src.services.predictions.PredictionService.get_slate_payload",
-                new_callable=AsyncMock,
-                return_value=([("pred", "game")], None),
-            ):
-                with patch(
+            with (
+                patch(
+                    "src.services.predictions.PredictionService.get_slate_payload",
+                    new_callable=AsyncMock,
+                    return_value=([("pred", "game")], None),
+                ),
+                patch(
                     "src.notifications.teams.build_teams_card",
                     return_value={"card": "payload"},
-                ):
-                    with patch(
-                        "src.notifications.teams.send_card_to_teams",
-                        new_callable=AsyncMock,
-                    ) as mock_send:
-                        transport = ASGITransport(app=app)
-                        async with AsyncClient(transport=transport, base_url="http://test") as client:
-                            resp = await client.post("/predictions/publish/teams")
-                        assert resp.status_code == 200
-                        mock_send.assert_called_once()
+                ),
+                patch(
+                    "src.notifications.teams.send_card_to_teams",
+                    new_callable=AsyncMock,
+                ) as mock_send,
+            ):
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    resp = await client.post("/predictions/publish/teams")
+                assert resp.status_code == 200
+                mock_send.assert_called_once()
     finally:
         app.dependency_overrides.clear()
 
@@ -496,24 +502,26 @@ async def test_publish_graph_success():
                 teams_channel_id="channel-456",
                 teams_max_games_per_message=10,
             )
-            with patch(
-                "src.services.predictions.PredictionService.get_slate_payload",
-                new_callable=AsyncMock,
-                return_value=([("pred", "game")], None),
-            ):
-                with patch(
+            with (
+                patch(
+                    "src.services.predictions.PredictionService.get_slate_payload",
+                    new_callable=AsyncMock,
+                    return_value=([("pred", "game")], None),
+                ),
+                patch(
                     "src.notifications.teams.build_teams_card",
                     return_value={"card": "payload"},
-                ):
-                    with patch(
-                        "src.notifications.teams.send_card_via_graph",
-                        new_callable=AsyncMock,
-                    ) as mock_send:
-                        transport = ASGITransport(app=app)
-                        async with AsyncClient(transport=transport, base_url="http://test") as client:
-                            resp = await client.post("/predictions/publish/graph")
-                        assert resp.status_code == 200
-                        mock_send.assert_called_once()
+                ),
+                patch(
+                    "src.notifications.teams.send_card_via_graph",
+                    new_callable=AsyncMock,
+                ) as mock_send,
+            ):
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    resp = await client.post("/predictions/publish/graph")
+                assert resp.status_code == 200
+                mock_send.assert_called_once()
     finally:
         app.dependency_overrides.clear()
 

@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from unittest.mock import MagicMock
-
-import pytest
 
 from src.api.routes.performance import (
     GradedPick,
     _build_dashboard_html,
-    _build_stats,
-    _clv_summary,
     _pct_class,
     _roi_class,
-    _score_accuracy,
 )
 
 

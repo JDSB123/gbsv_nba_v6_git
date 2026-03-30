@@ -4,8 +4,6 @@ and trainer.py gaps (lines 274-285 Optuna, 395-402 feature importance drift)."""
 from __future__ import annotations
 
 import json
-import math
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,7 +19,7 @@ class TestPredictorFeatureNameMismatch:
     """Cover lines 126-127: model feature names don't match code."""
 
     def test_feature_name_mismatch_logged(self, tmp_path):
-        from src.models.predictor import Predictor, MODEL_NAMES
+        from src.models.predictor import MODEL_NAMES, Predictor
 
         artifacts = tmp_path / "artifacts"
         artifacts.mkdir()
@@ -70,7 +68,7 @@ class TestPredictorIncompatibleModels:
     """Cover lines 162-174: model feature count doesn't match and can't be rescued."""
 
     def test_incompatible_clears_models(self, tmp_path):
-        from src.models.predictor import Predictor, MODEL_NAMES
+        from src.models.predictor import MODEL_NAMES, Predictor
 
         artifacts = tmp_path / "artifacts"
         artifacts.mkdir()
@@ -98,7 +96,7 @@ class TestPredictorCompatibilityAlert:
     """Cover lines 149-150: fire-and-forget alert in compatibility mode."""
 
     def test_compatibility_mode_attempts_alert(self, tmp_path):
-        from src.models.predictor import Predictor, MODEL_NAMES
+        from src.models.predictor import MODEL_NAMES, Predictor
 
         artifacts = tmp_path / "artifacts"
         artifacts.mkdir()
@@ -216,7 +214,6 @@ class TestServicesModelGetPerformance:
         repo = MagicMock()
         repo.get_finished_game_predictions = MagicMock(return_value=[(pred, game)])
         # Make it awaitable
-        import asyncio
 
         async def _get():
             return [(pred, game)]

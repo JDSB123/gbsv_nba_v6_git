@@ -10,28 +10,27 @@ from src.notifications.teams import (
     MIN_EDGE,
     Pick,
     _american_to_prob,
+    _confidence_badge,
     _consensus_line,
     _consensus_price,
     _edge_color,
+    _edge_css_color,
+    _esc,
     _fire_count,
     _fire_emojis,
     _fmt_time_cst,
+    _odds_source_block,
+    _pick_row,
+    _pick_side_border,
     _prob_to_american,
+    _segment_pill,
     _team_record,
     build_html_slate,
     build_slate_csv,
     build_teams_card,
     build_teams_text,
     extract_picks,
-    _pick_row,
-    _odds_source_block,
-    _esc,
-    _edge_css_color,
-    _confidence_badge,
-    _segment_pill,
-    _pick_side_border,
 )
-
 
 # ── _fire_emojis ─────────────────────────────────────────────────
 
@@ -541,7 +540,6 @@ class TestSendAlert:
 
     @pytest.mark.anyio
     async def test_send_success(self):
-        import httpx
         from unittest.mock import patch
 
         from src.notifications.teams import send_alert

@@ -1,9 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-
-from unittest.mock import AsyncMock
 
 from src.api.dependencies import get_predictor
 from src.api.main import app

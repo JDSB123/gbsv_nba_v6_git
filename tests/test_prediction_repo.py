@@ -118,7 +118,7 @@ class TestGetLatestOddsPullTimestamp:
     @pytest.mark.anyio
     async def test_returns_timestamp(self, repo):
         r, session = repo
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
         ts = datetime.now(UTC)
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = ts

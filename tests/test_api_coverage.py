@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.api.main import app
 from src.api.dependencies import get_predictor
+from src.api.main import app
 from src.db.session import get_db
 
 

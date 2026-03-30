@@ -9,20 +9,15 @@
 
 from __future__ import annotations
 
-import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import numpy as np
 import pytest
 
 from src.models.features import (
     SHARP_BOOKS,
-    SQUARE_BOOKS,
-    _as_float,
     _home_spreads,
-    get_feature_columns,
     reset_elo_cache,
 )
 
@@ -66,7 +61,7 @@ class TestSituationalUrgencyFeatures:
     @pytest.mark.anyio
     async def test_march_game_tanking_urgency(self):
         """Game in March with low win-pct home team triggers tanking penalty."""
-        from src.models.features import build_feature_vector, reset_elo_cache
+        from src.models.features import build_feature_vector
 
         reset_elo_cache()
 
@@ -132,12 +127,13 @@ class TestSituationalUrgencyFeatures:
 
             stmt_str = str(stmt)
             # Match TeamSeasonStats queries — home is first, away second
-            if "team_season_stats" in stmt_str.lower():
-                if team_stats_call_idx < len(stats_by_order):
-                    result.scalar_one_or_none = MagicMock(
-                        return_value=stats_by_order[team_stats_call_idx]
-                    )
-                    team_stats_call_idx += 1
+            if "team_season_stats" in stmt_str.lower() and team_stats_call_idx < len(
+                stats_by_order
+            ):
+                result.scalar_one_or_none = MagicMock(
+                    return_value=stats_by_order[team_stats_call_idx]
+                )
+                team_stats_call_idx += 1
             return result
 
         db = AsyncMock()

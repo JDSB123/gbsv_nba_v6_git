@@ -12,7 +12,6 @@ import pytest
 from src.models.features import (
     _as_str,
     build_feature_vector,
-    get_feature_columns,
     reset_elo_cache,
 )
 

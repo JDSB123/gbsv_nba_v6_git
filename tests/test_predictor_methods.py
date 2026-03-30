@@ -8,7 +8,6 @@ import pytest
 
 from src.models.predictor import Predictor, _margin_to_prob
 
-
 # ── _margin_to_prob ──────────────────────────────────────────────
 
 
@@ -372,7 +371,7 @@ class TestPredictAndStore:
         mock_db.refresh = AsyncMock()
 
         with patch.object(p, "predict_game", new_callable=AsyncMock, return_value=pred_dict):
-            result = await p.predict_and_store(mock_game, mock_db)
+            await p.predict_and_store(mock_game, mock_db)
             mock_db.add.assert_called_once()
 
     @pytest.mark.anyio

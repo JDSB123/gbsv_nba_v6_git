@@ -5,22 +5,17 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from src.notifications.teams import (
-    Pick,
     _edge_css_color,
     _get_model_modified_at,
     _odds_source_block,
     build_html_slate,
     build_slate_csv,
     build_teams_card,
-    extract_picks,
 )
 
 
@@ -254,7 +249,7 @@ class TestBuildSlateCsv:
         pred, game = _make_pred_game()
         result = build_slate_csv([(pred, game)])
         reader = csv.reader(io.StringIO(result))
-        headers = next(reader)
+        next(reader)
         rows = list(reader)
         assert len(rows) > 0  # At least one pick row
 

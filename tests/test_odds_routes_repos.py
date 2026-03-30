@@ -10,7 +10,6 @@ from src.api.main import app
 from src.db.repositories.models import ModelRepository
 from src.db.repositories.odds import OddsRepository
 
-
 # ── OddsRepository ────────────────────────────────────────────────
 
 

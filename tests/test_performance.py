@@ -6,9 +6,7 @@ import pytest
 
 from src.api.routes.performance import (
     EDGE_THRESHOLDS,
-    JUICE,
     GradedPick,
-    _Record,
     _build_stats,
     _clv_summary,
     _grade_1h_winner,
@@ -18,10 +16,10 @@ from src.api.routes.performance import (
     _grade_total,
     _pct_class,
     _recent_results,
+    _Record,
     _roi_class,
     _score_accuracy,
 )
-
 
 # ── _grade_spread_ats ────────────────────────────────────────
 

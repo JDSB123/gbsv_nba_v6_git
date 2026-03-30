@@ -268,9 +268,7 @@ async def test_health_freshness_missing_data():
         call_count += 1
         if call_count in (1, 2, 3):
             return _scalar_result(None)
-        elif call_count == 4:
-            return _scalar_result(0)
-        elif call_count == 5:
+        elif call_count == 4 or call_count == 5:
             return _scalar_result(0)
         return _scalar_result(None)
 
@@ -304,13 +302,9 @@ async def test_health_freshness_stale_odds():
         if call_count == 1:
             # Odds from 90 minutes ago - stale
             return _scalar_result(now - timedelta(minutes=90))
-        elif call_count == 2:
+        elif call_count == 2 or call_count == 3:
             return _scalar_result(None)
-        elif call_count == 3:
-            return _scalar_result(None)
-        elif call_count == 4:
-            return _scalar_result(0)
-        elif call_count == 5:
+        elif call_count == 4 or call_count == 5:
             return _scalar_result(0)
         return _scalar_result(None)
 
@@ -341,13 +335,9 @@ async def test_health_freshness_very_stale_odds():
         call_count += 1
         if call_count == 1:
             return _scalar_result(now - timedelta(hours=3))
-        elif call_count == 2:
+        elif call_count == 2 or call_count == 3:
             return _scalar_result(None)
-        elif call_count == 3:
-            return _scalar_result(None)
-        elif call_count == 4:
-            return _scalar_result(0)
-        elif call_count == 5:
+        elif call_count == 4 or call_count == 5:
             return _scalar_result(0)
         return _scalar_result(None)
 
