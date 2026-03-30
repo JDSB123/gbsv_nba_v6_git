@@ -98,8 +98,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Validate committed model artifacts
+        run: |
+          test -f src/models/artifacts/model_home_fg.json
+          test -f src/models/artifacts/model_away_fg.json
+          test -f src/models/artifacts/model_home_1h.json
+          test -f src/models/artifacts/model_away_1h.json
+          test -f src/models/artifacts/metrics.json
+          test -f src/models/artifacts/imputation.json
+          test -f src/models/artifacts/feature_importance.json
+
       - uses: actions/setup-python@v6
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap_models)
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
         with:
           python-version-file: ".python-version"
           cache: "pip"
@@ -141,7 +151,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Bootstrap models before build
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap_models)
+        if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
         env:
           BACKFILL_SEASON: ${{ inputs.backfill_season || '' }}
           BACKFILL_DAYS: ${{ inputs.backfill_days || '120' }}
