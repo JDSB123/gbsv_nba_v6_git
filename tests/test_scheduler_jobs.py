@@ -65,11 +65,19 @@ class TestPollFgOdds:
 
 
 class TestPoll1hOdds:
+    @patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock)
     @patch("src.data.circuit_breaker.CircuitBreaker.record_success")
     @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
     @patch(_SF)
-    async def test_fetches_event_odds(self, mock_sf, mock_cls, mock_skip, mock_success):
+    async def test_fetches_event_odds(
+        self,
+        mock_sf,
+        mock_cls,
+        mock_skip,
+        mock_success,
+        mock_sync,
+    ):
         mock_client = mock_cls.return_value
         mock_client.fetch_events = AsyncMock(
             return_value=[
@@ -87,6 +95,7 @@ class TestPoll1hOdds:
 
         await poll_1h_odds()
 
+        mock_sync.assert_awaited_once()
         mock_client.fetch_events.assert_awaited_once()
         assert mock_client.fetch_event_odds.await_count >= 1
 

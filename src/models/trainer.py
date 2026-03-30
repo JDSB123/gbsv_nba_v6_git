@@ -29,6 +29,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 ARTIFACTS_DIR.mkdir(exist_ok=True)
+MAX_TRAIN_FEATURE_NAN_RATIO = 0.5
 
 # Target columns: what each model predicts
 TARGETS = ["home_score_fg", "away_score_fg", "home_score_1h", "away_score_1h"]
@@ -141,6 +142,41 @@ def _calibrate_probabilities(
     return coef, intercept
 
 
+def _build_imputation_values(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+) -> dict[str, float]:
+    """Build deterministic fill values so train/inference never accept NaNs."""
+    fill_values: dict[str, float] = {}
+    for col in feature_cols:
+        series = pd.to_numeric(df[col], errors="coerce")
+        median = series.median(skipna=True)
+        fill_values[col] = 0.0 if pd.isna(median) else float(median)
+    return fill_values
+
+
+def _apply_imputation(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    fill_values: dict[str, float],
+) -> pd.DataFrame:
+    """Return a copy with all feature NaNs replaced by saved fill values."""
+    clean = df.copy()
+    for col in feature_cols:
+        series = pd.to_numeric(clean[col], errors="coerce")
+        clean[col] = series.fillna(fill_values.get(col, 0.0))
+    return clean
+
+
+def _valid_target_mask(df: pd.DataFrame, target_cols: list[str]) -> np.ndarray:
+    """Return rows whose target columns are all present and finite."""
+    mask = np.ones(len(df), dtype=bool)
+    for col in target_cols:
+        values = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+        mask &= np.isfinite(values)
+    return mask
+
+
 class ModelTrainer:
     def __init__(self, run_optuna: bool = True) -> None:
         self.feature_cols = get_feature_columns()
@@ -222,14 +258,9 @@ class ModelTrainer:
             row["away_score_fg"] = float(cast(Any, game.away_score_fg))
             home_score_1h = cast(Any, game.home_score_1h)
             away_score_1h = cast(Any, game.away_score_1h)
-            # Skip games with no 1H scores — using 0.0 as fallback would
-            # teach the model that "unknown" means zero and corrupt 1H targets.
-            if home_score_1h is None or away_score_1h is None:
-                row["home_score_1h"] = float("nan")
-                row["away_score_1h"] = float("nan")
-            else:
-                row["home_score_1h"] = float(home_score_1h)
-                row["away_score_1h"] = float(away_score_1h)
+            # Preserve missingness here; training filters incomplete targets later.
+            row["home_score_1h"] = None if home_score_1h is None else float(home_score_1h)
+            row["away_score_1h"] = None if away_score_1h is None else float(away_score_1h)
             row["commence_time"] = cast(Any, game.commence_time)
             rows.append(row)
 
@@ -246,6 +277,21 @@ class ModelTrainer:
 
         df = df.sort_values("commence_time").reset_index(drop=True)
 
+        feature_nan_ratio = df[self.feature_cols].isna().mean(axis=1)
+        sparse_row_mask = feature_nan_ratio > MAX_TRAIN_FEATURE_NAN_RATIO
+        if sparse_row_mask.any():
+            dropped_rows = int(sparse_row_mask.sum())
+            logger.warning(
+                "Dropping %d training rows with >%.0f%% missing features",
+                dropped_rows,
+                MAX_TRAIN_FEATURE_NAN_RATIO * 100,
+            )
+            df = df.loc[~sparse_row_mask].reset_index(drop=True)
+
+        if df.empty or len(df) < 50:
+            logger.warning("Not enough data after integrity filtering (%d rows)", len(df))
+            return {}
+
         # ── Outlier detection on target variables ─────────────────
         for target in TARGETS:
             col = df[target]
@@ -260,17 +306,42 @@ class ModelTrainer:
                     std,
                 )
 
-        X: np.ndarray = np.asarray(
-            df[self.feature_cols].to_numpy(dtype=np.float32)
-        )  # XGBoost handles NaN natively — no sentinel needed
+        imputation_values = _build_imputation_values(df, self.feature_cols)
+        (ARTIFACTS_DIR / "imputation.json").write_text(json.dumps(imputation_values, indent=2))
+
+        imputed_df = _apply_imputation(df, self.feature_cols, imputation_values)
+        X_all: np.ndarray = np.asarray(imputed_df[self.feature_cols].to_numpy(dtype=np.float32))
         metrics: dict[str, float] = {}
         best_params_all: dict[str, dict] = {}
+        target_pair_masks = {
+            "fg": _valid_target_mask(df, ["home_score_fg", "away_score_fg"]),
+            "1h": _valid_target_mask(df, ["home_score_1h", "away_score_1h"]),
+        }
 
         for target, model_name in zip(TARGETS, MODEL_NAMES, strict=True):
-            y: np.ndarray = np.asarray(df[target].to_numpy(dtype=float))
+            pair_key = "1h" if target.endswith("_1h") else "fg"
+            valid_mask = target_pair_masks[pair_key]
+            skipped_rows = int((~valid_mask).sum())
+            if skipped_rows:
+                logger.warning(
+                    "Skipping %d rows for %s due to missing %s target data",
+                    skipped_rows,
+                    model_name,
+                    pair_key.upper(),
+                )
+
+            X = X_all[valid_mask]
+            y: np.ndarray = np.asarray(
+                pd.to_numeric(df.loc[valid_mask, target], errors="coerce").to_numpy(dtype=float)
+            )
+            metrics[f"{model_name}_train_rows"] = float(len(y))
+            if len(y) < 50:
+                raise ValueError(
+                    f"Insufficient valid rows for {model_name}: {len(y)} after integrity filtering"
+                )
 
             # ── Optuna hyperparameter search ────────────────────
-            if self.run_optuna and len(df) >= 200:
+            if self.run_optuna and len(y) >= 200:
                 logger.info("Running Optuna for %s (%d trials)...", model_name, OPTUNA_N_TRIALS)
                 study = optuna.create_study(direction="minimize")
                 study.optimize(
@@ -329,33 +400,45 @@ class ModelTrainer:
             logger.info("%s — MAE: %.2f, RMSE: %.2f", model_name, avg_mae, avg_rmse)
 
         # ── Calibrated probability coefficients (Platt scaling) ──
-        # Use holdout portion (X_hold / y_hold from the 85/15 split) so that
-        # calibration is fitted on predictions the model never trained on.
-        hold_slice = slice(split_idx, None)
-        X_cal = X[hold_slice]
         if "model_home_fg" in self.models and "model_away_fg" in self.models:
-            home_preds = self.models["model_home_fg"].predict(X_cal)
-            away_preds = self.models["model_away_fg"].predict(X_cal)
-            fg_margins = home_preds - away_preds
-            fg_actuals = (
-                np.asarray(df["home_score_fg"].to_numpy(dtype=float))[hold_slice]
-                > np.asarray(df["away_score_fg"].to_numpy(dtype=float))[hold_slice]
-            ).astype(float)
-            fg_coef, fg_intercept = _calibrate_probabilities(fg_margins, fg_actuals)
-            metrics["calibration_fg_coef"] = fg_coef
-            metrics["calibration_fg_intercept"] = fg_intercept
+            fg_mask = target_pair_masks["fg"]
+            X_fg = X_all[fg_mask]
+            split_idx_fg = int(len(X_fg) * 0.85)
+            X_cal_fg = X_fg[split_idx_fg:]
+            if len(X_cal_fg) > 0:
+                home_preds = self.models["model_home_fg"].predict(X_cal_fg)
+                away_preds = self.models["model_away_fg"].predict(X_cal_fg)
+                fg_margins = home_preds - away_preds
+                fg_home = pd.to_numeric(
+                    df.loc[fg_mask, "home_score_fg"], errors="coerce"
+                ).to_numpy(dtype=float)[split_idx_fg:]
+                fg_away = pd.to_numeric(
+                    df.loc[fg_mask, "away_score_fg"], errors="coerce"
+                ).to_numpy(dtype=float)[split_idx_fg:]
+                fg_actuals = (fg_home > fg_away).astype(float)
+                fg_coef, fg_intercept = _calibrate_probabilities(fg_margins, fg_actuals)
+                metrics["calibration_fg_coef"] = fg_coef
+                metrics["calibration_fg_intercept"] = fg_intercept
 
         if "model_home_1h" in self.models and "model_away_1h" in self.models:
-            h1_home = self.models["model_home_1h"].predict(X_cal)
-            h1_away = self.models["model_away_1h"].predict(X_cal)
-            h1_margins = h1_home - h1_away
-            h1_actuals = (
-                np.asarray(df["home_score_1h"].to_numpy(dtype=float))[hold_slice]
-                > np.asarray(df["away_score_1h"].to_numpy(dtype=float))[hold_slice]
-            ).astype(float)
-            h1_coef, h1_intercept = _calibrate_probabilities(h1_margins, h1_actuals)
-            metrics["calibration_1h_coef"] = h1_coef
-            metrics["calibration_1h_intercept"] = h1_intercept
+            h1_mask = target_pair_masks["1h"]
+            X_h1 = X_all[h1_mask]
+            split_idx_h1 = int(len(X_h1) * 0.85)
+            X_cal_h1 = X_h1[split_idx_h1:]
+            if len(X_cal_h1) > 0:
+                h1_home = self.models["model_home_1h"].predict(X_cal_h1)
+                h1_away = self.models["model_away_1h"].predict(X_cal_h1)
+                h1_margins = h1_home - h1_away
+                h1_home_actual = pd.to_numeric(
+                    df.loc[h1_mask, "home_score_1h"], errors="coerce"
+                ).to_numpy(dtype=float)[split_idx_h1:]
+                h1_away_actual = pd.to_numeric(
+                    df.loc[h1_mask, "away_score_1h"], errors="coerce"
+                ).to_numpy(dtype=float)[split_idx_h1:]
+                h1_actuals = (h1_home_actual > h1_away_actual).astype(float)
+                h1_coef, h1_intercept = _calibrate_probabilities(h1_margins, h1_actuals)
+                metrics["calibration_1h_coef"] = h1_coef
+                metrics["calibration_1h_intercept"] = h1_intercept
 
         # Save metrics
         metrics_path = ARTIFACTS_DIR / "metrics.json"

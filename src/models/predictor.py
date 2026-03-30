@@ -51,6 +51,7 @@ class Predictor:
         self.feature_cols = get_feature_columns()
         self._inference_feature_cols = list(self.feature_cols)
         self.models: dict[str, xgb.XGBRegressor] = {}
+        self._imputation_values: dict[str, float] = {}
         self._model_feature_counts: dict[str, int] = {}
         self._incompatible_models: dict[str, int] = {}
         self._last_error: str | None = None
@@ -59,6 +60,7 @@ class Predictor:
         self.model_version = MODEL_VERSION
         self._load_models()
         self._load_calibration()
+        self._load_imputation()
 
     async def _resolve_model_version(self, db: AsyncSession) -> str:
         result = await db.execute(
@@ -189,6 +191,28 @@ class Predictor:
         if self._calibration:
             logger.info("Loaded calibration coefficients")
 
+    def _load_imputation(self) -> None:
+        """Load saved feature fill values so inference never accepts NaNs."""
+        imputation_path = ARTIFACTS_DIR / "imputation.json"
+        if not imputation_path.exists():
+            logger.warning("Imputation file not found: %s", imputation_path)
+            return
+
+        payload = json.loads(imputation_path.read_text())
+        self._imputation_values = {}
+        for col in self.feature_cols:
+            value = payload.get(col)
+            try:
+                self._imputation_values[col] = float(value)
+            except (TypeError, ValueError):
+                self._imputation_values[col] = 0.0
+
+        logger.info("Loaded imputation values for %d features", len(self._imputation_values))
+
+    def _has_imputation_values(self) -> bool:
+        imputation_values = getattr(self, "_imputation_values", {})
+        return all(col in imputation_values for col in self._inference_feature_cols)
+
     @property
     def is_ready(self) -> bool:
         return len(self.models) == len(MODEL_NAMES) and not self._incompatible_models
@@ -196,6 +220,10 @@ class Predictor:
     def get_runtime_status(self) -> dict[str, Any]:
         expected_features = len(self.feature_cols)
         missing = [name for name in MODEL_NAMES if name not in self.models]
+        imputation_values = getattr(self, "_imputation_values", {})
+        missing_imputation = [
+            col for col in self._inference_feature_cols if col not in imputation_values
+        ]
         reason = self._last_error
         if reason is None and missing:
             reason = "Models not loaded"
@@ -206,6 +234,8 @@ class Predictor:
             "compatibility_mode": self._compatibility_mode,
             "loaded_models": sorted(self.models.keys()),
             "missing_models": missing,
+            "imputation_features": len(imputation_values),
+            "missing_imputation_features": missing_imputation[:10],
             "incompatible_models": self._incompatible_models,
             "model_feature_counts": self._model_feature_counts,
             "reason": reason,
@@ -222,6 +252,26 @@ class Predictor:
         if imp_path.exists():
             return json.loads(imp_path.read_text())
         return {}
+
+    def _sanitize_features(self, features: dict[str, Any]) -> tuple[dict[str, float], int]:
+        """Replace non-finite values with saved fill values."""
+        imputation_values = getattr(self, "_imputation_values", {})
+        sanitized: dict[str, float] = {}
+        imputed_count = 0
+        for col in self._inference_feature_cols:
+            fill_value = imputation_values.get(col, 0.0)
+            raw_value = features.get(col, fill_value)
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                value = fill_value
+                imputed_count += 1
+            else:
+                if not math.isfinite(value):
+                    value = fill_value
+                    imputed_count += 1
+            sanitized[col] = value
+        return sanitized, imputed_count
 
     @staticmethod
     def _latest_snapshots(
@@ -329,7 +379,19 @@ class Predictor:
         if features is None:
             return None
 
-        X = np.array([[features.get(c, 0.0) for c in self._inference_feature_cols]])
+        sanitized_features, imputed_count = self._sanitize_features(features)
+        if self._inference_feature_cols:
+            imputed_ratio = imputed_count / len(self._inference_feature_cols)
+            if imputed_ratio > 0.5:
+                logger.error(
+                    "Feature integrity gate tripped for game %s: %d/%d features required imputation",
+                    game.id,
+                    imputed_count,
+                    len(self._inference_feature_cols),
+                )
+                return None
+
+        X = np.array([[sanitized_features[c] for c in self._inference_feature_cols]])
 
         try:
             home_fg = float(self.models["model_home_fg"].predict(X)[0])

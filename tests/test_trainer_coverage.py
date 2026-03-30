@@ -15,6 +15,43 @@ _MOD = "src.models.trainer"
 
 
 class TestBuildDataset:
+    def test_build_imputation_values_uses_median_and_zero_fallback(self):
+        import pandas as pd
+
+        from src.models.trainer import _build_imputation_values
+
+        df = pd.DataFrame(
+            {
+                "f1": [1.0, None, 3.0],
+                "f2": [None, None, None],
+            }
+        )
+
+        fill_values = _build_imputation_values(df, ["f1", "f2"])
+
+        assert fill_values["f1"] == 2.0
+        assert fill_values["f2"] == 0.0
+
+    def test_valid_target_mask_requires_complete_pairs(self):
+        import pandas as pd
+
+        from src.models.trainer import _valid_target_mask
+
+        df = pd.DataFrame(
+            {
+                "home_score_fg": [110.0, 108.0],
+                "away_score_fg": [105.0, 101.0],
+                "home_score_1h": [55.0, None],
+                "away_score_1h": [52.0, 48.0],
+            }
+        )
+
+        fg_mask = _valid_target_mask(df, ["home_score_fg", "away_score_fg"])
+        h1_mask = _valid_target_mask(df, ["home_score_1h", "away_score_1h"])
+
+        assert fg_mask.tolist() == [True, True]
+        assert h1_mask.tolist() == [True, False]
+
     @pytest.mark.anyio
     async def test_build_dataset_returns_dataframe(self):
         from src.models.trainer import ModelTrainer
@@ -86,8 +123,8 @@ class TestBuildDataset:
             mock_feat.return_value = {"f1": 1.0}
             df = await trainer._build_dataset(db)
 
-        assert np.isnan(df.iloc[0]["home_score_1h"])
-        assert np.isnan(df.iloc[0]["away_score_1h"])
+        assert df.iloc[0]["home_score_1h"] is None or np.isnan(df.iloc[0]["home_score_1h"])
+        assert df.iloc[0]["away_score_1h"] is None or np.isnan(df.iloc[0]["away_score_1h"])
 
 
 class TestTrainOutlierAndDrift:
@@ -111,7 +148,7 @@ class TestTrainOutlierAndDrift:
     @pytest.mark.anyio
     async def test_train_detects_outliers(self, tmp_path):
         """Outlier detection runs on target variables without crashing."""
-        from src.models.trainer import ARTIFACTS_DIR, ModelTrainer
+        from src.models.trainer import ModelTrainer
 
         trainer = ModelTrainer.__new__(ModelTrainer)
         trainer.feature_cols = ["f1"]
@@ -190,9 +227,9 @@ class TestTrainOutlierAndDrift:
 
     @pytest.mark.anyio
     async def test_train_runs_optuna_branch(self, tmp_path):
-        from src.models.trainer import ModelTrainer
-
         import pandas as pd
+
+        from src.models.trainer import ModelTrainer
 
         trainer = ModelTrainer.__new__(ModelTrainer)
         trainer.feature_cols = ["f1", "f2"]
@@ -250,9 +287,9 @@ class TestTrainOutlierAndDrift:
 
     @pytest.mark.anyio
     async def test_train_logs_feature_importance_drift(self, tmp_path):
-        from src.models.trainer import ModelTrainer
-
         import pandas as pd
+
+        from src.models.trainer import ModelTrainer
 
         feature_cols = [f"f{i}" for i in range(25)]
         trainer = ModelTrainer.__new__(ModelTrainer)

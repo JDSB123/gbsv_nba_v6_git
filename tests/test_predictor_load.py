@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -32,8 +31,8 @@ class TestLoadModelsAllPresent:
     """_load_models when all 4 model files exist."""
 
     def test_exact_feature_count_match(self):
-        from src.models.predictor import MODEL_NAMES, Predictor
         from src.models.features import get_feature_columns
+        from src.models.predictor import MODEL_NAMES, Predictor
 
         expected = len(get_feature_columns())
         mock_model = _make_mock_model(expected)
@@ -65,8 +64,8 @@ class TestLoadModelsAllPresent:
             assert len(p.models) == 4
 
     def test_missing_model_file(self):
-        from src.models.predictor import Predictor
         from src.models.features import get_feature_columns
+        from src.models.predictor import Predictor
 
         mock_path = MagicMock()
         mock_path.exists.return_value = False
@@ -89,8 +88,8 @@ class TestLoadModelsAllPresent:
 
     def test_feature_count_mismatch_across_models(self):
         """Different feature counts across models → error, models cleared."""
-        from src.models.predictor import MODEL_NAMES, Predictor
         from src.models.features import get_feature_columns
+        from src.models.predictor import Predictor
 
         expected = len(get_feature_columns())
         call_count = 0
@@ -131,8 +130,8 @@ class TestLoadModelsAllPresent:
 
     def test_compatibility_mode_on_fewer_features(self):
         """Models with fewer features → compatibility mode enabled."""
-        from src.models.predictor import Predictor
         from src.models.features import get_feature_columns
+        from src.models.predictor import Predictor
 
         expected = len(get_feature_columns())
         fewer = expected - 10
@@ -165,8 +164,8 @@ class TestLoadModelsAllPresent:
 
     def test_feature_name_mismatch_logged(self):
         """Feature names don't match code → _last_error set but models kept."""
-        from src.models.predictor import Predictor
         from src.models.features import get_feature_columns
+        from src.models.predictor import Predictor
 
         expected = len(get_feature_columns())
         bad_names = [f"wrong_{i}" for i in range(expected)]
@@ -367,3 +366,86 @@ class TestPredictGame:
             mock_feat.return_value = {"f1": 1.0}
             with pytest.raises(RuntimeError, match="boom"):
                 await p.predict_game(game, db)
+
+    @pytest.mark.anyio
+    async def test_prediction_imputes_non_finite_features(self):
+        from src.models.predictor import Predictor
+
+        home_fg = MagicMock(return_value=np.array([110.0]))
+        p = Predictor.__new__(Predictor)
+        p.feature_cols = ["f1", "f2"]
+        p._inference_feature_cols = ["f1", "f2"]
+        p._compatibility_mode = False
+        p._last_error = None
+        p._calibration = {}
+        p._incompatible_models = {}
+        p._model_feature_counts = {}
+        p._imputation_values = {"f1": 1.5, "f2": 2.5}
+        p.model_version = "test"
+        p.models = {
+            "model_home_fg": MagicMock(predict=home_fg),
+            "model_away_fg": MagicMock(predict=MagicMock(return_value=np.array([105.0]))),
+            "model_home_1h": MagicMock(predict=MagicMock(return_value=np.array([55.0]))),
+            "model_away_1h": MagicMock(predict=MagicMock(return_value=np.array([52.0]))),
+        }
+
+        game = SimpleNamespace(
+            id=1,
+            home_team=SimpleNamespace(name="Lakers"),
+            away_team=SimpleNamespace(name="Celtics"),
+        )
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+
+        with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
+            mock_feat.return_value = {"f1": float("nan"), "f2": 2.0}
+            result = await p.predict_game(game, db)
+
+        assert result is not None
+        X = home_fg.call_args[0][0]
+        assert X[0, 0] == 1.5
+        assert X[0, 1] == 2.0
+
+    @pytest.mark.anyio
+    async def test_prediction_skips_when_too_many_features_need_imputation(self):
+        from src.models.predictor import Predictor
+
+        p = Predictor.__new__(Predictor)
+        p.feature_cols = ["f1", "f2", "f3", "f4"]
+        p._inference_feature_cols = ["f1", "f2", "f3", "f4"]
+        p._compatibility_mode = False
+        p._last_error = None
+        p._calibration = {}
+        p._incompatible_models = {}
+        p._model_feature_counts = {}
+        p._imputation_values = {"f1": 0.0, "f2": 0.0, "f3": 0.0, "f4": 0.0}
+        p.model_version = "test"
+        p.models = {
+            "model_home_fg": MagicMock(),
+            "model_away_fg": MagicMock(),
+            "model_home_1h": MagicMock(),
+            "model_away_1h": MagicMock(),
+        }
+
+        game = SimpleNamespace(
+            id=1,
+            home_team=SimpleNamespace(name="A"),
+            away_team=SimpleNamespace(name="B"),
+        )
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute.return_value = mock_result
+
+        with patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat:
+            mock_feat.return_value = {
+                "f1": float("nan"),
+                "f2": float("nan"),
+                "f3": float("nan"),
+                "f4": 1.0,
+            }
+            result = await p.predict_game(game, db)
+
+        assert result is None

@@ -67,9 +67,11 @@ class TestPoll1hOdds:
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
+            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock) as mock_sync,
         ):
             mock_breaker.should_skip.return_value = False
             await poll_1h_odds()
+        mock_sync.assert_awaited_once()
         assert mock_client.persist_odds.call_count == 2
         mock_breaker.record_success.assert_called_once()
 
@@ -89,6 +91,7 @@ class TestPoll1hOdds:
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
+            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
         ):
             mock_breaker.should_skip.return_value = False
             await poll_1h_odds()

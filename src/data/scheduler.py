@@ -76,6 +76,10 @@ async def poll_1h_odds() -> None:
     try:
         from src.data.odds_client import OddsClient
 
+        # Link events to Game rows before persisting per-event 1H odds.
+        # Otherwise these snapshots can be skipped due to missing odds_api_id.
+        await sync_events_to_games()
+
         client = OddsClient()
         events = await client.fetch_events()
         fetched = 0
