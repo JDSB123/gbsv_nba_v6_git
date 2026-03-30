@@ -124,13 +124,25 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 async def _run_predict() -> None:
-    from src.data.scheduler import poll_1h_odds, poll_fg_odds, poll_stats
+    from src.data.scheduler import (
+        poll_1h_odds,
+        poll_fg_odds,
+        poll_injuries,
+        poll_player_props,
+        poll_scores_and_box,
+        poll_stats,
+        sync_events_to_games,
+    )
     from src.db.session import async_session_factory
     from src.models.predictor import Predictor
 
     await poll_stats()
+    await poll_scores_and_box()
+    await poll_injuries()
+    await sync_events_to_games()
     await poll_fg_odds()
     await poll_1h_odds()
+    await poll_player_props()
 
     predictor = Predictor()
     if not predictor.is_ready:
@@ -138,7 +150,7 @@ async def _run_predict() -> None:
         return
     async with async_session_factory() as db:
         predictions = await predictor.predict_upcoming(db)
-    print(f"Generated {len(predictions)} predictions (fresh odds).")
+    print(f"Generated {len(predictions)} predictions (fresh data).")
 
 
 def cmd_predict(args: argparse.Namespace) -> None:

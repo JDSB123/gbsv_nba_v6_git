@@ -8,6 +8,7 @@ import pytest
 
 from src.data.basketball_client import (
     BasketballClient,
+    _box_score_percentage,
     _compute_advanced_stats,
     _pct_to_decimal,
 )
@@ -49,6 +50,20 @@ class TestPctToDecimalEdge:
 
     def test_decimal_passthrough(self):
         assert _pct_to_decimal(0.465) == 0.465
+
+
+class TestBoxScorePercentage:
+    def test_uses_percentage_when_present(self):
+        assert _box_score_percentage({"percentage": "38.5", "total": 4, "attempts": 11}) == 38.5
+
+    def test_derives_percentage_from_totals_when_missing(self):
+        assert _box_score_percentage({"total": 4, "attempts": 11, "percentage": None}) == pytest.approx(
+            36.36,
+            abs=0.01,
+        )
+
+    def test_returns_none_when_attempts_missing(self):
+        assert _box_score_percentage({"total": 4, "attempts": 0, "percentage": None}) is None
 
 
 # ── _compute_advanced_stats edge cases ──────────────────────────

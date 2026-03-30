@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, date, datetime, timedelta
+from inspect import isawaitable
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -434,17 +435,59 @@ async def poll_stats() -> None:
 
 
 async def poll_scores_and_box() -> None:
-    """Fetch box scores for finished games that don't have player stats yet."""
+    """Fetch box scores (referees and player stats) for finished games."""
     logger.info("Polling scores and box scores...")
     try:
         from sqlalchemy import and_
 
         from src.data.basketball_client import BasketballClient
-        from src.db.models import PlayerGameStats
+        from src.db.models import GameReferee, PlayerGameStats
 
         client = BasketballClient()
         async with async_session_factory() as db:
-            # Find finished games that have NO player_game_stats rows yet
+            # 1. Fetch Referees for ANY game that doesn't have them yet (upcoming or finished)
+            ref_subq = select(GameReferee.game_id).distinct().scalar_subquery()
+            # Fetch for games in the next 48 hours or last 24 hours
+            from datetime import timedelta
+            now = datetime.now(UTC).replace(tzinfo=None)
+            ref_game_result = await db.execute(
+                select(Game.id)
+                .where(
+                    and_(
+                        Game.id.notin_(ref_subq),
+                        Game.commence_time.between(now - timedelta(days=1), now + timedelta(days=2)),
+                    )
+                )
+                .limit(20)
+            )
+            missing_ref_ids = [row[0] for row in ref_game_result.fetchall()]
+            if missing_ref_ids:
+                logger.info("Fetching referees for %d games", len(missing_ref_ids))
+                for gid in missing_ref_ids:
+                    refs_result = getattr(client, "fetch_nba_officials", None)
+                    if refs_result is None:
+                        refs: list[str] = []
+                    else:
+                        maybe_refs = refs_result(gid)
+                        if isawaitable(maybe_refs):
+                            refs = await maybe_refs
+                        elif isinstance(maybe_refs, list):
+                            refs = maybe_refs
+                        else:
+                            logger.debug(
+                                "Skipping referee sync for game %s because fetch_nba_officials "
+                                "did not return an awaitable or list",
+                                gid,
+                            )
+                            refs = []
+                    if refs:
+                        # Clear any existing refs (savepoint handling)
+                        await db.execute(delete(GameReferee).where(GameReferee.game_id == gid))
+                        for rname in refs:
+                            db.add(GameReferee(game_id=gid, referee_name=rname))
+                await db.commit()
+
+            # 2. Find finished games that have NO player_game_stats rows yet
             subq = select(PlayerGameStats.game_id).distinct().scalar_subquery()
             result = await db.execute(
                 select(Game.id)
@@ -773,23 +816,23 @@ async def generate_predictions_and_publish() -> None:
         # Invalidate Elo cache so fresh ratings are computed from latest results
         reset_elo_cache()
 
-        # 0) Ensure all of today's games exist in the DB.  poll_stats()
-        #    fetches today's schedule from the Basketball API and upserts
-        #    Game rows.  Without this, games added to the API after the
-        #    last 2-hour poll_stats cycle would be missing from predictions.
+        # 0) Refresh all upstream inputs the model depends on right before inference.
+        #    That keeps prediction runs deterministic and avoids reusing stale local state.
         await poll_stats()
+        await poll_scores_and_box()
+        await poll_injuries()
 
         # 1) Sync Odds-API events → internal games so odds_api_id is set
         #    before persist_odds tries to link snapshots.
         await sync_events_to_games()
 
-        # 2) Always pull fresh FG + 1H odds before generating predictions.
+        # 2) Always pull fresh FG + 1H odds plus player props before generating predictions.
         #    This function runs infrequently (morning cron / manual refresh),
-        #    so the API cost (~12 credits) is justified vs. the risk of
-        #    stale or missing odds producing wrong predictions.
+        #    so the API cost is justified vs. the risk of stale or missing inputs.
         _s = get_settings()
         await poll_fg_odds()
         await poll_1h_odds()
+        await poll_player_props()
 
         predictor = Predictor()
         if not predictor.is_ready:

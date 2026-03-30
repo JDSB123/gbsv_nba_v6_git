@@ -1,6 +1,6 @@
 """Extended scheduler tests for additional job coverage."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +14,6 @@ from src.data.scheduler import (
     pregame_check,
     prune_old_odds,
 )
-
 
 # ── daily_retrain ────────────────────────────────────────────────
 
@@ -42,10 +41,12 @@ class TestDailyRetrain:
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             with patch("src.models.trainer.ModelTrainer") as mock_cls:
                 mock_cls.side_effect = RuntimeError("boom")
-                with patch("src.data.scheduler._record_failure", new_callable=AsyncMock) as mock_rec:
-                    with patch("src.notifications.teams.send_alert", new_callable=AsyncMock):
-                        await daily_retrain()
-                        mock_rec.assert_called_once()
+                with (
+                    patch("src.data.scheduler._record_failure", new_callable=AsyncMock) as mock_rec,
+                    patch("src.notifications.teams.send_alert", new_callable=AsyncMock),
+                ):
+                    await daily_retrain()
+                    mock_rec.assert_called_once()
 
 
 # ── poll_injuries ────────────────────────────────────────────────
@@ -116,17 +117,22 @@ class TestPregameCheck:
 class TestGeneratePredictionsAndPublish:
     @pytest.mark.anyio
     async def test_predictor_not_ready(self):
-        with patch("src.data.scheduler.poll_stats", new_callable=AsyncMock):
-            with patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock):
-                with patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock):
-                    with patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock):
-                        with patch("src.models.predictor.Predictor") as mock_cls:
-                            mock_cls.return_value = MagicMock(is_ready=False)
-                            with patch("src.models.features.reset_elo_cache"):
-                                with patch("src.data.scheduler.get_settings") as mock_s:
-                                    mock_s.return_value = MagicMock()
-                                    await generate_predictions_and_publish()
-                                    # Should return without publishing
+        with (
+            patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
+            patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
+            patch("src.models.predictor.Predictor") as mock_cls,
+            patch("src.models.features.reset_elo_cache"),
+            patch("src.data.scheduler.get_settings") as mock_s,
+        ):
+            mock_cls.return_value = MagicMock(is_ready=False)
+            mock_s.return_value = MagicMock()
+            await generate_predictions_and_publish()
+            # Should return without publishing
 
 
 # ── check_prediction_drift ───────────────────────────────────────

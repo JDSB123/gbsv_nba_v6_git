@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import numpy as np
 import xgboost as xgb
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,6 +21,22 @@ logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+CORE_ODDS_MARKETS = ("h2h", "spreads", "totals", "h2h_h1", "spreads_h1", "totals_h1")
+PROP_ODDS_MARKETS = (
+    "player_points",
+    "player_rebounds",
+    "player_assists",
+    "player_threes",
+    "player_blocks",
+    "player_steals",
+    "player_turnovers",
+    "player_points_rebounds_assists",
+    "player_points_rebounds",
+    "player_points_assists",
+    "player_rebounds_assists",
+    "player_double_double",
+    "player_triple_double",
+)
 
 
 def _margin_to_prob(
@@ -347,6 +363,51 @@ class Predictor:
             "books": dict(books),
         }
 
+    async def _load_prediction_snapshots(
+        self,
+        db: AsyncSession,
+        game_id: int,
+    ) -> tuple[list[OddsSnapshot], list[OddsSnapshot]]:
+        core_result = await db.execute(
+            select(OddsSnapshot)
+            .where(
+                OddsSnapshot.game_id == game_id,
+                OddsSnapshot.market.in_(CORE_ODDS_MARKETS),
+            )
+            .order_by(OddsSnapshot.captured_at.desc())
+        )
+        core_snapshots = list(core_result.scalars().all())
+
+        ranked_props = (
+            select(
+                OddsSnapshot.id.label("snapshot_id"),
+                func.row_number()
+                .over(
+                    partition_by=(
+                        OddsSnapshot.bookmaker,
+                        OddsSnapshot.market,
+                        OddsSnapshot.description,
+                        OddsSnapshot.outcome_name,
+                    ),
+                    order_by=OddsSnapshot.captured_at.desc(),
+                )
+                .label("row_num"),
+            )
+            .where(
+                OddsSnapshot.game_id == game_id,
+                OddsSnapshot.market.in_(PROP_ODDS_MARKETS),
+            )
+            .subquery()
+        )
+        prop_result = await db.execute(
+            select(OddsSnapshot)
+            .join(ranked_props, OddsSnapshot.id == ranked_props.c.snapshot_id)
+            .where(ranked_props.c.row_num == 1)
+        )
+        prop_snapshots = list(prop_result.scalars().all())
+
+        return core_snapshots, prop_snapshots
+
     async def predict_game(
         self,
         game: Game,
@@ -362,20 +423,14 @@ class Predictor:
             return None
 
         # ── Use stored odds from DB (refreshed by polling jobs) ──
-        result = await db.execute(
-            select(OddsSnapshot)
-            .where(OddsSnapshot.game_id == game.id)
-            .order_by(OddsSnapshot.captured_at.desc())
-            .limit(500)
-        )
-        raw_snapshots = list(result.scalars().all())
-        if not raw_snapshots:
+        core_snapshots, prop_snapshots = await self._load_prediction_snapshots(db, game.id)
+        if not core_snapshots:
             logger.error(
                 "Prediction skipped for game %s: no stored odds snapshots available",
                 game.id,
             )
             return None
-        stored_snapshots, odds_ts = self._latest_snapshots(raw_snapshots)
+        stored_snapshots, odds_ts = self._latest_snapshots(core_snapshots)
         if odds_ts is None:
             logger.error(
                 "Prediction skipped for game %s: stored odds snapshots have no capture timestamp",
@@ -402,7 +457,11 @@ class Predictor:
         away_name = game.away_team.name if game.away_team else ""
         odds_detail = self._build_odds_detail(stored_snapshots, home_name, away_name, odds_ts)
 
-        features = await build_feature_vector(game, db, odds_snapshots=stored_snapshots)
+        features = await build_feature_vector(
+            game,
+            db,
+            odds_snapshots=core_snapshots + prop_snapshots,
+        )
         if features is None:
             return None
 
@@ -582,7 +641,11 @@ class Predictor:
         """
         result = await db.execute(
             select(Game)
-            .options(selectinload(Game.home_team), selectinload(Game.away_team))
+            .options(
+                selectinload(Game.home_team),
+                selectinload(Game.away_team),
+                selectinload(Game.referees),
+            )
             .where(Game.status == "NS")
             .order_by(Game.commence_time)
         )

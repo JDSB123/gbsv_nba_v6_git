@@ -90,6 +90,7 @@ class Game(Base):
     odds_snapshots = relationship("OddsSnapshot", back_populates="game")
     predictions = relationship("Prediction", back_populates="game")
     player_stats = relationship("PlayerGameStats", back_populates="game")
+    referees = relationship("GameReferee", back_populates="game")
 
     __table_args__ = (
         Index("ix_games_status_commence", "status", "commence_time"),
@@ -277,6 +278,8 @@ class GameReferee(Base):
     referee_name = Column(String(100), nullable=False)
     role = Column(String(50))  # e.g., 'Crew Chief', 'Referee', 'Umpire'
     # Future metrics: foul_rate, home_win_pct_bias
+
+    game = relationship("Game", back_populates="referees")
 
 
 class RotationChange(Base):

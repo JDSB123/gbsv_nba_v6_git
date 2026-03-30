@@ -463,6 +463,14 @@ class TestBuildFeatureVectorWithOdds:
                 point=None,
                 bookmaker="pinnacle",
             ),
+            _make_odds_snapshot(
+                market="player_points",
+                outcome_name="Over",
+                description="Jayson Tatum",
+                point=29.5,
+                bookmaker="fanduel",
+                captured_at=datetime(2025, 1, 15, 20, 0, tzinfo=UTC),
+            ),
         ]
 
         db = AsyncMock()
@@ -511,6 +519,8 @@ class TestBuildFeatureVectorWithOdds:
         assert math.isfinite(features["mkt_total_avg"])
         assert features["mkt_total_avg"] > 200
         assert math.isfinite(features["sharp_spread"])
+        assert math.isfinite(features["spread_move"])
+        assert math.isfinite(features["total_move"])
         assert features["rlm_flag"] in (0.0, 1.0)
 
 

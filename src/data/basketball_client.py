@@ -17,6 +17,7 @@ from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
 from src.db.models import (
     Game,
+    GameReferee,
     Injury,
     Player,
     PlayerGameStats,
@@ -85,6 +86,29 @@ def _pct_to_decimal(value: Any) -> float | None:
         logger.warning("_pct_to_decimal: value %s produced out-of-range result %s", value, result)
         return None
     return result
+
+
+def _box_score_percentage(stats: Any) -> float | None:
+    """Return a box-score percentage or derive it from makes/attempts."""
+    if not isinstance(stats, dict):
+        return None
+
+    try:
+        pct = _as_float(stats.get("percentage"))
+    except (TypeError, ValueError):
+        pct = None
+    if pct is not None:
+        return pct
+
+    try:
+        made = _as_float(stats.get("total"))
+        attempts = _as_float(stats.get("attempts"))
+    except (TypeError, ValueError):
+        return None
+    if made is None or attempts in (None, 0):
+        return None
+
+    return made / attempts * 100.0
 
 
 def _compute_advanced_stats(
@@ -236,7 +260,24 @@ class BasketballClient:
             },
         )
 
-    # ── Injury data (NBA API v2, shares same api-sports key) ─────
+    # ── NBA API v2 (shares same api-sports key) ─────
+
+    @_RETRY
+    async def fetch_nba_officials(self, game_id: int) -> list[str]:
+        """Fetch officials from NBA API v2 for a specific game."""
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self._nba_api_base}/games",
+                headers=self._headers(),
+                params={"id": game_id},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            games = data.get("response", [])
+            if games and "officials" in games[0]:
+                return games[0]["officials"] or []
+            return []
 
     @_RETRY
     async def fetch_injuries(self, season: str | None = None) -> list[dict]:
@@ -426,6 +467,11 @@ class BasketballClient:
                 )
             )
             await db.execute(stmt)
+
+            # Note: Basketball API v1 does not provide officials (referees).
+            # This is fetched separately via fetch_nba_officials (NBA API v2)
+            # during the poll_scores job or a dedicated referee sync.
+
             count += 1
         await db.commit()
         logger.info("Upserted %d games", count)
@@ -540,6 +586,9 @@ class BasketballClient:
             tp = p.get("threepoint_goals", {}) or {}
             ft = p.get("freethrows_goals", {}) or {}
             reb = p.get("rebounds", {}) or {}
+            fg_pct = _box_score_percentage(fg)
+            three_pct = _box_score_percentage(tp)
+            ft_pct = _box_score_percentage(ft)
 
             stmt = (
                 pg_insert(PlayerGameStats)
@@ -553,9 +602,9 @@ class BasketballClient:
                     steals=_safe_int(p.get("steals")),
                     blocks=_safe_int(p.get("blocks")),
                     turnovers=_safe_int(p.get("turnovers")),
-                    fg_pct=_safe_float(fg.get("percentage")),
-                    three_pct=_safe_float(tp.get("percentage")),
-                    ft_pct=_safe_float(ft.get("percentage")),
+                    fg_pct=fg_pct,
+                    three_pct=three_pct,
+                    ft_pct=ft_pct,
                     plus_minus=_safe_float(p.get("plusMinus")),
                 )
                 .on_conflict_do_update(
@@ -568,9 +617,9 @@ class BasketballClient:
                         "steals": _safe_int(p.get("steals")),
                         "blocks": _safe_int(p.get("blocks")),
                         "turnovers": _safe_int(p.get("turnovers")),
-                        "fg_pct": _safe_float(fg.get("percentage")),
-                        "three_pct": _safe_float(tp.get("percentage")),
-                        "ft_pct": _safe_float(ft.get("percentage")),
+                        "fg_pct": fg_pct,
+                        "three_pct": three_pct,
+                        "ft_pct": ft_pct,
                         "plus_minus": _safe_float(p.get("plusMinus")),
                     },
                 )

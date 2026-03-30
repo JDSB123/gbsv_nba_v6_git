@@ -237,7 +237,11 @@ class ModelTrainer:
 
         result = await db.execute(
             select(Game)
-            .options(selectinload(Game.home_team), selectinload(Game.away_team))
+            .options(
+                selectinload(Game.home_team),
+                selectinload(Game.away_team),
+                selectinload(Game.referees),
+            )
             .where(
                 Game.status == "FT",
                 Game.home_score_fg.is_not(None),

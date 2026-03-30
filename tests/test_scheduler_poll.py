@@ -747,9 +747,12 @@ class TestPublishFlow:
 
         with (
             patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings") as mock_s,
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
@@ -773,9 +776,12 @@ class TestPublishFlow:
 
         with (
             patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings") as mock_s,
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
@@ -827,9 +833,12 @@ class TestPublishFlow:
 
         with (
             patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings", return_value=mock_settings),
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
@@ -881,9 +890,12 @@ class TestPublishFlow:
 
         with (
             patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings", return_value=mock_settings),
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
@@ -936,9 +948,12 @@ class TestPublishFlow:
 
         with (
             patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_SCHED}.get_settings", return_value=mock_settings),
             patch(f"{_SCHED}.async_session_factory", mock_sf),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),

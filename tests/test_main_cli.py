@@ -173,8 +173,12 @@ class TestRunPredict:
 
         with (
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
+            patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
         ):
             await _run_predict()
@@ -191,8 +195,12 @@ class TestRunPredict:
 
         with (
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock) as mock_stats,
+            patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock) as mock_box,
+            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock) as mock_inj,
+            patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock) as mock_sync,
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock) as mock_fg,
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock) as mock_h1,
+            patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock) as mock_props,
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.db.session.async_session_factory") as mock_sf,
         ):
@@ -203,8 +211,12 @@ class TestRunPredict:
             output = capsys.readouterr().out
             assert "3" in output
         mock_stats.assert_awaited_once()
+        mock_box.assert_awaited_once()
+        mock_inj.assert_awaited_once()
+        mock_sync.assert_awaited_once()
         mock_fg.assert_awaited_once()
         mock_h1.assert_awaited_once()
+        mock_props.assert_awaited_once()
 
 
 class TestRunPublishTeams:

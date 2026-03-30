@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import runpy
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -127,7 +125,16 @@ class TestRunPredict:
         mock_predictor = MagicMock()
         mock_predictor.is_ready = False
 
-        with patch("src.models.predictor.Predictor", return_value=mock_predictor):
+        with (
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
+            patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
+        ):
             from src.__main__ import _run_predict
 
             await _run_predict()
@@ -150,6 +157,13 @@ class TestRunPredict:
         with (
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.db.session.async_session_factory", mock_factory),
+            patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
+            patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
+            patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
         ):
             from src.__main__ import _run_predict
 

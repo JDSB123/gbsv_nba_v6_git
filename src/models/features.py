@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.data.seasons import season_for_date
 from src.db.models import (
     Game,
+    GameReferee,
     Injury,
     OddsSnapshot,
     Player,
@@ -31,6 +32,16 @@ def _as_float(value: Any, default: float = NaN) -> float:
 
 def _as_str(value: Any, default: str = "") -> str:
     return str(value) if value is not None else default
+
+
+def _assigned_referee_names(game: Any) -> list[str]:
+    """Return assigned referee names when the relation is present."""
+    referees = getattr(game, "referees", None) or []
+    return [
+        _as_str(getattr(referee, "referee_name", "")).strip()
+        for referee in referees
+        if _as_str(getattr(referee, "referee_name", "")).strip()
+    ]
 
 
 def _home_spreads(
@@ -789,6 +800,72 @@ async def build_feature_vector(
     away_tz = TEAM_TZ.get(away_name, -5)
     features["tz_diff"] = float(abs(home_tz - away_tz))
 
+    # ── Referee History ──────────────────────────────────────────
+    # Load assigned referees and calculate historical impact (3-official crew)
+    ref_names = _assigned_referee_names(game)
+    if ref_names:
+        ref_metrics = []
+        for name in ref_names:
+            # Query all past games involving this referee
+            ref_games_res = await db.execute(
+                select(Game)
+                .join(GameReferee)
+                .where(
+                    GameReferee.referee_name == name,
+                    Game.status == "FT",
+                    Game.commence_time < game.commence_time,
+                    Game.home_score_fg.is_not(None),
+                    Game.away_score_fg.is_not(None),
+                )
+            )
+            ref_games = ref_games_res.scalars().all()
+            if ref_games:
+                pts = []
+                hw_pct = []
+                over_pct = []
+
+                # We need O/U lines for over_pct (approximated from OddsSnapshot if available)
+                for rg in ref_games:
+                    h_pts = _as_float(cast(Any, rg.home_score_fg))
+                    a_pts = _as_float(cast(Any, rg.away_score_fg))
+                    pts.append(h_pts + a_pts)
+                    hw_pct.append(1.0 if h_pts > a_pts else 0.0)
+
+                    # Historical total line if available to judge "Over" bias
+                    total_res = await db.execute(
+                        select(OddsSnapshot.point)
+                        .where(
+                            OddsSnapshot.game_id == rg.id,
+                            OddsSnapshot.market == "totals",
+                        )
+                        .limit(1)
+                    )
+                    line = total_res.scalar()
+                    if line:
+                        over_pct.append(1.0 if (h_pts + a_pts) > _as_float(line) else 0.0)
+
+                ref_metrics.append(
+                    {
+                        "pts": float(np.mean(pts)),
+                        "hw": float(np.mean(hw_pct)),
+                        "over": float(np.mean(over_pct)) if over_pct else NaN,
+                    }
+                )
+
+        if ref_metrics:
+            features["ref_avg_pts"] = float(np.mean([m["pts"] for m in ref_metrics]))
+            features["ref_home_win_pct_bias"] = float(np.mean([m["hw"] for m in ref_metrics]))
+            avg_over = [m["over"] for m in ref_metrics if not math.isnan(m["over"])]
+            features["ref_over_pct"] = float(np.mean(avg_over)) if avg_over else NaN
+        else:
+            features["ref_avg_pts"] = NaN
+            features["ref_home_win_pct_bias"] = NaN
+            features["ref_over_pct"] = NaN
+    else:
+        features["ref_avg_pts"] = NaN
+        features["ref_home_win_pct_bias"] = NaN
+        features["ref_over_pct"] = NaN
+
     # ── Opponent-adjusted ratings ───────────────────────────────
     # Approximation: team off rating relative to opponent def rating
     _h_off = features.get("home_off_rating", NaN)
@@ -969,13 +1046,29 @@ async def build_feature_vector(
         )
 
         # ── Line movement (opening → current) ──────────────────
-        # Opening = earliest captured snapshot; Current = latest
-        oldest_ts = min(cast(Any, s.captured_at) for s in snapshots)
+        # Track timestamps per market family so later prop updates do not
+        # hide the newest spreads/totals snapshots.
+        spread_timestamps = [
+            cast(Any, s.captured_at)
+            for s in snapshots
+            if _as_str(s.market) == "spreads"
+            and s.point is not None
+            and _as_str(s.outcome_name) == home_name
+        ]
+        total_timestamps = [
+            cast(Any, s.captured_at)
+            for s in snapshots
+            if _as_str(s.market) == "totals" and s.point is not None
+        ]
+        oldest_spread_ts = min(spread_timestamps) if spread_timestamps else None
+        latest_spread_ts = max(spread_timestamps) if spread_timestamps else None
+        oldest_total_ts = min(total_timestamps) if total_timestamps else None
+        latest_total_ts = max(total_timestamps) if total_timestamps else None
         opening_spreads = [
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "spreads"
-            and cast(Any, s.captured_at) == oldest_ts
+            and cast(Any, s.captured_at) == oldest_spread_ts
             and s.point is not None
             and _as_str(s.outcome_name) == home_name
         ]
@@ -983,7 +1076,7 @@ async def build_feature_vector(
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "spreads"
-            and cast(Any, s.captured_at) == cast(Any, snapshots[0].captured_at)
+            and cast(Any, s.captured_at) == latest_spread_ts
             and s.point is not None
             and _as_str(s.outcome_name) == home_name
         ]
@@ -991,14 +1084,14 @@ async def build_feature_vector(
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "totals"
-            and cast(Any, s.captured_at) == oldest_ts
+            and cast(Any, s.captured_at) == oldest_total_ts
             and s.point is not None
         ]
         current_totals = [
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "totals"
-            and cast(Any, s.captured_at) == cast(Any, snapshots[0].captured_at)
+            and cast(Any, s.captured_at) == latest_total_ts
             and s.point is not None
         ]
 
@@ -1057,6 +1150,68 @@ async def build_feature_vector(
             total_feats,
             nan_count / total_feats * 100,
         )
+
+    # ── Referee History ──────────────────────────────────────────
+    # Load assigned referees and calculate historical impact (3-official crew)
+    ref_names = _assigned_referee_names(game)
+    if ref_names:
+        ref_metrics = []
+        for name in ref_names:
+            # Past games involving this official (not including current)
+            ref_games_res = await db.execute(
+                select(Game)
+                .join(GameReferee)
+                .where(
+                    GameReferee.referee_name == name,
+                    Game.status == "FT",
+                    Game.commence_time < game.commence_time,
+                    Game.home_score_fg.is_not(None),
+                    Game.away_score_fg.is_not(None),
+                )
+            )
+            ref_games = ref_games_res.scalars().all()
+            if ref_games:
+                pts_list = []
+                hw_list = []
+                ov_list = []
+                for rg in ref_games:
+                    h_pts = _as_float(cast(Any, rg.home_score_fg))
+                    a_pts = _as_float(cast(Any, rg.away_score_fg))
+                    pts_total = h_pts + a_pts
+                    pts_list.append(pts_total)
+                    hw_list.append(1.0 if h_pts > a_pts else 0.0)
+
+                    # Look for totals marketing line for O/U tracking
+                    line_res = await db.execute(
+                        select(OddsSnapshot.point)
+                        .where(
+                            OddsSnapshot.game_id == rg.id,
+                            OddsSnapshot.market == "totals",
+                        )
+                        .limit(1)
+                    )
+                    line_val = line_res.scalar()
+                    if line_val is not None:
+                        ov_list.append(1.0 if pts_total > _as_float(line_val) else 0.0)
+
+                ref_metrics.append({
+                    "pts": float(np.mean(pts_list)) if pts_list else NaN,
+                    "hw": float(np.mean(hw_list)) if hw_list else NaN,
+                    "ov": float(np.mean(ov_list)) if ov_list else NaN
+                })
+
+        if ref_metrics:
+            features["ref_avg_pts"] = float(np.mean([m["pts"] for m in ref_metrics if not math.isnan(m["pts"])]))
+            features["ref_home_win_pct_bias"] = float(np.mean([m["hw"] for m in ref_metrics if not math.isnan(m["hw"])]))
+            features["ref_over_pct"] = float(np.mean([m["ov"] for m in ref_metrics if not math.isnan(m["ov"])]))
+        else:
+            features["ref_avg_pts"] = NaN
+            features["ref_home_win_pct_bias"] = NaN
+            features["ref_over_pct"] = NaN
+    else:
+        features["ref_avg_pts"] = NaN
+        features["ref_home_win_pct_bias"] = NaN
+        features["ref_over_pct"] = NaN
 
     return features
 

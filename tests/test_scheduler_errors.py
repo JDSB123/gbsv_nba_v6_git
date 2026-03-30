@@ -132,14 +132,17 @@ class TestPruneOldOddsException:
 class TestGeneratePredictionsException:
     @pytest.mark.anyio
     async def test_generate_predictions_exception_sends_alert(self):
-        # generate_predictions_and_publish calls poll_stats, sync_events_to_games,
-        # poll_fg_odds, poll_1h_odds, then Predictor(). We no-op the sub-calls
-        # and make Predictor() raise to trigger the outer except block.
+        # generate_predictions_and_publish refreshes fresh inputs first, then
+        # Predictor(). We no-op the sub-calls and make Predictor() raise to
+        # trigger the outer except block.
         with (
             patch(f"{_MOD}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_MOD}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_MOD}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_MOD}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_MOD}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_MOD}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_MOD}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_MOD}.get_settings"),
             patch("src.models.features.reset_elo_cache"),
             patch("src.models.predictor.Predictor", side_effect=RuntimeError("model load boom")),
