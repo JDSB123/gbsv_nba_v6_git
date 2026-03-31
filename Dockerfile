@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /install /usr/local
 COPY alembic.ini .
+COPY src/ src/
 
 EXPOSE 8000
 

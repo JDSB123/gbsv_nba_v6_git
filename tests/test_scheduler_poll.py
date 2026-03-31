@@ -7,7 +7,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-_SCHED = "src.data.scheduler"
+_POLL = "src.data.jobs.polling"
+_PRED = "src.data.jobs.predictions"
+_MAINT = "src.data.jobs.maintenance"
+_RECON = "src.data.reconciliation"
 
 
 def _mock_session():
@@ -33,10 +36,10 @@ class TestPollFgOdds:
         mock_client.persist_odds = AsyncMock()
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
         ):
             mock_breaker.should_skip.return_value = False
             await poll_fg_odds()
@@ -64,10 +67,10 @@ class TestPoll1hOdds:
         mock_client._should_skip = MagicMock(return_value=False)
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock) as mock_sync,
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock) as mock_sync,
         ):
             mock_breaker.should_skip.return_value = False
             await poll_1h_odds()
@@ -88,10 +91,10 @@ class TestPoll1hOdds:
         mock_client.persist_odds = AsyncMock()
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
         ):
             mock_breaker.should_skip.return_value = False
             await poll_1h_odds()
@@ -104,7 +107,7 @@ class TestPoll1hOdds:
         with (
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient") as mock_cls,
-            patch(f"{_SCHED}._record_failure", new_callable=AsyncMock),
+            patch(f"{_POLL}._record_failure", new_callable=AsyncMock),
         ):
             mock_breaker.should_skip.return_value = False
             mock_cls.return_value.fetch_events = AsyncMock(side_effect=RuntimeError("boom"))
@@ -138,7 +141,7 @@ class TestPollPlayerProps:
         mock_client.persist_odds = AsyncMock()
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
         ):
@@ -159,7 +162,7 @@ class TestPollPlayerProps:
         mock_client.persist_odds = AsyncMock()
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
         ):
@@ -174,7 +177,7 @@ class TestPollPlayerProps:
         with (
             patch("src.data.circuit_breaker.odds_api_breaker") as mock_breaker,
             patch("src.data.odds_client.OddsClient") as mock_cls,
-            patch(f"{_SCHED}._record_failure", new_callable=AsyncMock),
+            patch(f"{_POLL}._record_failure", new_callable=AsyncMock),
         ):
             mock_breaker.should_skip.return_value = False
             mock_cls.return_value.fetch_events = AsyncMock(side_effect=RuntimeError("x"))
@@ -188,7 +191,7 @@ class TestRefreshPredictionCache:
         from src.data.scheduler import refresh_prediction_cache
 
         with patch(
-            f"{_SCHED}.generate_predictions_and_publish",
+            f"{_PRED}.generate_predictions_and_publish",
             new_callable=AsyncMock,
             return_value=4,
         ) as mock_generate:
@@ -240,10 +243,10 @@ class TestPollStats:
         mock_db.execute = mock_exec
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.basketball_api_breaker") as mock_b,
             patch("src.data.basketball_client.BasketballClient", return_value=mock_client),
-            patch(f"{_SCHED}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=2) as mock_reconcile,
+            patch(f"{_RECON}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=2) as mock_reconcile,
         ):
             mock_b.should_skip.return_value = False
             await poll_stats()
@@ -267,7 +270,7 @@ class TestPollScoresAndBox:
         mock_db.execute = AsyncMock(return_value=result)
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.basketball_client.BasketballClient") as _cls,
         ):
             await poll_scores_and_box()
@@ -286,7 +289,7 @@ class TestPollScoresAndBox:
         mock_client.persist_player_game_stats = AsyncMock()
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.basketball_client.BasketballClient", return_value=mock_client),
         ):
             await poll_scores_and_box()
@@ -305,7 +308,7 @@ class TestPollScoresAndBox:
         mock_client.fetch_player_stats = AsyncMock(side_effect=RuntimeError("API err"))
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.basketball_client.BasketballClient", return_value=mock_client),
         ):
             await poll_scores_and_box()  # should not raise
@@ -314,7 +317,7 @@ class TestPollScoresAndBox:
     async def test_outer_exception_handled(self):
         from src.data.scheduler import poll_scores_and_box
 
-        with patch(f"{_SCHED}.async_session_factory") as mock_sf:
+        with patch(f"{_POLL}.async_session_factory") as mock_sf:
             mock_sf.return_value.__aenter__ = AsyncMock(side_effect=RuntimeError("db"))
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             await poll_scores_and_box()  # caught
@@ -369,9 +372,9 @@ class TestSyncEventsToGames:
         )
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.parse_api_datetime", return_value=datetime(2024, 10, 1)),
+            patch(f"{_POLL}.parse_api_datetime", return_value=datetime(2024, 10, 1)),
         ):
             await sync_events_to_games()
         assert mock_game.odds_api_id == "evt1"
@@ -408,9 +411,9 @@ class TestSyncEventsToGames:
         )
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
+            patch(f"{_POLL}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
         ):
             await sync_events_to_games()
         mock_db.add.assert_not_called()
@@ -446,9 +449,9 @@ class TestSyncEventsToGames:
         )
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
+            patch(f"{_POLL}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
         ):
             await sync_events_to_games()
         mock_db.add.assert_not_called()
@@ -499,11 +502,11 @@ class TestSyncEventsToGames:
         )
 
         with (
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
-            patch(f"{_SCHED}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
-            patch(f"{_SCHED}._find_matching_game", new_callable=AsyncMock, return_value=real_game),
-            patch(f"{_SCHED}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
+            patch(f"{_POLL}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
+            patch(f"{_POLL}._find_matching_game", new_callable=AsyncMock, return_value=real_game),
+            patch(f"{_RECON}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
         ):
             await sync_events_to_games()
         mock_merge.assert_awaited_once_with(mock_db, synthetic_game, real_game)
@@ -555,7 +558,7 @@ class TestFillClv:
         mock_db.execute = mock_exec
         mock_db.commit = AsyncMock()
 
-        with patch(f"{_SCHED}.async_session_factory", mock_sf):
+        with patch(f"{_MAINT}.async_session_factory", mock_sf):
             await fill_clv()
         mock_db.commit.assert_awaited_once()
 
@@ -568,14 +571,14 @@ class TestFillClv:
         result.scalars.return_value.all.return_value = []
         mock_db.execute = AsyncMock(return_value=result)
 
-        with patch(f"{_SCHED}.async_session_factory", mock_sf):
+        with patch(f"{_MAINT}.async_session_factory", mock_sf):
             await fill_clv()
 
     @pytest.mark.anyio
     async def test_exception_handled(self):
         from src.data.scheduler import fill_clv
 
-        with patch(f"{_SCHED}.async_session_factory") as mock_sf:
+        with patch(f"{_MAINT}.async_session_factory") as mock_sf:
             mock_sf.return_value.__aenter__ = AsyncMock(side_effect=RuntimeError("db"))
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             await fill_clv()
@@ -598,8 +601,8 @@ class TestGameReconciliationHelpers:
         mock_db.execute = AsyncMock(return_value=result)
 
         with (
-            patch(f"{_SCHED}._find_matching_game", new_callable=AsyncMock, return_value=SimpleNamespace(id=10)),
-            patch(f"{_SCHED}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
+            patch(f"{_RECON}._find_matching_game", new_callable=AsyncMock, return_value=SimpleNamespace(id=10)),
+            patch(f"{_RECON}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
         ):
             reconciled = await reconcile_duplicate_games(mock_db, lookback_days=None)
 
@@ -693,11 +696,11 @@ class TestGameReconciliationHelpers:
 class TestPregameCheckTrigger:
     @pytest.mark.anyio
     async def test_pregame_triggers_publish(self):
-        import src.data.scheduler as sched
+        import src.data.jobs.predictions as pmod
         from src.data.scheduler import pregame_check
 
-        original = sched._pregame_published_date
-        sched._pregame_published_date = None
+        original = pmod._pregame_published_date
+        pmod._pregame_published_date = None
         try:
             et = ZoneInfo("US/Eastern")
             now = datetime(2026, 3, 29, 19, 0, tzinfo=et)
@@ -717,24 +720,24 @@ class TestPregameCheckTrigger:
                     return now.astimezone(tz)
 
             with (
-                patch(f"{_SCHED}.async_session_factory", mock_sf),
-                patch(f"{_SCHED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
-                patch(f"{_SCHED}.get_settings") as mock_s,
-                patch(f"{_SCHED}.datetime", _FixedDateTime),
+                patch(f"{_PRED}.async_session_factory", mock_sf),
+                patch(f"{_PRED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
+                patch(f"{_PRED}.get_settings") as mock_s,
+                patch(f"{_PRED}.datetime", _FixedDateTime),
             ):
                 mock_s.return_value.pregame_lead_minutes = 60
                 await pregame_check()
             mock_pub.assert_awaited_once()
         finally:
-            sched._pregame_published_date = original
+            pmod._pregame_published_date = original
 
     @pytest.mark.anyio
     async def test_game_tomorrow_skipped(self):
-        import src.data.scheduler as sched
+        import src.data.jobs.predictions as pmod
         from src.data.scheduler import pregame_check
 
-        original = sched._pregame_published_date
-        sched._pregame_published_date = None
+        original = pmod._pregame_published_date
+        pmod._pregame_published_date = None
         try:
             et = ZoneInfo("US/Eastern")
             tomorrow_utc = (datetime.now(et) + timedelta(days=1)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
@@ -745,13 +748,13 @@ class TestPregameCheckTrigger:
             mock_db.execute = AsyncMock(return_value=result)
 
             with (
-                patch(f"{_SCHED}.async_session_factory", mock_sf),
-                patch(f"{_SCHED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
+                patch(f"{_PRED}.async_session_factory", mock_sf),
+                patch(f"{_PRED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
             ):
                 await pregame_check()
             mock_pub.assert_not_awaited()
         finally:
-            sched._pregame_published_date = original
+            pmod._pregame_published_date = original
 
 
 # ── generate_predictions_and_publish ─────────────────────────────
@@ -773,16 +776,16 @@ class TestPublishFlow:
         mock_predictor.predict_upcoming = AsyncMock(return_value=[])
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings") as mock_s,
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings") as mock_s,
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
         ):
@@ -803,16 +806,16 @@ class TestPublishFlow:
         mock_predictor.predict_upcoming = AsyncMock(return_value=[])
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings") as mock_s,
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings") as mock_s,
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
@@ -846,16 +849,16 @@ class TestPublishFlow:
         mock_predictor.predict_upcoming = AsyncMock(return_value=[])
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings", return_value=MagicMock()),
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings", return_value=MagicMock()),
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
@@ -914,16 +917,16 @@ class TestPublishFlow:
         mock_settings.teams_max_games_per_message = 10
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings", return_value=mock_settings),
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -976,16 +979,16 @@ class TestPublishFlow:
         mock_settings.teams_max_games_per_message = 10
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings", return_value=mock_settings),
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -1034,16 +1037,16 @@ class TestPublishFlow:
         mock_settings.teams_max_games_per_message = 10
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings", return_value=mock_settings),
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_html_slate", return_value="<html>"),
@@ -1097,16 +1100,16 @@ class TestPublishFlow:
         mock_settings.teams_max_games_per_message = 10
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings", return_value=mock_settings),
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -1156,16 +1159,16 @@ class TestPublishFlow:
         mock_settings.teams_max_games_per_message = 10
 
         with (
-            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
-            patch(f"{_SCHED}.async_session_factory", mock_sf),
-            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.get_settings", return_value=mock_settings),
+            patch(f"{_PRED}.async_session_factory", mock_sf),
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -1279,7 +1282,7 @@ class TestPruneOldOddsLog:
         mock_db.execute = AsyncMock(return_value=result)
         mock_db.commit = AsyncMock()
 
-        with patch(f"{_SCHED}.async_session_factory", mock_sf):
+        with patch(f"{_MAINT}.async_session_factory", mock_sf):
             await prune_old_odds()
 
 
@@ -1295,5 +1298,5 @@ class TestDbMaintenanceLog:
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
 
-        with patch(f"{_SCHED}.async_session_factory", mock_sf):
+        with patch(f"{_MAINT}.async_session_factory", mock_sf):
             await db_maintenance()

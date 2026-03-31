@@ -1,11 +1,10 @@
-"""Tests for scheduler.py job bodies — the #2 coverage gap (313 lines).
+"""Tests for scheduler job bodies.
 
 Each job function is async and relies on external clients + DB sessions.
 We mock all I/O and verify the orchestration logic.
 
-NOTE: scheduler.py uses local imports inside function bodies, so we patch
-at the *source* module (e.g. ``src.data.odds_client.OddsClient``) rather
-than at ``src.data.scheduler.OddsClient``.
+NOTE: Job code now lives in submodules under src.data.jobs.*,
+so we patch at the *source* module paths.
 """
 
 from datetime import UTC, datetime
@@ -27,19 +26,21 @@ from src.data.scheduler import (
     sync_events_to_games,
 )
 
-# All jobs use ``async with async_session_factory() as db:``
-_SF = "src.data.scheduler.async_session_factory"
+# Session factory lives in each submodule's namespace
+_SF_POLL = "src.data.jobs.polling.async_session_factory"
+_SF_PRED = "src.data.jobs.predictions.async_session_factory"
+_SF_MAINT = "src.data.jobs.maintenance.async_session_factory"
 
 
-# ── poll_fg_odds ─────────────────────────────────────────────────
+# -- poll_fg_odds --
 
 
 class TestPollFgOdds:
-    @patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock)
+    @patch("src.data.jobs.polling.sync_events_to_games", new_callable=AsyncMock)
     @patch("src.data.circuit_breaker.CircuitBreaker.record_success")
     @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_persists_odds(self, mock_sf, mock_cls, mock_skip, mock_success, mock_sync):
         mock_client = mock_cls.return_value
         mock_client.fetch_odds = AsyncMock(return_value=[{"bookmakers": []}])
@@ -61,15 +62,15 @@ class TestPollFgOdds:
         await poll_fg_odds()
 
 
-# ── poll_1h_odds ─────────────────────────────────────────────────
+# -- poll_1h_odds --
 
 
 class TestPoll1hOdds:
-    @patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock)
+    @patch("src.data.jobs.polling.sync_events_to_games", new_callable=AsyncMock)
     @patch("src.data.circuit_breaker.CircuitBreaker.record_success")
     @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_fetches_event_odds(
         self,
         mock_sf,
@@ -101,7 +102,7 @@ class TestPoll1hOdds:
 
     @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.odds_client.OddsClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_handles_empty_events(self, mock_sf, mock_cls, mock_skip):
         mock_client = mock_cls.return_value
         mock_client.fetch_events = AsyncMock(return_value=[])
@@ -118,12 +119,12 @@ class TestPoll1hOdds:
         await poll_1h_odds()
 
 
-# ── poll_player_props ────────────────────────────────────────────
+# -- poll_player_props --
 
 
 class TestPollPlayerProps:
     @patch("src.data.odds_client.OddsClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_fetches_player_props(self, mock_sf, mock_cls):
         mock_client = mock_cls.return_value
         mock_client.fetch_events = AsyncMock(return_value=[{"id": "ev1"}])
@@ -140,14 +141,14 @@ class TestPollPlayerProps:
         mock_client.fetch_player_props.assert_awaited_once()
 
 
-# ── poll_stats ───────────────────────────────────────────────────
+# -- poll_stats --
 
 
 class TestPollStats:
     @patch("src.data.circuit_breaker.CircuitBreaker.record_success")
     @patch("src.data.circuit_breaker.CircuitBreaker.should_skip", return_value=False)
     @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_fetches_and_persists_stats(self, mock_sf, mock_cls, mock_skip, mock_success):
         mock_client = mock_cls.return_value
         mock_client.fetch_games = AsyncMock(return_value=[{"id": 1}])
@@ -178,12 +179,12 @@ class TestPollStats:
         mock_success.assert_called()
 
 
-# ── poll_scores_and_box ──────────────────────────────────────────
+# -- poll_scores_and_box --
 
 
 class TestPollScoresAndBox:
     @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_fetches_missing_box_scores(self, mock_sf, mock_cls):
         mock_client = mock_cls.return_value
         mock_client.fetch_player_stats = AsyncMock(return_value=[{"player": {"id": 1}}])
@@ -201,7 +202,7 @@ class TestPollScoresAndBox:
         assert mock_client.fetch_player_stats.await_count >= 1
 
     @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_no_missing_games(self, mock_sf, mock_cls):
         mock_db = AsyncMock()
         games_result = MagicMock()
@@ -213,12 +214,12 @@ class TestPollScoresAndBox:
         await poll_scores_and_box()
 
 
-# ── poll_injuries ────────────────────────────────────────────────
+# -- poll_injuries --
 
 
 class TestPollInjuries:
     @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_persists_injuries(self, mock_sf, mock_cls):
         mock_client = mock_cls.return_value
         mock_client.fetch_injuries = AsyncMock(return_value=[{"player": {"id": 1}}])
@@ -233,7 +234,7 @@ class TestPollInjuries:
         mock_client.persist_injuries.assert_awaited_once()
 
     @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_handles_no_injuries(self, mock_sf, mock_cls):
         mock_client = mock_cls.return_value
         mock_client.fetch_injuries = AsyncMock(return_value=[])
@@ -245,12 +246,12 @@ class TestPollInjuries:
         await poll_injuries()
 
 
-# ── sync_events_to_games ─────────────────────────────────────────
+# -- sync_events_to_games --
 
 
 class TestSyncEventsToGames:
     @patch("src.data.odds_client.OddsClient")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_maps_events_to_games(self, mock_sf, mock_cls):
         mock_client = mock_cls.return_value
         mock_client.fetch_events = AsyncMock(
@@ -277,11 +278,11 @@ class TestSyncEventsToGames:
         mock_db.commit.assert_awaited()
 
 
-# ── fill_clv ─────────────────────────────────────────────────────
+# -- fill_clv --
 
 
 class TestFillClv:
-    @patch(_SF)
+    @patch(_SF_MAINT)
     async def test_fills_clv_for_finished_preds(self, mock_sf):
         pred = SimpleNamespace(
             game_id=1,
@@ -325,7 +326,7 @@ class TestFillClv:
 
         await fill_clv()
 
-    @patch(_SF)
+    @patch(_SF_MAINT)
     async def test_no_preds_noop(self, mock_sf):
         mock_db = AsyncMock()
         result = MagicMock()
@@ -337,11 +338,11 @@ class TestFillClv:
         await fill_clv()
 
 
-# ── check_prediction_drift ───────────────────────────────────────
+# -- check_prediction_drift --
 
 
 class TestCheckPredictionDrift:
-    @patch(_SF)
+    @patch(_SF_PRED)
     async def test_no_drift(self, mock_sf):
         mock_db = AsyncMock()
         result_30d = MagicMock()
@@ -363,7 +364,7 @@ class TestCheckPredictionDrift:
 
         await check_prediction_drift()
 
-    @patch(_SF)
+    @patch(_SF_PRED)
     async def test_insufficient_data(self, mock_sf):
         mock_db = AsyncMock()
         result = MagicMock()
@@ -375,11 +376,11 @@ class TestCheckPredictionDrift:
         await check_prediction_drift()
 
 
-# ── prune_old_odds ───────────────────────────────────────────────
+# -- prune_old_odds --
 
 
 class TestPruneOldOdds:
-    @patch(_SF)
+    @patch(_SF_MAINT)
     async def test_deletes_old_odds(self, mock_sf):
         mock_db = AsyncMock()
         delete_result = MagicMock()
@@ -393,11 +394,11 @@ class TestPruneOldOdds:
         mock_db.commit.assert_awaited()
 
 
-# ── db_maintenance ───────────────────────────────────────────────
+# -- db_maintenance --
 
 
 class TestDbMaintenance:
-    @patch(_SF)
+    @patch(_SF_MAINT)
     async def test_runs_analyze(self, mock_sf):
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock()
@@ -410,12 +411,12 @@ class TestDbMaintenance:
         mock_db.commit.assert_awaited_once()
 
 
-# ── daily_retrain ────────────────────────────────────────────────
+# -- daily_retrain --
 
 
 class TestDailyRetrain:
     @patch("src.models.trainer.ModelTrainer")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_invokes_trainer(self, mock_sf, mock_cls):
         mock_trainer = mock_cls.return_value
         mock_trainer.train = AsyncMock(return_value={"mae": 8.0})
@@ -430,7 +431,7 @@ class TestDailyRetrain:
 
     @patch("src.notifications.teams.send_alert", new_callable=AsyncMock)
     @patch("src.models.trainer.ModelTrainer")
-    @patch(_SF)
+    @patch(_SF_POLL)
     async def test_sends_alert_on_failure(self, mock_sf, mock_cls, mock_alert):
         mock_trainer = mock_cls.return_value
         mock_trainer.train = AsyncMock(side_effect=RuntimeError("boom"))

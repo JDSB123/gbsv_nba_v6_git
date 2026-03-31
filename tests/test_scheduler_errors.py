@@ -1,4 +1,4 @@
-"""Tests targeting scheduler.py exception handler / error paths."""
+"""Tests targeting scheduler exception handler / error paths."""
 
 from __future__ import annotations
 
@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-_MOD = "src.data.scheduler"
+_POLL = "src.data.jobs.polling"
+_PRED = "src.data.jobs.predictions"
+_MAINT = "src.data.jobs.maintenance"
 
 
 def _mock_session_factory(mock_db):
-    """Create a mock that behaves like async_session_factory() → async context manager."""
+    """Create a mock that behaves like async_session_factory() -> async context manager."""
     mock_ctx = AsyncMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
@@ -28,8 +30,8 @@ class TestPollFgOddsException:
 
         with (
             patch(f"{_CB_MOD}.odds_api_breaker", mock_breaker),
-            patch(f"{_MOD}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
-            patch(f"{_MOD}._record_failure", new_callable=AsyncMock) as mock_record,
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
+            patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             from src.data.scheduler import poll_fg_odds
 
@@ -46,8 +48,8 @@ class TestPoll1hOddsException:
 
         with (
             patch(f"{_CB_MOD}.odds_api_breaker", mock_breaker),
-            patch(f"{_MOD}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
-            patch(f"{_MOD}._record_failure", new_callable=AsyncMock) as mock_record,
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
+            patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             from src.data.scheduler import poll_1h_odds
 
@@ -71,9 +73,7 @@ class TestPollStatsException:
         with (
             patch(f"{_CB_MOD}.basketball_api_breaker", mock_breaker),
             patch("src.data.basketball_client.BasketballClient") as MockClient,
-            patch(f"{_MOD}._record_failure", new_callable=AsyncMock) as mock_record,
-            patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)),
-            patch(f"{_MOD}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             client = AsyncMock()
             client.fetch_games = AsyncMock(return_value=[])
@@ -99,7 +99,7 @@ class TestPollInjuriesException:
             from src.data.scheduler import poll_injuries
 
             await poll_injuries()
-            # Should not raise — just log error
+            # Should not raise -- just log error
 
 
 class TestPregameCheckException:
@@ -108,11 +108,11 @@ class TestPregameCheckException:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=Exception("db down"))
 
-        with patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)):
+        with patch(f"{_PRED}.async_session_factory", _mock_session_factory(mock_db)):
             from src.data.scheduler import pregame_check
 
             await pregame_check()
-            # Should not raise — just logs error
+            # Should not raise -- just logs error
 
 
 class TestCheckPredictionDriftException:
@@ -121,7 +121,7 @@ class TestCheckPredictionDriftException:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=Exception("drift error"))
 
-        with patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)):
+        with patch(f"{_PRED}.async_session_factory", _mock_session_factory(mock_db)):
             from src.data.scheduler import check_prediction_drift
 
             await check_prediction_drift()
@@ -133,7 +133,7 @@ class TestPruneOldOddsException:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=Exception("prune error"))
 
-        with patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)):
+        with patch(f"{_MAINT}.async_session_factory", _mock_session_factory(mock_db)):
             from src.data.scheduler import prune_old_odds
 
             await prune_old_odds()
@@ -146,16 +146,16 @@ class TestGeneratePredictionsException:
         # Predictor(). We no-op the sub-calls and make Predictor() raise to
         # trigger the outer except block.
         with (
-            patch(f"{_MOD}.poll_stats", new_callable=AsyncMock),
-            patch(f"{_MOD}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_MOD}.poll_injuries", new_callable=AsyncMock),
-            patch(f"{_MOD}.sync_events_to_games", new_callable=AsyncMock),
-            patch(f"{_MOD}.poll_fg_odds", new_callable=AsyncMock),
-            patch(f"{_MOD}.poll_1h_odds", new_callable=AsyncMock),
-            patch(f"{_MOD}.poll_player_props", new_callable=AsyncMock),
-            patch(f"{_MOD}.async_session_factory") as mock_sf,
-            patch(f"{_MOD}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
-            patch(f"{_MOD}.get_settings"),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.async_session_factory") as mock_sf,
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_PRED}.get_settings"),
             patch("src.models.features.reset_elo_cache"),
             patch("src.models.predictor.Predictor", side_effect=RuntimeError("model load boom")),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
@@ -175,7 +175,7 @@ class TestScoresAndBoxException:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=Exception("scores error"))
 
-        with patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)):
+        with patch(f"{_POLL}.async_session_factory", _mock_session_factory(mock_db)):
             from src.data.scheduler import poll_scores_and_box
 
             await poll_scores_and_box()
@@ -187,7 +187,7 @@ class TestDbMaintenanceException:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock(side_effect=Exception("analyze error"))
 
-        with patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)):
+        with patch(f"{_MAINT}.async_session_factory", _mock_session_factory(mock_db)):
             from src.data.scheduler import db_maintenance
 
             await db_maintenance()

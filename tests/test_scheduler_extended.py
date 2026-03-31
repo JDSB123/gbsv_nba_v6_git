@@ -15,13 +15,18 @@ from src.data.scheduler import (
     prune_old_odds,
 )
 
-# ── daily_retrain ────────────────────────────────────────────────
+_POLL = "src.data.jobs.polling"
+_PRED = "src.data.jobs.predictions"
+_MAINT = "src.data.jobs.maintenance"
+
+
+# -- daily_retrain --
 
 
 class TestDailyRetrain:
     @pytest.mark.anyio
     async def test_retrain_success(self):
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_POLL}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -34,7 +39,7 @@ class TestDailyRetrain:
 
     @pytest.mark.anyio
     async def test_retrain_failure_records(self):
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_POLL}.async_session_factory") as mock_sf:
             mock_sf.return_value.__aenter__ = AsyncMock(
                 side_effect=RuntimeError("db error")
             )
@@ -42,14 +47,14 @@ class TestDailyRetrain:
             with patch("src.models.trainer.ModelTrainer") as mock_cls:
                 mock_cls.side_effect = RuntimeError("boom")
                 with (
-                    patch("src.data.scheduler._record_failure", new_callable=AsyncMock) as mock_rec,
+                    patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_rec,
                     patch("src.notifications.teams.send_alert", new_callable=AsyncMock),
                 ):
                     await daily_retrain()
                     mock_rec.assert_called_once()
 
 
-# ── poll_injuries ────────────────────────────────────────────────
+# -- poll_injuries --
 
 
 class TestPollInjuries:
@@ -60,7 +65,7 @@ class TestPollInjuries:
             mock_client.fetch_injuries = AsyncMock(return_value=[{"player": "test"}])
             mock_client.persist_injuries = AsyncMock(return_value=5)
             mock_cls.return_value = mock_client
-            with patch("src.data.scheduler.async_session_factory") as mock_sf:
+            with patch(f"{_POLL}.async_session_factory") as mock_sf:
                 mock_db = AsyncMock()
                 mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
                 mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -76,30 +81,30 @@ class TestPollInjuries:
             await poll_injuries()
 
 
-# ── pregame_check ────────────────────────────────────────────────
+# -- pregame_check --
 
 
 class TestPregameCheck:
     @pytest.mark.anyio
     async def test_already_published_today(self):
-        import src.data.scheduler as sched
+        import src.data.jobs.predictions as pmod
 
         today = datetime.now().date()
-        original = sched._pregame_published_date
-        sched._pregame_published_date = today
+        original = pmod._pregame_published_date
+        pmod._pregame_published_date = today
         try:
             await pregame_check()  # Should return immediately
         finally:
-            sched._pregame_published_date = original
+            pmod._pregame_published_date = original
 
     @pytest.mark.anyio
     async def test_no_upcoming_games(self):
-        import src.data.scheduler as sched
+        import src.data.jobs.predictions as pmod
 
-        original = sched._pregame_published_date
-        sched._pregame_published_date = None
+        original = pmod._pregame_published_date
+        pmod._pregame_published_date = None
         try:
-            with patch("src.data.scheduler.async_session_factory") as mock_sf:
+            with patch(f"{_PRED}.async_session_factory") as mock_sf:
                 mock_db = AsyncMock()
                 mock_result = MagicMock()
                 mock_result.scalar_one_or_none.return_value = None
@@ -108,28 +113,28 @@ class TestPregameCheck:
                 mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
                 await pregame_check()
         finally:
-            sched._pregame_published_date = original
+            pmod._pregame_published_date = original
 
 
-# ── generate_predictions_and_publish ─────────────────────────────
+# -- generate_predictions_and_publish --
 
 
 class TestGeneratePredictionsAndPublish:
     @pytest.mark.anyio
     async def test_predictor_not_ready(self):
         with (
-            patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
-            patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
-            patch("src.data.scheduler.async_session_factory") as mock_sf,
-            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_PRED}.async_session_factory") as mock_sf,
+            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
             patch("src.models.predictor.Predictor") as mock_cls,
             patch("src.models.features.reset_elo_cache"),
-            patch("src.data.scheduler.get_settings") as mock_s,
+            patch(f"{_PRED}.get_settings") as mock_s,
         ):
             mock_db = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -140,13 +145,13 @@ class TestGeneratePredictionsAndPublish:
             # Should return without publishing
 
 
-# ── check_prediction_drift ───────────────────────────────────────
+# -- check_prediction_drift --
 
 
 class TestCheckPredictionDrift:
     @pytest.mark.anyio
     async def test_not_enough_data(self):
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_PRED}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()
             mock_result = MagicMock()
             mock_result.all.return_value = []
@@ -160,7 +165,7 @@ class TestCheckPredictionDrift:
         rows_30d = [(110.0, 108.0)] * 30
         rows_7d = [(110.0, 108.0)] * 10
 
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_PRED}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()
             call_count = 0
 
@@ -184,7 +189,7 @@ class TestCheckPredictionDrift:
         rows_30d = [(110.0, 108.0)] * 30  # total ~218
         rows_7d = [(120.0, 115.0)] * 10   # total ~235, drift > 5
 
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_PRED}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()
             call_count = 0
 
@@ -205,13 +210,13 @@ class TestCheckPredictionDrift:
                 await check_prediction_drift()
 
 
-# ── prune_old_odds ───────────────────────────────────────────────
+# -- prune_old_odds --
 
 
 class TestPruneOldOdds:
     @pytest.mark.anyio
     async def test_prune_runs(self):
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_MAINT}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()
             mock_result = MagicMock()
             mock_result.rowcount = 42
@@ -222,13 +227,13 @@ class TestPruneOldOdds:
             await prune_old_odds()
 
 
-# ── db_maintenance ───────────────────────────────────────────────
+# -- db_maintenance --
 
 
 class TestDbMaintenance:
     @pytest.mark.anyio
     async def test_maintenance_runs(self):
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_MAINT}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()
             mock_db.execute = AsyncMock()
             mock_db.commit = AsyncMock()
@@ -240,7 +245,7 @@ class TestDbMaintenance:
 
     @pytest.mark.anyio
     async def test_maintenance_error_handled(self):
-        with patch("src.data.scheduler.async_session_factory") as mock_sf:
+        with patch(f"{_MAINT}.async_session_factory") as mock_sf:
             mock_sf.return_value.__aenter__ = AsyncMock(
                 side_effect=RuntimeError("connection refused")
             )

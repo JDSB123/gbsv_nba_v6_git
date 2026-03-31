@@ -53,7 +53,7 @@ async def test_record_failure_logs_to_db():
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_db)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("src.data.scheduler.async_session_factory", return_value=mock_ctx):
+    with patch("src.data.jobs.polling.async_session_factory", return_value=mock_ctx):
         await _record_failure("test_job", ValueError("test error"))
 
     mock_db.add.assert_called_once()
@@ -73,7 +73,7 @@ async def test_record_failure_truncates_long_error():
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
     long_error = "x" * 5000
-    with patch("src.data.scheduler.async_session_factory", return_value=mock_ctx):
+    with patch("src.data.jobs.polling.async_session_factory", return_value=mock_ctx):
         await _record_failure("test_job", ValueError(long_error))
 
     failure_obj = mock_db.add.call_args[0][0]
@@ -83,6 +83,6 @@ async def test_record_failure_truncates_long_error():
 @pytest.mark.asyncio
 async def test_record_failure_swallows_db_errors():
     """If the DB call itself fails, _record_failure should not raise."""
-    with patch("src.data.scheduler.async_session_factory", side_effect=Exception("db down")):
+    with patch("src.data.jobs.polling.async_session_factory", side_effect=Exception("db down")):
         # Should not raise
         await _record_failure("test_job", ValueError("original"))

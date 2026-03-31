@@ -171,14 +171,16 @@ class Predictor:
 
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    loop.create_task(
+                    task = loop.create_task(
                         send_alert(
                             "Model Compatibility Mode Active",
                             f"Models expect {model_feature_count} features but code provides "
                             f"{expected_features}. Running in degraded mode — retrain recommended.",
                             "warning",
-                        )
+                        ),
+                        name="model_compat_alert",
                     )
+                    task.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
             except Exception:
                 pass  # alerting is best-effort
             return
