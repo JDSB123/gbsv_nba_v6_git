@@ -60,7 +60,11 @@ Write-Host "Deploying new image to API Container App: $ApiApp..."
 az containerapp update -n $ApiApp -g $ResourceGroup --image $ImageName
 
 Write-Host "Running database migrations..."
-az containerapp exec -n $ApiApp -g $ResourceGroup --command "python" -- -m alembic upgrade head
+az containerapp exec -n $ApiApp -g $ResourceGroup --command "python -m alembic upgrade head"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Database migrations failed with exit code $LASTEXITCODE"
+    exit 1
+}
 
 Write-Host "Deploying new image to Worker Container App: $WorkerApp..."
 az containerapp update -n $WorkerApp -g $ResourceGroup --image $ImageName
