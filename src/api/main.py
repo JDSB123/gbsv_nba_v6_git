@@ -44,9 +44,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ──────────────────────────────────────────────────────────
 _cors_settings = get_settings()
+_cors_origins: list[str] = []
+if _cors_settings.api_base_url:
+    _cors_origins.append(_cors_settings.api_base_url)
+if _cors_settings.app_env == "development":
+    _cors_origins += ["http://localhost:8000", "http://127.0.0.1:8000"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[_cors_settings.api_base_url] if _cors_settings.api_base_url else [],
+    allow_origins=_cors_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["X-API-Key", "Content-Type"],
 )

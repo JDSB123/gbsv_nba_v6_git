@@ -286,21 +286,6 @@ class TestMainEntrypoint:
         mock_func.assert_called_once()
 
 
-class TestWorkerShim:
-    def test_worker_main_calls_cmd_work(self):
-        with patch("src.worker.cmd_work") as mock_cmd:
-            from src.worker import main
-
-            main()
-            mock_cmd.assert_called_once()
-
-    def test_worker_module_main_guard_calls_main(self):
-        with patch(f"{_MAIN_MOD}.cmd_work") as mock_cmd:
-            runpy.run_module("src.worker", run_name="__main__")
-
-        mock_cmd.assert_called_once()
-
-
 class TestConfigEnvFiles:
     def test_settings_use_single_repo_env_file(self):
         from src.config import Settings

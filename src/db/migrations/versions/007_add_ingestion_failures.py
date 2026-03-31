@@ -1,6 +1,6 @@
 """Add ingestion failure tracking.
 
-Revision ID: fe486f01aa9b
+Revision ID: 007_ingestion_failures
 Revises: 006_referees_rotations
 Create Date: 2026-03-29 20:04:00.011692
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'fe486f01aa9b'
+revision: str = '007_ingestion_failures'
 down_revision: str | None = '006_referees_rotations'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

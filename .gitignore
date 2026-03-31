@@ -51,13 +51,21 @@ htmlcov/
 # Alembic
 src/db/migrations/versions/__pycache__/
 
-# Temp scripts
+# Temp scripts & root-level debug files
 _*.py
 _*.json
 _*.txt
 *.tmp
 *.log
 test_player_stats.py
+
+# Root-level test / debug artifacts (not in tests/)
+/test_teams*.py
+/test_card_gen.py
+/gen_html.py
+/teams_payload_debug*.json
+/nba_picks_slate_livesync.html
+/run_outputs/
 test_structure.py
 gen_html.py
 test_card_gen.py

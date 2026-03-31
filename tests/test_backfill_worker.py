@@ -1,19 +1,7 @@
-"""Tests for backfill.py (run_backfill) and worker.py shim."""
+"""Tests for backfill.py (run_backfill)."""
 
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
-
-# ── worker.py shim ───────────────────────────────────────────────
-
-
-class TestWorkerShim:
-    def test_main_calls_cmd_work(self):
-        with patch("src.worker.cmd_work") as mock_cmd:
-            from src.worker import main
-
-            main()
-            mock_cmd.assert_called_once()
-
 
 # ── backfill.py ──────────────────────────────────────────────────
 

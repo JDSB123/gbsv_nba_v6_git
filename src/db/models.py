@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -171,7 +171,7 @@ class OddsSnapshot(Base):
     description = Column(String(120))  # player name for prop bets
     price = Column(Float, nullable=False)
     point = Column(Float)  # spread or total line
-    captured_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    captured_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True)
 
     game = relationship("Game", back_populates="odds_snapshots")
 
@@ -206,7 +206,7 @@ class Prediction(Base):
     clv_spread = Column(Float)
     clv_total = Column(Float)
     odds_sourced = Column(JSON)  # per-book odds snapshot at prediction time
-    predicted_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    predicted_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True)
 
     game = relationship("Game", back_populates="predictions")
 
@@ -231,7 +231,7 @@ class ModelRegistry(Base):
     promotion_reason = Column(String(255))
     metrics_json = Column(Text)
     params_json = Column(Text)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
     __table_args__ = (Index("ix_model_registry_is_active", "is_active"),)
 
@@ -248,7 +248,7 @@ class Injury(Base):
     )
     status = Column(String(20), nullable=False)  # out, doubtful, questionable, probable
     description = Column(String(255))
-    reported_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    reported_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
     player = relationship("Player", back_populates="injuries")
     team = relationship("Team", back_populates="injuries")
@@ -263,7 +263,7 @@ class IngestionFailure(Base):
     job_name = Column(String(100), nullable=False, index=True)
     error_message = Column(Text, nullable=False)
     payload_summary = Column(Text)
-    failed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    failed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 
 class GameReferee(Base):
