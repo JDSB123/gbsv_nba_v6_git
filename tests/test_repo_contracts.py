@@ -40,3 +40,5 @@ def test_readme_describes_single_dev_workflow():
 
     assert "one default development workflow" in readme.lower()
     assert "One dependency source: `pyproject.toml`" in readme
+    assert "`master` is a protected branch" in readme
+    assert "pull request" in readme.lower()
