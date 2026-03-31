@@ -4,6 +4,7 @@ import math
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -16,11 +17,13 @@ from src.config import get_settings
 from src.db.models import Game, ModelRegistry, OddsSnapshot, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
 from src.models.versioning import MODEL_VERSION
+from src.services.prediction_integrity import prediction_has_valid_score_payload
 
 logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+_MAX_IMPUTED_FEATURE_RATIO = 0.2
 CORE_ODDS_MARKETS = ("h2h", "spreads", "totals", "h2h_h1", "spreads_h1", "totals_h1")
 PROP_ODDS_MARKETS = (
     "player_points",
@@ -78,6 +81,7 @@ class Predictor:
         self._load_models()
         self._load_calibration()
         self._load_imputation()
+        self._run_model_smoke_test()
 
     async def _resolve_model_version(self, db: AsyncSession) -> str:
         result = await db.execute(
@@ -100,18 +104,12 @@ class Predictor:
         for name in MODEL_NAMES:
             path = ARTIFACTS_DIR / f"{name}.json"
             if path.exists():
-                try:
-                    model = xgb.XGBRegressor()
-                    model.load_model(str(path))
-                    actual_features = int(model.get_booster().num_features())
-                    self._model_feature_counts[name] = actual_features
-                    self.models[name] = model
-                    logger.info("Loaded model %s", name)
-                except Exception as exc:
-                    self._last_error = f"Failed to load model {name}: {exc}"
-                    logger.error(self._last_error)
-                    self.models = {}
-                    return
+                model = xgb.XGBRegressor()
+                model.load_model(str(path))
+                actual_features = int(model.get_booster().num_features())
+                self._model_feature_counts[name] = actual_features
+                self.models[name] = model
+                logger.info("Loaded model %s", name)
             else:
                 logger.warning("Model file not found: %s", path)
 
@@ -235,6 +233,73 @@ class Predictor:
     def _has_imputation_values(self) -> bool:
         imputation_values = getattr(self, "_imputation_values", {})
         return all(col in imputation_values for col in self._inference_feature_cols)
+
+    def _allowed_imputed_feature_count(self) -> int:
+        total_features = len(self._inference_feature_cols)
+        if total_features <= 1:
+            return 0
+        return max(1, math.floor(total_features * _MAX_IMPUTED_FEATURE_RATIO))
+
+    def _can_tolerate_imputation(self, imputed_count: int) -> bool:
+        total_features = len(self._inference_feature_cols)
+        if imputed_count == 0:
+            return True
+        if total_features <= 0 or imputed_count >= total_features:
+            return False
+        return imputed_count <= self._allowed_imputed_feature_count()
+
+    def _predict_scores(
+        self,
+        X: np.ndarray,
+        context: str,
+    ) -> tuple[float, float, float, float]:
+        try:
+            home_fg = float(self.models["model_home_fg"].predict(X)[0])
+            away_fg = float(self.models["model_away_fg"].predict(X)[0])
+            home_1h = float(self.models["model_home_1h"].predict(X)[0])
+            away_1h = float(self.models["model_away_1h"].predict(X)[0])
+        except Exception as exc:
+            self._last_error = str(exc)
+            logger.exception("Prediction failed for %s", context)
+            raise RuntimeError(str(exc)) from exc
+
+        # Half-time scores should never exceed the full-game projection.
+        home_1h = min(home_1h, home_fg)
+        away_1h = min(away_1h, away_fg)
+        return home_fg, away_fg, home_1h, away_1h
+
+    def _run_model_smoke_test(self) -> None:
+        if not self.is_ready or not self._has_imputation_values():
+            return
+
+        X = np.array(
+            [[self._imputation_values[col] for col in self._inference_feature_cols]],
+            dtype=float,
+        )
+        try:
+            home_fg, away_fg, home_1h, away_1h = self._predict_scores(X, "model smoke test")
+        except RuntimeError:
+            self._last_error = f"Model smoke test failed: {self._last_error}"
+            logger.error(self._last_error)
+            self.models = {}
+            return
+
+        smoke_payload = SimpleNamespace(
+            predicted_home_fg=round(home_fg, 1),
+            predicted_away_fg=round(away_fg, 1),
+            predicted_home_1h=round(home_1h, 1),
+            predicted_away_1h=round(away_1h, 1),
+            fg_spread=round(home_fg - away_fg, 1),
+            fg_total=round(home_fg + away_fg, 1),
+            h1_spread=round(home_1h - away_1h, 1),
+            h1_total=round(home_1h + away_1h, 1),
+        )
+        if prediction_has_valid_score_payload(smoke_payload):
+            return
+
+        self._last_error = "Model smoke test failed: implausible prediction payload"
+        logger.error(self._last_error)
+        self.models = {}
 
     @property
     def is_ready(self) -> bool:
@@ -473,29 +538,27 @@ class Predictor:
 
         sanitized_features, imputed_count = self._sanitize_features(features)
         if imputed_count:
-            logger.error(
-                "Prediction skipped for game %s: %d/%d features were missing or non-finite",
+            allowed_imputed = self._allowed_imputed_feature_count()
+            if not self._can_tolerate_imputation(imputed_count):
+                logger.error(
+                    "Prediction skipped for game %s: %d/%d features required imputation "
+                    "(limit=%d)",
+                    game.id,
+                    imputed_count,
+                    len(self._inference_feature_cols),
+                    allowed_imputed,
+                )
+                return None
+
+            logger.warning(
+                "Prediction for game %s used saved imputation for %d/%d features",
                 game.id,
                 imputed_count,
                 len(self._inference_feature_cols),
             )
-            return None
 
         X = np.array([[sanitized_features[c] for c in self._inference_feature_cols]])
-
-        try:
-            home_fg = float(self.models["model_home_fg"].predict(X)[0])
-            away_fg = float(self.models["model_away_fg"].predict(X)[0])
-            home_1h = float(self.models["model_home_1h"].predict(X)[0])
-            away_1h = float(self.models["model_away_1h"].predict(X)[0])
-        except Exception as exc:
-            self._last_error = str(exc)
-            logger.exception("Prediction failed for game %s", game.id)
-            raise RuntimeError(str(exc)) from exc
-
-        # Clamp 1H ≤ FG: half-time score cannot exceed full-game score
-        home_1h = min(home_1h, home_fg)
-        away_1h = min(away_1h, away_fg)
+        home_fg, away_fg, home_1h, away_1h = self._predict_scores(X, f"game {game.id}")
 
         fg_margin = home_fg - away_fg
         h1_margin = home_1h - away_1h
@@ -559,7 +622,7 @@ class Predictor:
         odds_detail["opening_h1_spread"] = opening_h1_spread
         odds_detail["opening_h1_total"] = opening_h1_total
 
-        return {
+        prediction_payload = {
             "predicted_home_fg": round(home_fg, 1),
             "predicted_away_fg": round(away_fg, 1),
             "predicted_home_1h": round(home_1h, 1),
@@ -574,6 +637,13 @@ class Predictor:
             "opening_total": opening_total,
             "odds_detail": odds_detail,
         }
+        if not prediction_has_valid_score_payload(SimpleNamespace(**prediction_payload)):
+            logger.error(
+                "Prediction skipped for game %s: generated payload failed integrity validation",
+                game.id,
+            )
+            return None
+        return prediction_payload
 
     async def predict_and_store(
         self,

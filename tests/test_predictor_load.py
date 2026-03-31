@@ -385,7 +385,7 @@ class TestPredictGame:
                 await p.predict_game(game, db)
 
     @pytest.mark.anyio
-    async def test_prediction_rejects_non_finite_features(self):
+    async def test_prediction_allows_limited_non_finite_feature_imputation(self):
         from src.models.predictor import Predictor
 
         home_fg = MagicMock(return_value=np.array([110.0]))
@@ -420,11 +420,12 @@ class TestPredictGame:
             mock_feat.return_value = {"f1": float("nan"), "f2": 2.0}
             result = await p.predict_game(game, db)
 
-        assert result is None
-        home_fg.assert_not_called()
+        assert result is not None
+        X_input = home_fg.call_args.args[0]
+        assert X_input.tolist() == [[1.5, 2.0]]
 
     @pytest.mark.anyio
-    async def test_prediction_rejects_missing_features(self):
+    async def test_prediction_allows_limited_missing_feature_imputation(self):
         from src.models.predictor import Predictor
 
         home_fg = MagicMock(return_value=np.array([110.0]))
@@ -459,8 +460,9 @@ class TestPredictGame:
             mock_feat.return_value = {"f1": 1.0}
             result = await p.predict_game(game, db)
 
-        assert result is None
-        home_fg.assert_not_called()
+        assert result is not None
+        X_input = home_fg.call_args.args[0]
+        assert X_input.tolist() == [[1.0, 2.5]]
 
     @pytest.mark.anyio
     async def test_prediction_returns_none_when_odds_are_stale(self):

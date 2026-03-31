@@ -4,7 +4,10 @@ import numpy as np
 
 from src.db.models import Game, Prediction
 from src.db.repositories.models import ModelRepository
-from src.services.prediction_integrity import prediction_has_valid_score_payload, prediction_score_rank
+from src.services.prediction_integrity import (
+    prediction_has_valid_score_payload,
+    prediction_score_rank,
+)
 
 
 class ModelService:
@@ -18,9 +21,9 @@ class ModelService:
         for pred, game in rows:
             key = (int(pred.game_id), str(pred.model_version))
             existing = latest_per_game_version.get(key)
-            if existing is None:
-                latest_per_game_version[key] = (pred, game)
-            elif prediction_score_rank(pred) > prediction_score_rank(existing[0]):
+            if existing is None or prediction_score_rank(pred) > prediction_score_rank(
+                existing[0]
+            ):
                 latest_per_game_version[key] = (pred, game)
             if len(latest_per_game_version) >= limit:
                 break

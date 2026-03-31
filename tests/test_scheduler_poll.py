@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -840,9 +840,9 @@ class TestPublishFlow:
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
+            caplog.at_level("INFO"),
         ):
-            with caplog.at_level("INFO"):
-                result = await generate_predictions_and_publish()
+            result = await generate_predictions_and_publish()
 
         assert result == 0
         mock_alert.assert_not_awaited()
@@ -908,9 +908,9 @@ class TestPublishFlow:
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
+            caplog.at_level("INFO"),
         ):
-            with caplog.at_level("INFO"):
-                result = await generate_predictions_and_publish()
+            result = await generate_predictions_and_publish()
 
         assert result == 3
         assert "full eligible coverage: predicted 3 / 3 odds-linked ns games" in caplog.text.lower()
@@ -974,6 +974,69 @@ class TestPublishFlow:
         ):
             await generate_predictions_and_publish()
         mock_send.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_webhook_publish_without_api_base_omits_download_links(self):
+        """Webhook publish should not inject file:// links when no public API base exists."""
+        from src.data.scheduler import generate_predictions_and_publish
+
+        mock_sf, mock_db = _mock_session()
+
+        mock_pred = MagicMock()
+        mock_pred.game_id = 1
+        mock_game = MagicMock()
+        mock_game.id = 1
+
+        call_n = {"n": 0}
+
+        async def mock_exec(stmt, *a, **kw):
+            call_n["n"] += 1
+            result = MagicMock()
+            sql = str(stmt).lower()
+            if "count" in sql:
+                result.scalar.return_value = 1
+                return result
+            if "max" in sql:
+                result.scalar_one_or_none.return_value = datetime.now()
+                return result
+            result.scalars.return_value.all.return_value = [mock_game]
+            return result
+
+        mock_db.execute = mock_exec
+
+        mock_predictor = MagicMock(is_ready=True)
+        mock_predictor.predict_upcoming = AsyncMock(return_value=[mock_pred])
+
+        mock_settings = MagicMock()
+        mock_settings.teams_team_id = ""
+        mock_settings.teams_channel_id = ""
+        mock_settings.teams_webhook_url = "https://webhook.example.com"
+        mock_settings.api_base_url = ""
+        mock_settings.teams_max_games_per_message = 10
+
+        with (
+            patch(f"{_SCHED}.poll_stats", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_scores_and_box", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_injuries", new_callable=AsyncMock),
+            patch(f"{_SCHED}.sync_events_to_games", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_fg_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_1h_odds", new_callable=AsyncMock),
+            patch(f"{_SCHED}.poll_player_props", new_callable=AsyncMock),
+            patch(f"{_SCHED}.get_settings", return_value=mock_settings),
+            patch(f"{_SCHED}.async_session_factory", mock_sf),
+            patch(f"{_SCHED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch("src.models.predictor.Predictor", return_value=mock_predictor),
+            patch("src.models.features.reset_elo_cache"),
+            patch("src.notifications.teams.build_html_slate", return_value="<html>"),
+            patch("builtins.open", mock_open()),
+            patch("src.notifications.teams.build_teams_card", return_value={"body": []}) as mock_build_card,
+            patch("src.notifications.teams.send_card_to_teams", new_callable=AsyncMock) as mock_send,
+        ):
+            await generate_predictions_and_publish()
+
+        mock_send.assert_awaited_once()
+        assert mock_build_card.call_args.kwargs["download_url"] is None
+        assert mock_build_card.call_args.kwargs["csv_download_url"] is None
 
     @pytest.mark.anyio
     async def test_graph_api_publish(self):

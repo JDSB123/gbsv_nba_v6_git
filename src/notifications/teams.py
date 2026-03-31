@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import csv
 import html as html_mod
 import io
@@ -1433,11 +1434,81 @@ async def send_alert(title: str, message: str, severity: str = "warning") -> Non
         logger.warning("Failed to send Teams alert: %s", title, exc_info=True)
 
 
+def _payload_size_bytes(payload: dict[str, Any]) -> int:
+    return len(json.dumps(payload, ensure_ascii=False))
+
+
+def _chunk_card_payload(
+    payload: dict[str, Any],
+    max_payload_bytes: int = 26_000,
+) -> list[dict[str, Any]]:
+    if _payload_size_bytes(payload) <= max_payload_bytes:
+        return [payload]
+
+    try:
+        original_content = payload["attachments"][0]["content"]
+        original_body = list(original_content["body"])
+    except (KeyError, IndexError, TypeError):
+        return [payload]
+
+    if len(original_body) <= 4:
+        return [payload]
+
+    shared_prefix = original_body[:4]
+    variable_items = original_body[4:]
+    chunks: list[dict[str, Any]] = []
+
+    def _new_chunk() -> tuple[dict[str, Any], dict[str, Any]]:
+        chunk_payload = copy.deepcopy(payload)
+        chunk_content = chunk_payload["attachments"][0]["content"]
+        chunk_content["body"] = list(shared_prefix)
+        return chunk_payload, chunk_content
+
+    chunk_payload, chunk_content = _new_chunk()
+    variable_items_in_chunk = 0
+
+    for item in variable_items:
+        chunk_content["body"].append(item)
+        if _payload_size_bytes(chunk_payload) > max_payload_bytes and variable_items_in_chunk > 0:
+            chunk_content["body"].pop()
+            chunk_content.pop("actions", None)
+            chunks.append(chunk_payload)
+            chunk_payload, chunk_content = _new_chunk()
+            chunk_content["body"].append(item)
+            variable_items_in_chunk = 1
+            continue
+
+        variable_items_in_chunk += 1
+
+    chunks.append(chunk_payload)
+    for chunk in chunks[:-1]:
+        chunk["attachments"][0]["content"].pop("actions", None)
+    return chunks
+
+
 async def send_card_to_teams(webhook_url: str, payload: dict[str, Any]) -> None:
-    """Send an Adaptive Card payload to a Teams incoming webhook."""
+    """Send an Adaptive Card payload to a Teams incoming webhook.
+    Automatically chunks the payload into multiple cards if it exceeds Power Automate's 28KB limit.
+    """
+    raw_size = _payload_size_bytes(payload)
+    chunks = _chunk_card_payload(payload)
+    if len(chunks) == 1:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(webhook_url, json=payload)
+            response.raise_for_status()
+        return
+
+    logger.info(
+        "Payload is %d bytes (exceeds 25KB limit). Chunking Adaptive Card into %d parts...",
+        raw_size,
+        len(chunks),
+    )
+
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(webhook_url, json=payload)
-        response.raise_for_status()
+        for i, chunk_payload in enumerate(chunks, start=1):
+            response = await client.post(webhook_url, json=chunk_payload)
+            response.raise_for_status()
+            logger.info("Successfully sent Teams payload chunk %d/%d", i, len(chunks))
 
 
 async def send_text_to_teams(webhook_url: str, text: str) -> None:

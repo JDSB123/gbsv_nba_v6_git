@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import os
+from typing import Any
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season

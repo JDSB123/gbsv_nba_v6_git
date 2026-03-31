@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
-from src.models.predictor import Predictor, _margin_to_prob
+from src.models.predictor import MODEL_NAMES, Predictor, _margin_to_prob
 
 # ── _margin_to_prob ──────────────────────────────────────────────
 
@@ -170,6 +171,40 @@ class TestPredictorProperties:
         p.models = {}
         p._incompatible_models = {}
         assert not p.is_ready
+
+
+class TestModelSmokeTest:
+    def test_smoke_test_clears_implausible_models(self):
+        p = Predictor.__new__(Predictor)
+        p.feature_cols = ["a", "b"]
+        p._inference_feature_cols = ["a", "b"]
+        p._imputation_values = {"a": 1.0, "b": 2.0}
+        p._model_feature_counts = {name: 2 for name in MODEL_NAMES}
+        p._incompatible_models = {}
+        p._compatibility_mode = False
+        p._calibration = {}
+        p._last_error = None
+        p.model_version = "test"
+
+        bad_home_fg = MagicMock()
+        bad_home_fg.predict.return_value = np.array([0.1])
+        bad_away_fg = MagicMock()
+        bad_away_fg.predict.return_value = np.array([0.5])
+        bad_home_1h = MagicMock()
+        bad_home_1h.predict.return_value = np.array([-2.4])
+        bad_away_1h = MagicMock()
+        bad_away_1h.predict.return_value = np.array([1.5])
+        p.models = {
+            "model_home_fg": bad_home_fg,
+            "model_away_fg": bad_away_fg,
+            "model_home_1h": bad_home_1h,
+            "model_away_1h": bad_away_1h,
+        }
+
+        p._run_model_smoke_test()
+
+        assert p.models == {}
+        assert p._last_error is not None
 
     def test_is_ready_false_when_incompatible(self):
         p = Predictor.__new__(Predictor)

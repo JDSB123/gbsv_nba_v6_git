@@ -966,7 +966,7 @@ async def generate_predictions_and_publish() -> int:
 
                 # Link to the HTML slate if the API is reachable
                 if _s.api_base_url:
-                    download_url = f"{_s.api_base_url}/predictions/slate.html"
+                    download_url = f"{_s.api_base_url.rstrip('/')}/predictions/slate.html"
 
                 if _s.teams_team_id and _s.teams_channel_id:
                     # ── Graph API path: card + CSV file + HTML slate ──
@@ -1021,6 +1021,16 @@ async def generate_predictions_and_publish() -> int:
                     logger.info("Published %d predictions to Teams (Graph API)", len(rows))
 
                 elif _s.teams_webhook_url:
+                    # ALWAYS dump the HTML file locally for the user too!
+                    try:
+                        from src.notifications.teams import build_html_slate
+                        html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+                        with open("nba_picks_slate_livesync.html", "w", encoding="utf-8") as f:
+                            f.write(html)
+                        logger.info("Saved local HTML slate copy to nba_picks_slate_livesync.html")
+                    except Exception as e:
+                        logger.warning(f"Failed to dump html locally: {e}")
+
                     csv_dl = (
                         f"{_s.api_base_url.rstrip('/')}/predictions/slate.csv"
                         if _s.api_base_url

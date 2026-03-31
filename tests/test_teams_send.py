@@ -146,6 +146,75 @@ class TestSendCardToTeams:
             await send_card_to_teams("https://hook.example.com", {"type": "message"})
             mock_client.post.assert_awaited_once()
 
+    @pytest.mark.anyio
+    async def test_send_card_does_not_write_debug_files(self):
+        from src.notifications.teams import send_card_to_teams
+
+        with (
+            patch(f"{_MOD}.httpx.AsyncClient") as mock_client_cls,
+            patch("builtins.open", side_effect=AssertionError("debug file write should not occur")),
+        ):
+            mock_client = AsyncMock()
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await send_card_to_teams("https://hook.example.com", {"type": "message"})
+            mock_client.post.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_send_card_chunks_large_payload_and_keeps_actions_on_final_part(self):
+        from src.notifications.teams import send_card_to_teams
+
+        large_text = "x" * 18_000
+        payload = {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": [
+                            {"type": "TextBlock", "text": "NBA Daily Slate"},
+                            {"type": "TextBlock", "text": "Model v6"},
+                            {"type": "TextBlock", "text": "5 games"},
+                            {"type": "TextBlock", "text": "Top picks"},
+                            {"type": "TextBlock", "text": large_text},
+                            {"type": "TextBlock", "text": large_text},
+                        ],
+                        "actions": [
+                            {
+                                "type": "Action.OpenUrl",
+                                "title": "Download HTML",
+                                "url": "https://example.com/slate.html",
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+        with patch(f"{_MOD}.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status = MagicMock()
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await send_card_to_teams("https://hook.example.com", payload)
+
+        assert mock_client.post.await_count == 2
+        first_payload = mock_client.post.await_args_list[0].kwargs["json"]
+        second_payload = mock_client.post.await_args_list[1].kwargs["json"]
+        assert "actions" not in first_payload["attachments"][0]["content"]
+        assert "actions" in second_payload["attachments"][0]["content"]
+        assert first_payload["attachments"][0]["content"]["body"][0]["text"] == "NBA Daily Slate"
+        assert second_payload["attachments"][0]["content"]["body"][0]["text"] == "NBA Daily Slate"
+
 
 class TestSendTextToTeams:
     @pytest.mark.anyio

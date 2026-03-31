@@ -197,12 +197,18 @@ class TestPredictGame:
         pred._inference_feature_cols = ["f1", "f2"]
         pred._calibration = {}
         pred._last_error = None
+        pred._imputation_values = {"f1": 0.0, "f2": 0.0}
 
-        # Mock 4 xgb models
-        for _name in MODEL_NAMES:
-            mock_model = MagicMock()
-            mock_model.predict.return_value = np.array([105.0])
-            pred.models = {n: mock_model for n in MODEL_NAMES}
+        pred.models = {
+            "model_home_fg": MagicMock(),
+            "model_away_fg": MagicMock(),
+            "model_home_1h": MagicMock(),
+            "model_away_1h": MagicMock(),
+        }
+        pred.models["model_home_fg"].predict.return_value = np.array([110.0])
+        pred.models["model_away_fg"].predict.return_value = np.array([105.0])
+        pred.models["model_home_1h"].predict.return_value = np.array([55.0])
+        pred.models["model_away_1h"].predict.return_value = np.array([52.0])
 
         pred._incompatible_models = {}
         pred._model_feature_counts = {n: 2 for n in MODEL_NAMES}
@@ -236,6 +242,170 @@ class TestPredictGame:
         assert "fg_home_ml_prob" in result
         assert "h1_spread" in result
 
+    async def test_allows_limited_imputation(self, monkeypatch):
+        pred = Predictor.__new__(Predictor)
+        pred.feature_cols = ["f1", "f2"]
+        pred._inference_feature_cols = ["f1", "f2"]
+        pred._calibration = {}
+        pred._last_error = None
+        pred._imputation_values = {"f1": 1.5, "f2": 2.0}
+
+        home_fg_model = MagicMock()
+        home_fg_model.predict.return_value = np.array([111.0])
+        away_fg_model = MagicMock()
+        away_fg_model.predict.return_value = np.array([106.0])
+        home_1h_model = MagicMock()
+        home_1h_model.predict.return_value = np.array([56.0])
+        away_1h_model = MagicMock()
+        away_1h_model.predict.return_value = np.array([52.0])
+        pred.models = {
+            "model_home_fg": home_fg_model,
+            "model_away_fg": away_fg_model,
+            "model_home_1h": home_1h_model,
+            "model_away_1h": away_1h_model,
+        }
+
+        pred._incompatible_models = {}
+        pred._model_feature_counts = {n: 2 for n in MODEL_NAMES}
+
+        game = SimpleNamespace(
+            id=1,
+            home_team_id=1,
+            away_team_id=2,
+            home_team=SimpleNamespace(name="BOS"),
+            away_team=SimpleNamespace(name="LAL"),
+            commence_time=_ts(0),
+            season="2024-2025",
+        )
+
+        db = AsyncMock()
+        snap_result = MagicMock()
+        snap_result.scalars.return_value.all.return_value = [_make_snapshot(outcome="BOS")]
+        db.execute.return_value = snap_result
+
+        monkeypatch.setattr(
+            "src.models.predictor.build_feature_vector",
+            AsyncMock(return_value={"f1": float("nan"), "f2": 2.5}),
+        )
+        monkeypatch.setattr(
+            "src.models.predictor.get_settings",
+            lambda: SimpleNamespace(odds_freshness_max_age_minutes=30),
+        )
+
+        result = await pred.predict_game(game, db)
+        assert result is not None
+        X_input = home_fg_model.predict.call_args.args[0]
+        assert X_input.tolist() == [[1.5, 2.5]]
+
+    async def test_skips_when_too_many_features_require_imputation(self, monkeypatch):
+        pred = Predictor.__new__(Predictor)
+        pred.feature_cols = ["f1", "f2", "f3", "f4", "f5"]
+        pred._inference_feature_cols = ["f1", "f2", "f3", "f4", "f5"]
+        pred._calibration = {}
+        pred._last_error = None
+        pred._imputation_values = {f"f{i}": float(i) for i in range(1, 6)}
+
+        home_fg_model = MagicMock()
+        home_fg_model.predict.return_value = np.array([111.0])
+        pred.models = {
+            "model_home_fg": home_fg_model,
+            "model_away_fg": MagicMock(),
+            "model_home_1h": MagicMock(),
+            "model_away_1h": MagicMock(),
+        }
+
+        pred._incompatible_models = {}
+        pred._model_feature_counts = {n: 5 for n in MODEL_NAMES}
+
+        game = SimpleNamespace(
+            id=1,
+            home_team_id=1,
+            away_team_id=2,
+            home_team=SimpleNamespace(name="BOS"),
+            away_team=SimpleNamespace(name="LAL"),
+            commence_time=_ts(0),
+            season="2024-2025",
+        )
+
+        db = AsyncMock()
+        snap_result = MagicMock()
+        snap_result.scalars.return_value.all.return_value = [_make_snapshot(outcome="BOS")]
+        db.execute.return_value = snap_result
+
+        monkeypatch.setattr(
+            "src.models.predictor.build_feature_vector",
+            AsyncMock(
+                return_value={
+                    "f1": float("nan"),
+                    "f2": float("nan"),
+                    "f3": 3.0,
+                    "f4": 4.0,
+                    "f5": 5.0,
+                }
+            ),
+        )
+        monkeypatch.setattr(
+            "src.models.predictor.get_settings",
+            lambda: SimpleNamespace(odds_freshness_max_age_minutes=30),
+        )
+
+        result = await pred.predict_game(game, db)
+        assert result is None
+        home_fg_model.predict.assert_not_called()
+
+    async def test_skips_generated_payload_that_fails_integrity(self, monkeypatch):
+        pred = Predictor.__new__(Predictor)
+        pred.feature_cols = ["f1", "f2"]
+        pred._inference_feature_cols = ["f1", "f2"]
+        pred._calibration = {}
+        pred._last_error = None
+        pred._imputation_values = {"f1": 0.0, "f2": 0.0}
+
+        home_fg_model = MagicMock()
+        home_fg_model.predict.return_value = np.array([-5.0])
+        away_fg_model = MagicMock()
+        away_fg_model.predict.return_value = np.array([4.0])
+        home_1h_model = MagicMock()
+        home_1h_model.predict.return_value = np.array([-5.0])
+        away_1h_model = MagicMock()
+        away_1h_model.predict.return_value = np.array([4.0])
+        pred.models = {
+            "model_home_fg": home_fg_model,
+            "model_away_fg": away_fg_model,
+            "model_home_1h": home_1h_model,
+            "model_away_1h": away_1h_model,
+        }
+
+        pred._incompatible_models = {}
+        pred._model_feature_counts = {n: 2 for n in MODEL_NAMES}
+
+        game = SimpleNamespace(
+            id=1,
+            home_team_id=1,
+            away_team_id=2,
+            home_team=SimpleNamespace(name="BOS"),
+            away_team=SimpleNamespace(name="LAL"),
+            commence_time=_ts(0),
+            season="2024-2025",
+        )
+
+        db = AsyncMock()
+        snap_result = MagicMock()
+        snap_result.scalars.return_value.all.return_value = [_make_snapshot(outcome="BOS")]
+        db.execute.return_value = snap_result
+
+        monkeypatch.setattr(
+            "src.models.predictor.build_feature_vector",
+            AsyncMock(return_value={"f1": 1.0, "f2": 2.5}),
+        )
+        monkeypatch.setattr(
+            "src.models.predictor.get_settings",
+            lambda: SimpleNamespace(odds_freshness_max_age_minutes=30),
+        )
+
+        result = await pred.predict_game(game, db)
+        assert result is None
+
 
 # ── predict_and_store ────────────────────────────────────────────
 
@@ -252,8 +422,10 @@ class TestPredictAndStore:
         pred._last_error = None
         pred._model_feature_counts = {n: 1 for n in MODEL_NAMES}
 
-        for m in pred.models.values():
-            m.predict.return_value = np.array([100.0])
+        pred.models["model_home_fg"].predict.return_value = np.array([110.0])
+        pred.models["model_away_fg"].predict.return_value = np.array([105.0])
+        pred.models["model_home_1h"].predict.return_value = np.array([55.0])
+        pred.models["model_away_1h"].predict.return_value = np.array([52.0])
 
         game = SimpleNamespace(
             id=1,

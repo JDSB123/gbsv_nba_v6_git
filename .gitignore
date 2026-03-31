@@ -10,6 +10,7 @@ build/
 
 # Virtual environments
 .venv/
+.venv-run/
 venv/
 env/
 
@@ -59,6 +60,14 @@ _*.txt
 *.log
 test_player_stats.py
 test_structure.py
+gen_html.py
+test_card_gen.py
+test_teams.py
+test_teams_*.py
+teams_payload_debug*.json
+nba_picks_slate*.html
+card_out.json
+run_outputs/
 
 # Azure
 .azure/
