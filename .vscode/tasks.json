@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "setup-env",
+      "label": "env: bootstrap",
       "type": "shell",
       "command": "powershell",
       "args": [
@@ -15,10 +15,28 @@
         "panel": "shared",
         "close": true
       },
-      "problemMatcher": [],
-      "runOptions": {
-        "runOn": "folderOpen"
-      }
+      "problemMatcher": []
+    },
+    {
+      "label": "db: migrate",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "migrate"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "pytest",
+      "args": [
+        "tests",
+        "-v"
+      ],
+      "problemMatcher": []
     }
   ]
 }

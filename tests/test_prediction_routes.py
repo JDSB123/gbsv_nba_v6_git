@@ -435,6 +435,46 @@ async def test_slate_html_no_rows():
 
     app.dependency_overrides[get_db] = override_db
     try:
+        with (
+            patch(
+                "src.services.predictions.PredictionService.get_slate_payload",
+                new_callable=AsyncMock,
+                return_value=([], None),
+            ),
+            patch(
+                "src.services.predictions.PredictionService.get_list_predictions",
+                new_callable=AsyncMock,
+                return_value={
+                    "predictions": [],
+                    "freshness": {
+                        "evaluated_predictions": 3,
+                        "stale_count": 3,
+                        "filtered_out_non_fresh": 3,
+                        "freshest_age_minutes": 42.5,
+                    },
+                },
+            ),
+        ):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/predictions/slate.html")
+            assert resp.status_code == 200
+            assert resp.headers["x-slate-status"] == "empty"
+            assert "No fresh predictions are available right now" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+async def test_slate_csv_no_rows_returns_header_only():
+    app.dependency_overrides[get_predictor] = lambda: _ReadyPredictor()
+    mock_db = AsyncMock()
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
         with patch(
             "src.services.predictions.PredictionService.get_slate_payload",
             new_callable=AsyncMock,
@@ -442,8 +482,10 @@ async def test_slate_html_no_rows():
         ):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
-                resp = await client.get("/predictions/slate.html")
-            assert resp.status_code == 400
+                resp = await client.get("/predictions/slate.csv")
+            assert resp.status_code == 200
+            assert resp.headers["x-slate-status"] == "empty"
+            assert "Matchup" in resp.text
     finally:
         app.dependency_overrides.clear()
 

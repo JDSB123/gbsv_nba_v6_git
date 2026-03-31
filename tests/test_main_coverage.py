@@ -302,25 +302,21 @@ class TestWorkerShim:
 
 
 class TestConfigEnvFiles:
-    def test_env_files_with_specific_env_file(self, tmp_path, monkeypatch):
-        """Cover line 22: .env.{env} file exists."""
+    def test_settings_use_single_repo_env_file(self):
+        from src.config import Settings
+
+        assert Settings.model_config["env_file"] == ".env"
+
+    def test_settings_ignore_app_env_specific_env_files(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APP_ENV", "staging")
-        env_file = tmp_path / ".env.staging"
-        env_file.write_text("FOO=bar")
+        (tmp_path / ".env").write_text("ODDS_API_KEY=base\nBASKETBALL_API_KEY=base\n")
+        (tmp_path / ".env.staging").write_text("ODDS_API_KEY=staging\n")
         monkeypatch.chdir(tmp_path)
 
-        from src.config import _env_files
+        from src.config import Settings
 
-        result = _env_files()
-        assert ".env.staging" in result
-
-    def test_env_files_without_specific_env_file(self, monkeypatch):
-        """Cover default: .env.{env} file doesn't exist."""
-        monkeypatch.setenv("APP_ENV", "nonexistent")
-        from src.config import _env_files
-
-        result = _env_files()
-        assert ".env" in result
+        settings = Settings()
+        assert settings.odds_api_key == "base"
 
 
 class TestConfigRequiredSecrets:

@@ -25,6 +25,15 @@ async def test_health():
 
 
 @pytest.mark.anyio
+async def test_root_landing_page():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/")
+    assert resp.status_code == 200
+    assert "Live API is running" in resp.text
+
+
+@pytest.mark.anyio
 async def test_model_status():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

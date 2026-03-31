@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -64,7 +64,7 @@ async def add_security_headers(request: Request, call_next) -> Response:
 
 
 # ── API key authentication ────────────────────────────────────────
-_AUTH_EXEMPT = {"/health", "/health/deep", "/health/freshness", "/docs", "/openapi.json"}
+_AUTH_EXEMPT = {"/", "/health", "/health/deep", "/health/freshness", "/docs", "/openapi.json"}
 
 
 @app.middleware("http")
@@ -78,6 +78,47 @@ async def api_key_auth(request: Request, call_next) -> Response:
         return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
 
     return await call_next(request)
+
+
+@app.get("/", include_in_schema=False)
+async def root(request: Request) -> HTMLResponse:
+    base = str(request.base_url).rstrip("/")
+    settings = get_settings()
+    auth_note = (
+        "Prediction endpoints may require an X-API-Key on this deployment."
+        if settings.api_key
+        else "Prediction endpoints are currently reachable without an API key."
+    )
+    links = [
+        ("API Docs", f"{base}/docs"),
+        ("Health", f"{base}/health"),
+        ("Deep Health", f"{base}/health/deep"),
+        ("Freshness", f"{base}/health/freshness"),
+        ("Predictions JSON", f"{base}/predictions"),
+        ("Slate HTML", f"{base}/predictions/slate.html"),
+        ("Slate CSV", f"{base}/predictions/slate.csv"),
+    ]
+    items = "".join(
+        f'<li style="margin:8px 0"><a href="{href}" style="color:#0f62fe;text-decoration:none">{label}</a></li>'
+        for label, href in links
+    )
+    html = (
+        "<!DOCTYPE html><html><head><title>NBA GBSV v6 API</title></head>"
+        '<body style="margin:0;font-family:Segoe UI,Arial,sans-serif;background:#f4f7fb;color:#14213d">'
+        '<main style="max-width:760px;margin:48px auto;padding:32px;background:#ffffff;'
+        'border:1px solid #dbe3f0;border-radius:18px;box-shadow:0 18px 40px rgba(20,33,61,.08)">'
+        '<div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#4f6d8a;'
+        'font-weight:700">NBA GBSV v6</div>'
+        '<h1 style="margin:10px 0 12px;font-size:32px;line-height:1.1">Live API is running</h1>'
+        '<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#40566f">'
+        'This service exposes health checks, prediction endpoints, and a browser-friendly slate view.'
+        "</p>"
+        f'<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#5b728a">{auth_note}</p>'
+        '<ul style="margin:0;padding-left:20px;font-size:15px;line-height:1.6">'
+        f"{items}</ul>"
+        "</main></body></html>"
+    )
+    return HTMLResponse(content=html)
 
 
 app.include_router(health.router)

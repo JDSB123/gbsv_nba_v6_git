@@ -19,6 +19,26 @@ def _not_ready_detail(reason: str) -> dict[str, str]:
     return {"message": "Predictions not ready", "reason": reason}
 
 
+def _empty_slate_message(summary: dict[str, Any]) -> str:
+    freshness = summary.get("freshness", {})
+    evaluated = int(freshness.get("evaluated_predictions") or 0)
+    filtered = int(freshness.get("filtered_out_non_fresh") or 0)
+    stale_count = int(freshness.get("stale_count") or 0)
+    freshest_age = freshness.get("freshest_age_minutes")
+
+    if evaluated and (filtered or stale_count):
+        age_hint = ""
+        if isinstance(freshest_age, int | float):
+            age_hint = f" Latest saved odds are about {freshest_age:.1f} minutes old."
+        return (
+            "No fresh predictions are available right now. The saved slate aged past the "
+            "freshness window and will repopulate after the next refresh."
+            f"{age_hint}"
+        )
+
+    return "No predictions are available right now. Check back after the next refresh window."
+
+
 async def get_prediction_service(
     db: AsyncSession = Depends(get_db),
     predictor: Predictor = Depends(get_predictor),
@@ -47,13 +67,19 @@ async def slate_html(
     service: PredictionService = Depends(get_prediction_service),
 ) -> HTMLResponse:
     """Return a filterable/sortable HTML slate of today's predictions."""
+    from src.notifications.teams import build_html_slate
+
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
     rows, odds_pulled_at = await service.get_slate_payload()
     if not rows:
-        raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
-
-    from src.notifications.teams import build_html_slate
+        summary = await service.get_list_predictions()
+        html = build_html_slate(
+            rows,
+            odds_pulled_at=odds_pulled_at,
+            empty_message=_empty_slate_message(summary),
+        )
+        return HTMLResponse(content=html, headers={"X-Slate-Status": "empty"})
 
     html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
     return HTMLResponse(content=html)
@@ -66,19 +92,20 @@ async def slate_csv(
     service: PredictionService = Depends(get_prediction_service),
 ) -> Response:
     """Return today's predictions as a downloadable CSV."""
+    from src.notifications.teams import build_slate_csv
+
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
     rows, odds_pulled_at = await service.get_slate_payload()
-    if not rows:
-        raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
-
-    from src.notifications.teams import build_slate_csv
 
     csv_bytes = build_slate_csv(rows)
+    headers = {"Content-Disposition": "attachment; filename=slate.csv"}
+    if not rows:
+        headers["X-Slate-Status"] = "empty"
     return Response(
         content=csv_bytes,
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=slate.csv"},
+        headers=headers,
     )
 
 

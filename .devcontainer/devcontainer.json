@@ -10,19 +10,20 @@
     8000,
     5432
   ],
-  "postCreateCommand": "pip install --no-cache-dir -r requirements-dev.txt && python -m src migrate 2>/dev/null || echo 'Skipped migration — generate one first with: alembic revision --autogenerate -m initial'",
+  "postCreateCommand": "sh -lc 'test -f .env || cp .env.example .env; python -m src migrate 2>/dev/null || echo \"Skipped migration; generate one first with: alembic revision --autogenerate -m initial\"'",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "charliermarsh.ruff",
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-pg"
+        "charliermarsh.ruff"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.formatOnSave": true

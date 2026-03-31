@@ -9,10 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 
-# Install ALL deps (prod + dev/test) inside the container.
-# The container IS the virtual environment — no venv needed.
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements-dev.txt
+# Install the project and dev tooling from pyproject.toml.
+# The container is the Python environment; no local venv is required.
+COPY README.md pyproject.toml alembic.ini ./
+COPY src/ src/
+RUN pip install --no-cache-dir -e ".[dev]"
 
 # Keep container running for dev
 CMD ["sleep", "infinity"]

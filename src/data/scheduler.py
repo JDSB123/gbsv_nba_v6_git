@@ -815,7 +815,12 @@ async def pregame_check() -> None:
         logger.exception("Error in pregame check")
 
 
-async def generate_predictions_and_publish() -> int:
+async def generate_predictions_and_publish(
+    *,
+    publish: bool = True,
+    refresh_inputs: bool = True,
+    send_alerts: bool = True,
+) -> int:
     """Generate upcoming predictions and publish formatted output to Teams."""
     logger.info("Generating predictions and publishing to Teams...")
     try:
@@ -833,23 +838,23 @@ async def generate_predictions_and_publish() -> int:
         # Invalidate Elo cache so fresh ratings are computed from latest results
         reset_elo_cache()
 
-        # 0) Refresh all upstream inputs the model depends on right before inference.
-        #    That keeps prediction runs deterministic and avoids reusing stale local state.
-        await poll_stats()
-        await poll_scores_and_box()
-        await poll_injuries()
+        if refresh_inputs:
+            # Refresh all upstream inputs the model depends on right before inference.
+            # That keeps prediction runs deterministic and avoids reusing stale local state.
+            await poll_stats()
+            await poll_scores_and_box()
+            await poll_injuries()
 
-        # 1) Sync Odds-API events → internal games so odds_api_id is set
-        #    before persist_odds tries to link snapshots.
-        await sync_events_to_games()
+            # Sync Odds-API events → internal games so odds_api_id is set
+            # before persist_odds tries to link snapshots.
+            await sync_events_to_games()
 
-        # 2) Always pull fresh FG + 1H odds plus player props before generating predictions.
-        #    This function runs infrequently (morning cron / manual refresh),
-        #    so the API cost is justified vs. the risk of stale or missing inputs.
-        _s = get_settings()
-        await poll_fg_odds()
-        await poll_1h_odds()
-        await poll_player_props()
+            # Pull fresh FG + 1H odds plus player props before generating predictions.
+            # This function runs infrequently (morning cron / manual refresh),
+            # so the API cost is justified vs. the risk of stale or missing inputs.
+            await poll_fg_odds()
+            await poll_1h_odds()
+            await poll_player_props()
 
         async with async_session_factory() as db:
             purged_count = await purge_invalid_upcoming_predictions(db)
@@ -902,16 +907,17 @@ async def generate_predictions_and_publish() -> int:
                         linked_ns_game_count,
                         ns_game_count,
                     )
-                    from src.notifications.teams import send_alert
+                    if send_alerts:
+                        from src.notifications.teams import send_alert
 
-                    await send_alert(
-                        "DATA LOSS — 0 Eligible Predictions",
-                        f"{linked_ns_game_count} odds-linked NS games were eligible, but "
-                        f"the prediction pipeline produced 0 predictions. Total NS games "
-                        f"in DB: {ns_game_count}. Check model readiness, stored odds "
-                        f"freshness, and feature availability.",
-                        "error",
-                    )
+                        await send_alert(
+                            "DATA LOSS — 0 Eligible Predictions",
+                            f"{linked_ns_game_count} odds-linked NS games were eligible, but "
+                            f"the prediction pipeline produced 0 predictions. Total NS games "
+                            f"in DB: {ns_game_count}. Check model readiness, stored odds "
+                            f"freshness, and feature availability.",
+                            "error",
+                        )
                 return 0
 
             pred_count = len(predictions)
@@ -960,7 +966,7 @@ async def generate_predictions_and_publish() -> int:
             odds_ts_result = await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
             odds_pulled_at = odds_ts_result.scalar_one_or_none()
 
-            if rows:
+            if rows and publish:
                 _s = get_settings()
                 download_url: str | None = None
 
@@ -1050,14 +1056,25 @@ async def generate_predictions_and_publish() -> int:
             return len(rows)
     except Exception:
         logger.exception("Error generating/publishing predictions")
-        from src.notifications.teams import send_alert
+        if send_alerts:
+            from src.notifications.teams import send_alert
 
-        await send_alert(
-            "Prediction Publish Failed",
-            "generate_predictions_and_publish raised an exception. Check worker logs.",
-            "error",
-        )
+            await send_alert(
+                "Prediction Publish Failed",
+                "generate_predictions_and_publish raised an exception. Check worker logs.",
+                "error",
+            )
         return 0
+
+
+async def refresh_prediction_cache() -> int:
+    """Refresh cached predictions without re-polling inputs or publishing side effects."""
+    logger.info("Refreshing cached predictions from current persisted inputs...")
+    return await generate_predictions_and_publish(
+        publish=False,
+        refresh_inputs=False,
+        send_alerts=False,
+    )
 
 
 async def check_prediction_drift() -> None:
@@ -1196,6 +1213,12 @@ def create_scheduler() -> AsyncIOScheduler:
         hour=settings.morning_slate_hour,
         minute=0,
         id="morning_slate",
+    )
+    scheduler.add_job(
+        refresh_prediction_cache,
+        "interval",
+        minutes=settings.prediction_cache_refresh_interval_minutes,
+        id="refresh_prediction_cache",
     )
     scheduler.add_job(pregame_check, "interval", minutes=5, id="pregame_check")
     scheduler.add_job(fill_clv, "interval", minutes=90, id="fill_clv")

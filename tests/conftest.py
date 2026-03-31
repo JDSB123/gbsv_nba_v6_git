@@ -1,7 +1,6 @@
 import os
 
-# Force test environment for all tests — prevents validation from
-# requiring real API keys and ensures .env.test is loaded if present.
+# Force test environment for all tests so secret validation stays disabled.
 os.environ.setdefault("APP_ENV", "test")
 
 

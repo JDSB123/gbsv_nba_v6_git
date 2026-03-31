@@ -66,12 +66,31 @@ jobs:
         with:
           python-version-file: ".python-version"
           cache: "pip"
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: python -m pip install -e ".[dev]"
+
+      - name: Smoke fresh-checkout setup
+        env:
+          ODDS_API_KEY: dev-odds-placeholder
+          BASKETBALL_API_KEY: dev-basketball-placeholder
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv
+          APP_ENV: development
+          LOG_LEVEL: INFO
+        run: |
+          cp .env.example .env
+          python -m src migrate
+          python - <<'PY'
+          from src.config import get_settings
+          from src.api.main import app
+
+          settings = get_settings()
+          assert settings.odds_api_key
+          assert settings.basketball_api_key
+          assert app.title == "NBA GBSV v6 API"
+          print("Fresh-checkout smoke setup passed.")
+          PY
 
       - name: Lint
         run: ruff check src/ tests/
@@ -113,9 +132,7 @@ jobs:
         with:
           python-version-file: ".python-version"
           cache: "pip"
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+          cache-dependency-path: pyproject.toml
 
       - name: Validate Azure credentials secret
         env:
@@ -256,7 +273,7 @@ jobs:
           fi
           echo "Bootstrapping season ${BACKFILL_SEASON} with ${BACKFILL_DAYS} days of history"
 
-          pip install --no-cache-dir -r requirements.txt
+          python -m pip install .
           python -m src migrate
           python -m src backfill --season "$BACKFILL_SEASON" --days "$BACKFILL_DAYS"
           python -m src train
@@ -314,6 +331,7 @@ jobs:
         with:
           python-version-file: ".python-version"
           cache: "pip"
+          cache-dependency-path: pyproject.toml
 
       - name: Validate Azure credentials secret
         env:
@@ -431,7 +449,7 @@ jobs:
 
           export DATABASE_URL="postgresql+asyncpg://pgadmin:${PG_PASSWORD}@${PG_HOST}:5432/nba_gbsv?ssl=require"
 
-          pip install --no-cache-dir -r requirements.txt
+          python -m pip install .
           python -m src migrate
 
       - name: Deploy API to Container Apps

@@ -217,6 +217,18 @@ async def test_api_key_auth_allows_correct_key():
         app.dependency_overrides.clear()
 
 
+@pytest.mark.anyio
+async def test_root_is_public_when_api_key_is_configured():
+    with patch("src.api.main.get_settings") as mock_settings:
+        mock_settings.return_value.api_key = "correct-key-123"
+        mock_settings.return_value.api_base_url = ""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/")
+        assert resp.status_code == 200
+        assert "Live API is running" in resp.text
+
+
 # ── rate_limit.py: _read_file_utf8 FileNotFoundError (lines 18-19) ──
 def test_rate_limit_read_file_utf8_missing_file():
     from src.api.rate_limit import _read_file_utf8
@@ -267,7 +279,8 @@ async def test_predictions_slate_csv_no_predictions():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/predictions/slate.csv")
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        assert resp.headers["x-slate-status"] == "empty"
     finally:
         app.dependency_overrides.clear()
 

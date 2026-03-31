@@ -10,14 +10,13 @@ build/
 
 # Virtual environments
 .venv/
+.venv*/
 .venv-run/
 venv/
 env/
 
-# Environment variables (keep .env.example + .env.production)
+# Environment variables (.env.example is the only committed template)
 .env
-.env.development
-.env.test
 
 # IDE
 .idea/

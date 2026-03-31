@@ -182,6 +182,25 @@ class TestPollPlayerProps:
         mock_breaker.record_failure.assert_called_once()
 
 
+class TestRefreshPredictionCache:
+    @pytest.mark.anyio
+    async def test_refreshes_without_publish_side_effects(self):
+        from src.data.scheduler import refresh_prediction_cache
+
+        with patch(
+            f"{_SCHED}.generate_predictions_and_publish",
+            new_callable=AsyncMock,
+            return_value=4,
+        ) as mock_generate:
+            await refresh_prediction_cache()
+
+        mock_generate.assert_awaited_once_with(
+            publish=False,
+            refresh_inputs=False,
+            send_alerts=False,
+        )
+
+
 # ── poll_stats ───────────────────────────────────────────────────
 
 

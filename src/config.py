@@ -2,25 +2,9 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def _env_files() -> tuple[str, ...]:
-    """Return env files to load, most-specific first.
-
-    Pydantic loads files left-to-right; last file wins for dupes, but
-    we list the *specific* file last so it overrides the base `.env`.
-    Order: .env  →  .env.{APP_ENV}
-    """
-    env = os.getenv("APP_ENV", "development")
-    specific = f".env.{env}"
-    candidates: list[str] = [".env"]
-    if Path(specific).is_file():
-        candidates.append(specific)
-    return tuple(candidates)
 
 
 class Settings(BaseSettings):
@@ -52,6 +36,7 @@ class Settings(BaseSettings):
     retrain_hour: int = 6  # 6am ET daily retrain
     morning_slate_hour: int = 10  # 10am ET = 9am CST daily publish
     pregame_lead_minutes: int = 60  # publish this many min before first tip
+    prediction_cache_refresh_interval_minutes: int = 15
 
     # ── Teams delivery ─────────────────────────────────────────
     teams_webhook_url: str = ""
@@ -89,7 +74,7 @@ class Settings(BaseSettings):
     azure_key_vault_url: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=_env_files(),
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

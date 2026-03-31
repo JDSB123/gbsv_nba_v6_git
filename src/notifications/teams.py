@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import csv
 import html as html_mod
 import io
@@ -1024,6 +1023,7 @@ def build_html_slate(
     predictions_with_games: list[tuple[Any, ...]],
     odds_pulled_at: datetime | None = None,
     min_edge: float = MIN_EDGE,
+    empty_message: str | None = None,
 ) -> str:
     """Build a styled HTML table of the full slate for posting directly to Teams.
 
@@ -1074,7 +1074,8 @@ def build_html_slate(
     )
 
     if not all_picks:
-        return header + '<p style="color:#6b7280">No qualified picks today.</p>'
+        message = empty_message or "No qualified picks today."
+        return header + f'<p style="color:#6b7280">{_esc(message)}</p>'
 
     # Collect unique values for filter dropdowns
     matchups = sorted({p.matchup for p in all_picks})
@@ -1442,6 +1443,8 @@ def _chunk_card_payload(
     payload: dict[str, Any],
     max_payload_bytes: int = 26_000,
 ) -> list[dict[str, Any]]:
+    import copy
+
     if _payload_size_bytes(payload) <= max_payload_bytes:
         return [payload]
 
