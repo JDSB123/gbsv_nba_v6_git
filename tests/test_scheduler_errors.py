@@ -73,6 +73,7 @@ class TestPollStatsException:
         with (
             patch(f"{_CB_MOD}.basketball_api_breaker", mock_breaker),
             patch("src.data.basketball_client.BasketballClient") as MockClient,
+            patch(f"{_POLL}.async_session_factory", _mock_session_factory(mock_db)),
             patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             client = AsyncMock()
