@@ -309,6 +309,8 @@ class TestConfigEnvFiles:
 
     def test_settings_ignore_app_env_specific_env_files(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APP_ENV", "staging")
+        monkeypatch.delenv("ODDS_API_KEY", raising=False)
+        monkeypatch.delenv("BASKETBALL_API_KEY", raising=False)
         (tmp_path / ".env").write_text("ODDS_API_KEY=base\nBASKETBALL_API_KEY=base\n")
         (tmp_path / ".env.staging").write_text("ODDS_API_KEY=staging\n")
         monkeypatch.chdir(tmp_path)
