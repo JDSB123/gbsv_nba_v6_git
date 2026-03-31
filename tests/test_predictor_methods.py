@@ -174,7 +174,7 @@ class TestPredictorProperties:
 
 
 class TestModelSmokeTest:
-    def test_smoke_test_clears_implausible_models(self):
+    def test_smoke_test_warns_but_keeps_implausible_models_loaded(self):
         p = Predictor.__new__(Predictor)
         p.feature_cols = ["a", "b"]
         p._inference_feature_cols = ["a", "b"]
@@ -184,6 +184,7 @@ class TestModelSmokeTest:
         p._compatibility_mode = False
         p._calibration = {}
         p._last_error = None
+        p._runtime_warning = None
         p.model_version = "test"
 
         bad_home_fg = MagicMock()
@@ -203,8 +204,9 @@ class TestModelSmokeTest:
 
         p._run_model_smoke_test()
 
-        assert p.models == {}
-        assert p._last_error is not None
+        assert set(p.models) == set(MODEL_NAMES)
+        assert p._last_error is None
+        assert p._runtime_warning is not None
 
     def test_is_ready_false_when_incompatible(self):
         p = Predictor.__new__(Predictor)

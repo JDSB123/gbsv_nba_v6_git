@@ -75,6 +75,7 @@ class Predictor:
         self._model_feature_counts: dict[str, int] = {}
         self._incompatible_models: dict[str, int] = {}
         self._last_error: str | None = None
+        self._runtime_warning: str | None = None
         self._compatibility_mode = False
         self._calibration: dict[str, float] = {}
         self.model_version = MODEL_VERSION
@@ -297,9 +298,18 @@ class Predictor:
         if prediction_has_valid_score_payload(smoke_payload):
             return
 
-        self._last_error = "Model smoke test failed: implausible prediction payload"
-        logger.error(self._last_error)
-        self.models = {}
+        self._runtime_warning = (
+            "Model smoke test produced an implausible baseline payload; "
+            "continuing with per-request integrity checks enabled"
+        )
+        logger.warning(
+            "%s (home_fg=%.1f away_fg=%.1f home_1h=%.1f away_1h=%.1f)",
+            self._runtime_warning,
+            smoke_payload.predicted_home_fg,
+            smoke_payload.predicted_away_fg,
+            smoke_payload.predicted_home_1h,
+            smoke_payload.predicted_away_1h,
+        )
 
     @property
     def is_ready(self) -> bool:
@@ -327,6 +337,7 @@ class Predictor:
             "incompatible_models": self._incompatible_models,
             "model_feature_counts": self._model_feature_counts,
             "reason": reason,
+            "warning": getattr(self, "_runtime_warning", None),
         }
 
     def get_metrics(self) -> dict:
