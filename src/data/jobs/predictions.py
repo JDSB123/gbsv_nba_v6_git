@@ -92,8 +92,8 @@ async def generate_predictions_and_publish(
         from sqlalchemy import func as sa_func
 
         from src.data.jobs.polling import (
-            poll_fg_odds,
             poll_1h_odds,
+            poll_fg_odds,
             poll_injuries,
             poll_player_props,
             poll_scores_and_box,

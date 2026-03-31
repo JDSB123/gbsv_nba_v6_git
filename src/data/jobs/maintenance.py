@@ -17,9 +17,8 @@ async def fill_clv() -> None:
     """Fill closing-line value for predictions whose games have finished."""
     logger.info("Filling CLV for finished games...")
     try:
-        from sqlalchemy import and_
-
         import numpy as np
+        from sqlalchemy import and_
 
         async with async_session_factory() as db:
             result = await db.execute(

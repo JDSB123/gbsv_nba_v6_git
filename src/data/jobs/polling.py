@@ -7,10 +7,9 @@ from typing import Any, cast
 
 from sqlalchemy import delete, func, select
 
-from src.config import get_settings
-from src.data.reconciliation import _find_matching_game, _GAME_MATCH_WINDOW
+from src.data.reconciliation import _GAME_MATCH_WINDOW, _find_matching_game
 from src.data.seasons import current_nba_season, parse_api_datetime
-from src.db.models import Game, GameReferee, OddsSnapshot, PlayerGameStats, Team
+from src.db.models import Game, GameReferee, PlayerGameStats, Team
 from src.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
@@ -336,7 +335,6 @@ async def sync_events_to_games() -> None:
     logger.info("Syncing events to games...")
     try:
         from src.data.odds_client import OddsClient
-        from src.data.reconciliation import reconcile_duplicate_games
 
         client = OddsClient()
         events = await client.fetch_events()

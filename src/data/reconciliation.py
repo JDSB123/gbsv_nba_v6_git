@@ -13,9 +13,7 @@ from src.db.models import (
     PlayerGameStats,
     Prediction,
     RotationChange,
-    Team,
 )
-from src.db.session import async_session_factory
 from src.services.prediction_integrity import prediction_rank
 
 logger = logging.getLogger(__name__)
