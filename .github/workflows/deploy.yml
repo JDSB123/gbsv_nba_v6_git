@@ -456,7 +456,7 @@ jobs:
           # but the production DB still references the old revision.
           # This UPDATE is idempotent — affects 0 rows once the DB is current.
           python - <<'PY'
-          import asyncio, os, asyncpg
+          import asyncio, os, asyncpg, ssl as _ssl
 
           OLD_TO_NEW = {
               "fe486f01aa9b": "007_ingestion_failures",
@@ -465,7 +465,12 @@ jobs:
           async def fix_revisions():
               raw = os.environ["DATABASE_URL"]
               dsn = raw.replace("+asyncpg", "").replace("postgresql://", "postgres://")
-              conn = await asyncpg.connect(dsn)
+              # Strip ?ssl=require from DSN; pass ssl via parameter instead
+              dsn = dsn.split("?")[0]
+              ctx = _ssl.create_default_context()
+              ctx.check_hostname = False
+              ctx.verify_mode = _ssl.CERT_NONE
+              conn = await asyncpg.connect(dsn, ssl=ctx)
               try:
                   row = await conn.fetchrow("SELECT version_num FROM alembic_version")
                   if row and row["version_num"] in OLD_TO_NEW:
