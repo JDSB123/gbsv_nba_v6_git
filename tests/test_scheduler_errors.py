@@ -61,13 +61,23 @@ class TestPollStatsException:
     async def test_poll_stats_exception_records_failure(self):
         mock_breaker = MagicMock()
         mock_breaker.should_skip.return_value = False
+        mock_db = AsyncMock()
+        team_result = MagicMock()
+        team_result.fetchall.return_value = [(1,)]
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        mock_db.execute = AsyncMock(side_effect=[team_result, count_result])
 
         with (
             patch(f"{_CB_MOD}.basketball_api_breaker", mock_breaker),
             patch("src.data.basketball_client.BasketballClient") as MockClient,
             patch(f"{_MOD}._record_failure", new_callable=AsyncMock) as mock_record,
+            patch(f"{_MOD}.async_session_factory", _mock_session_factory(mock_db)),
+            patch(f"{_MOD}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=0),
         ):
             client = AsyncMock()
+            client.fetch_games = AsyncMock(return_value=[])
+            client.persist_games = AsyncMock(return_value=0)
             client.fetch_team_stats = AsyncMock(side_effect=Exception("stats error"))
             MockClient.return_value = client
 

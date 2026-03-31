@@ -39,6 +39,17 @@ This setup is sustainable because the same install source and entrypoints are us
 - One command family: `python -m src ...`
 - CI smoke-checks a fresh-checkout install, migration, and app import
 
+## Change Flow
+
+`master` is a protected branch. Changes should land through a branch and pull request, not direct pushes.
+
+The expected flow is:
+
+1. Branch from `master`.
+2. Make the change with `pyproject.toml`, `.env.example`, and this README as the only repo-level sources of truth.
+3. Run `ruff check src tests` and `pytest`.
+4. Open a pull request and merge only after the required GitHub checks pass.
+
 ## Dependency Source Of Truth
 
 `pyproject.toml` is the canonical source for Python dependencies and tooling configuration.
