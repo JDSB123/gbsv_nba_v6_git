@@ -191,32 +191,13 @@ def reset_elo_cache() -> None:
     _elo_system = None
 
 
-async def build_feature_vector(
-    game: Game,
-    db: AsyncSession,
-    odds_snapshots: list | None = None,
-) -> dict[str, float] | None:
-    """Build a feature dict for a single game.
+# ── Feature-vector helper functions ─────────────────────────────
 
-    Args:
-        game: The Game ORM object.
-        db: Async database session (used for stats, recent form, injuries).
-        odds_snapshots: Pre-fetched odds data.  When provided these are used
-            instead of querying the ``OddsSnapshot`` table — this is the path
-            used at prediction time so the model always runs on *fresh* odds.
-            When ``None`` (training), historical cached odds from the DB are
-            used instead.
-    """
-    home_id = int(cast(Any, game.home_team_id))
-    away_id = int(cast(Any, game.away_team_id))
-    season = _as_str(
-        cast(Any, game.season),
-        season_for_date(cast(Any, game.commence_time)),
-    )
 
+async def _team_season_stats(
+    db: AsyncSession, home_id: int, away_id: int, season: str,
+) -> dict[str, float]:
     features: dict[str, float] = {}
-
-    # ── Team season stats ───────────────────────────────────────
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         ts_result = await db.execute(
             select(TeamSeasonStats).where(
@@ -240,18 +221,17 @@ async def build_feature_vector(
             features[f"{prefix}_win_pct"] = win_pct
         else:
             for key in [
-                "ppg",
-                "oppg",
-                "wins",
-                "losses",
-                "pace",
-                "off_rating",
-                "def_rating",
-                "win_pct",
+                "ppg", "oppg", "wins", "losses", "pace",
+                "off_rating", "def_rating", "win_pct",
             ]:
                 features[f"{prefix}_{key}"] = NaN
+    return features
 
-    # ── Recent game averages (last 5 & 10) ──────────────────────
+
+async def _recent_form(
+    db: AsyncSession, home_id: int, away_id: int, game: Any,
+) -> dict[str, float]:
+    features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         for n, label in [(5, "l5"), (10, "l10")]:
             rg_result = await db.execute(
@@ -288,8 +268,13 @@ async def build_feature_vector(
             else:
                 for k in ["pts_avg", "pts_allowed_avg", "1h_pts_avg", "1h_allowed_avg"]:
                     features[f"{prefix}_{label}_{k}"] = NaN
+    return features
 
-    # ── Rest days ───────────────────────────────────────────────
+
+async def _schedule_features(
+    db: AsyncSession, home_id: int, away_id: int, game: Any,
+) -> dict[str, float]:
+    features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         lgt_result = await db.execute(
             select(Game.commence_time)
@@ -310,7 +295,6 @@ async def build_feature_vector(
             features[f"{prefix}_rest_days"] = 3.0
             features[f"{prefix}_b2b"] = 0.0
 
-        # Games in last 7 days
         week_ago = game.commence_time - timedelta(days=7)
         g7d_result = await db.execute(
             select(func.count(Game.id)).where(
@@ -319,9 +303,14 @@ async def build_feature_vector(
                 Game.status == "FT",
             )
         )
-        features[f"{prefix}_games_7d"] = float(g7d_result.scalar() or 0)  # count: 0 is valid
+        features[f"{prefix}_games_7d"] = float(g7d_result.scalar() or 0)
+    return features
 
-    # ── Injury impact ───────────────────────────────────────────
+
+async def _injury_features(
+    db: AsyncSession, home_id: int, away_id: int,
+) -> dict[str, float]:
+    features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         inj_result = await db.execute(select(Injury).where(Injury.team_id == team_id))
         injuries = inj_result.scalars().all()
@@ -330,7 +319,6 @@ async def build_feature_vector(
         for inj in injuries:
             weight = INJURY_WEIGHTS.get(_as_str(cast(Any, inj.status)).lower(), 0.0)
             if weight > 0:
-                # Estimate player value from season averages
                 p_stats_result = await db.execute(
                     select(
                         func.avg(PlayerGameStats.points),
@@ -344,12 +332,16 @@ async def build_feature_vector(
                 injured_count += 1
         features[f"{prefix}_injury_impact"] = injury_impact
         features[f"{prefix}_injured_count"] = float(injured_count)
+    return features
 
-    # ── Player-stat aggregated team features ────────────────────
-    # Aggregate box-score data into team-level signals for each team's
-    # recent games so the model can capture roster depth and form.
+
+async def _player_and_quarter_features(
+    db: AsyncSession, home_id: int, away_id: int, game: Any,
+) -> dict[str, float]:
+    from collections import defaultdict
+
+    features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        # Get player stats from last 5 games for this team
         recent_game_ids_result = await db.execute(
             select(Game.id)
             .where(
@@ -385,9 +377,6 @@ async def build_feature_vector(
             ]
             all_min = [_as_float(cast(Any, p.minutes)) for p in pgs_rows]
 
-            # Per-game aggregation: starters (top-5 by minutes) vs bench
-            from collections import defaultdict
-
             by_game: dict[int, list[Any]] = defaultdict(list)
             for p in pgs_rows:
                 by_game[int(cast(Any, p.game_id))].append(p)
@@ -418,23 +407,16 @@ async def build_feature_vector(
                 features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"],
                 1.0,
             )
-            # Minutes concentration: std of minutes shows roster depth
             features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else NaN
         else:
             for k in [
-                "player_pts_avg",
-                "player_ast_avg",
-                "player_reb_avg",
-                "player_fg_pct",
-                "player_3pt_pct",
-                "starter_pts_avg",
-                "bench_pts_avg",
-                "bench_ratio",
-                "min_std",
+                "player_pts_avg", "player_ast_avg", "player_reb_avg",
+                "player_fg_pct", "player_3pt_pct", "starter_pts_avg",
+                "bench_pts_avg", "bench_ratio", "min_std",
             ]:
                 features[f"{prefix}_{k}"] = NaN
 
-    # ── Quarter scoring tendencies ──────────────────────────────
+    # Quarter scoring tendencies
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         res_2 = await db.execute(
             select(Game)
@@ -450,7 +432,7 @@ async def build_feature_vector(
         qtr_games = res_2.scalars().all()
         if qtr_games:
             q1_scored = []
-            q3_scored = []  # 2nd half opener
+            q3_scored = []
             for g in qtr_games:
                 if int(cast(Any, g.home_team_id)) == team_id:
                     q1_scored.append(_as_float(cast(Any, g.home_q1)))
@@ -463,23 +445,19 @@ async def build_feature_vector(
         else:
             features[f"{prefix}_q1_avg"] = NaN
             features[f"{prefix}_q3_avg"] = NaN
+    return features
 
-    # ── Player prop consensus signals ───────────────────────────
-    # Aggregate player prop lines into team-level signals that capture
-    # bookmaker expectations about individual performance.
+
+async def _prop_consensus_features(
+    db: AsyncSession, game: Any, odds_snapshots: list | None,
+) -> dict[str, float]:
+    features: dict[str, float] = {}
     prop_markets = [
-        "player_points",
-        "player_rebounds",
-        "player_assists",
-        "player_threes",
-        "player_blocks",
-        "player_steals",
-        "player_turnovers",
-        "player_points_rebounds_assists",
-        "player_points_rebounds",
-        "player_points_assists",
-        "player_rebounds_assists",
-        "player_double_double",
+        "player_points", "player_rebounds", "player_assists",
+        "player_threes", "player_blocks", "player_steals",
+        "player_turnovers", "player_points_rebounds_assists",
+        "player_points_rebounds", "player_points_assists",
+        "player_rebounds_assists", "player_double_double",
         "player_triple_double",
     ]
     if odds_snapshots is None:
@@ -514,7 +492,6 @@ async def build_feature_vector(
         prop_snaps = [s for s in odds_snapshots if _as_str(s.market) in prop_markets]
 
     if prop_snaps:
-        # Deduplicate: keep latest per bookmaker+market+description+outcome
         _prop_best: dict[tuple[str, str, str, str], Any] = {}
         for s in prop_snaps:
             prop_key = (
@@ -528,105 +505,52 @@ async def build_feature_vector(
                 _prop_best[prop_key] = s
         deduped_props = list(_prop_best.values())
 
-        # Points props: sum of Over lines = implied team total
-        pts_over_lines = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_points"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        def _over_lines(market: str) -> list[float]:
+            return [
+                _as_float(s.point)
+                for s in deduped_props
+                if _as_str(s.market) == market
+                and _as_str(s.outcome_name) == "Over"
+                and s.point is not None
+            ]
+
+        pts_over_lines = _over_lines("player_points")
         features["prop_pts_lines_count"] = float(len(pts_over_lines))
         features["prop_pts_avg_line"] = float(np.mean(pts_over_lines)) if pts_over_lines else NaN
 
-        # Assists props
-        ast_over_lines = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_assists"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        ast_over_lines = _over_lines("player_assists")
         features["prop_ast_avg_line"] = float(np.mean(ast_over_lines)) if ast_over_lines else NaN
 
-        # Rebounds props
-        reb_over_lines = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_rebounds"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        reb_over_lines = _over_lines("player_rebounds")
         features["prop_reb_avg_line"] = float(np.mean(reb_over_lines)) if reb_over_lines else NaN
 
-        # Threes props — 3-point shooting volume expectation
-        threes_over = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_threes"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        threes_over = _over_lines("player_threes")
         features["prop_threes_avg_line"] = float(np.mean(threes_over)) if threes_over else NaN
 
-        # Blocks props — rim protection expectation
-        blk_over = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_blocks"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        blk_over = _over_lines("player_blocks")
         features["prop_blk_avg_line"] = float(np.mean(blk_over)) if blk_over else NaN
 
-        # Steals props — defensive activity expectation
-        stl_over = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_steals"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        stl_over = _over_lines("player_steals")
         features["prop_stl_avg_line"] = float(np.mean(stl_over)) if stl_over else NaN
 
-        # Turnovers props — ball security / pace signal
-        tov_over = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_turnovers"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        tov_over = _over_lines("player_turnovers")
         features["prop_tov_avg_line"] = float(np.mean(tov_over)) if tov_over else NaN
 
-        # PRA combo — star workload signal (top-end player expectation)
-        pra_over = [
-            _as_float(s.point)
-            for s in deduped_props
-            if _as_str(s.market) == "player_points_rebounds_assists"
-            and _as_str(s.outcome_name) == "Over"
-            and s.point is not None
-        ]
+        pra_over = _over_lines("player_points_rebounds_assists")
         features["prop_pra_avg_line"] = float(np.mean(pra_over)) if pra_over else NaN
 
-        # Double-double & triple-double lines available count
-        # These markets don't have point lines; count of "Yes" outcomes
-        # signals how many star-caliber players the books are pricing.
         dd_yes = [
-            s
-            for s in deduped_props
+            s for s in deduped_props
             if _as_str(s.market) == "player_double_double" and _as_str(s.outcome_name) == "Yes"
         ]
         features["prop_dd_count"] = float(len(dd_yes))
 
         td_yes = [
-            s
-            for s in deduped_props
+            s for s in deduped_props
             if _as_str(s.market) == "player_triple_double" and _as_str(s.outcome_name) == "Yes"
         ]
         features["prop_td_count"] = float(len(td_yes))
 
-        # Sharp vs square prop divergence (points market)
         sharp_pts = [
             _as_float(s.point)
             for s in deduped_props
@@ -647,7 +571,7 @@ async def build_feature_vector(
         square_avg = float(np.mean(square_pts)) if square_pts else features["prop_pts_avg_line"]
         features["prop_sharp_square_diff"] = sharp_avg - square_avg
     else:
-        features["prop_pts_lines_count"] = 0.0  # count: 0 is valid
+        features["prop_pts_lines_count"] = 0.0
         features["prop_pts_avg_line"] = NaN
         features["prop_ast_avg_line"] = NaN
         features["prop_reb_avg_line"] = NaN
@@ -656,13 +580,21 @@ async def build_feature_vector(
         features["prop_stl_avg_line"] = NaN
         features["prop_tov_avg_line"] = NaN
         features["prop_pra_avg_line"] = NaN
-        features["prop_dd_count"] = 0.0  # count: 0 is valid
-        features["prop_td_count"] = 0.0  # count: 0 is valid
+        features["prop_dd_count"] = 0.0
+        features["prop_td_count"] = 0.0
         features["prop_sharp_square_diff"] = NaN
+    return features
 
-    # ── Expected game pace (interaction) ────────────────────────
-    home_pace = features.get("home_pace", NaN)
-    away_pace = features.get("away_pace", NaN)
+
+async def _venue_and_streak_features(
+    db: AsyncSession, home_id: int, away_id: int, game: Any,
+    prior: dict[str, float],
+) -> dict[str, float]:
+    features: dict[str, float] = {}
+
+    # Expected game pace (interaction of prior features)
+    home_pace = prior.get("home_pace", NaN)
+    away_pace = prior.get("away_pace", NaN)
     if not (math.isfinite(home_pace) and math.isfinite(away_pace)):
         features["expected_pace"] = NaN
         features["pace_diff"] = NaN
@@ -670,7 +602,7 @@ async def build_feature_vector(
         features["expected_pace"] = (home_pace + away_pace) / 2.0
         features["pace_diff"] = home_pace - away_pace
 
-    # ── Home/away venue splits (PPG when home vs. away) ─────────
+    # Venue splits
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         if prefix == "home":
             venue_filter = Game.home_team_id == team_id
@@ -700,10 +632,10 @@ async def build_feature_vector(
             features[f"{prefix}_venue_ppg"] = float(np.mean(scored))
             features[f"{prefix}_venue_oppg"] = float(np.mean(allowed))
         else:
-            features[f"{prefix}_venue_ppg"] = features.get(f"{prefix}_ppg", NaN)
-            features[f"{prefix}_venue_oppg"] = features.get(f"{prefix}_oppg", NaN)
+            features[f"{prefix}_venue_ppg"] = prior.get(f"{prefix}_ppg", NaN)
+            features[f"{prefix}_venue_oppg"] = prior.get(f"{prefix}_oppg", NaN)
 
-    # ── Win streak & L5/L10 record ──────────────────────────────
+    # Win streak & L5/L10 record
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         res_4 = await db.execute(
             select(Game)
@@ -716,7 +648,6 @@ async def build_feature_vector(
             .limit(10)
         )
         streak_games = res_4.scalars().all()
-        # Win streak (positive = wins, negative = losses)
         streak = 0
         if streak_games:
             first_won = None
@@ -737,7 +668,6 @@ async def build_feature_vector(
                     break
         features[f"{prefix}_win_streak"] = float(streak)
 
-        # L5 and L10 record (wins in last 5/10)
         l5_wins = 0
         l10_wins = 0
         for i, g in enumerate(streak_games):
@@ -750,27 +680,24 @@ async def build_feature_vector(
                 if i < 5:
                     l5_wins += 1
             elif i < 5:
-                pass  # loss in L5, already 0
+                pass
         features[f"{prefix}_l5_record"] = float(l5_wins)
         features[f"{prefix}_l10_record"] = float(l10_wins)
+    return features
 
-    # ── Season phase ────────────────────────────────────────────
-    _hw = features.get("home_wins", NaN)
-    _hl = features.get("home_losses", NaN)
-    _aw = features.get("away_wins", NaN)
-    _al = features.get("away_losses", NaN)
-    if any(math.isnan(v) for v in (_hw, _hl, _aw, _al)):
-        features["season_progress"] = NaN
-    else:
-        features["season_progress"] = (_hw + _hl + _aw + _al) / (2.0 * 82.0)
 
-    # ── Elo ratings ─────────────────────────────────────────────
+async def _elo_h2h_referee_features(
+    db: AsyncSession, game: Any, home_id: int, away_id: int,
+) -> dict[str, float]:
+    features: dict[str, float] = {}
+
+    # Elo ratings
     elo = await build_elo_ratings(db)
     features["home_elo"] = elo.rating(home_id)
     features["away_elo"] = elo.rating(away_id)
     features["elo_diff"] = features["home_elo"] - features["away_elo"]
 
-    # ── Head-to-head history ────────────────────────────────────
+    # Head-to-head history
     res_5 = await db.execute(
         select(Game)
         .where(
@@ -801,23 +728,21 @@ async def build_feature_vector(
         features["h2h_win_pct"] = h2h_wins / len(h2h_games)
         features["h2h_avg_margin"] = float(np.mean(h2h_margins))
     else:
-        features["h2h_win_pct"] = 0.5  # neutral prior when no H2H history
+        features["h2h_win_pct"] = 0.5
         features["h2h_avg_margin"] = NaN
 
-    # ── Travel / timezone ───────────────────────────────────────
+    # Travel / timezone
     home_name = game.home_team.name if game.home_team is not None else ""
     away_name = game.away_team.name if game.away_team is not None else ""
     home_tz = TEAM_TZ.get(home_name, -5)
     away_tz = TEAM_TZ.get(away_name, -5)
     features["tz_diff"] = float(abs(home_tz - away_tz))
 
-    # ── Referee History ──────────────────────────────────────────
-    # Load assigned referees and calculate historical impact (3-official crew)
+    # Referee History
     ref_names = _assigned_referee_names(game)
     if ref_names:
         ref_metrics = []
         for name in ref_names:
-            # Query all past games involving this referee
             ref_games_res = await db.execute(
                 select(Game)
                 .join(GameReferee)
@@ -834,15 +759,11 @@ async def build_feature_vector(
                 pts = []
                 hw_pct = []
                 over_pct = []
-
-                # We need O/U lines for over_pct (approximated from OddsSnapshot if available)
                 for rg in ref_games:
                     h_pts = _as_float(cast(Any, rg.home_score_fg))
                     a_pts = _as_float(cast(Any, rg.away_score_fg))
                     pts.append(h_pts + a_pts)
                     hw_pct.append(1.0 if h_pts > a_pts else 0.0)
-
-                    # Historical total line if available to judge "Over" bias
                     total_res = await db.execute(
                         select(OddsSnapshot.point)
                         .where(
@@ -854,7 +775,6 @@ async def build_feature_vector(
                     line = total_res.scalar()
                     if line:
                         over_pct.append(1.0 if (h_pts + a_pts) > _as_float(line) else 0.0)
-
                 ref_metrics.append(
                     {
                         "pts": float(np.mean(pts)),
@@ -862,7 +782,6 @@ async def build_feature_vector(
                         "over": float(np.mean(over_pct)) if over_pct else NaN,
                     }
                 )
-
         if ref_metrics:
             features["ref_avg_pts"] = float(np.mean([m["pts"] for m in ref_metrics]))
             features["ref_home_win_pct_bias"] = float(np.mean([m["hw"] for m in ref_metrics]))
@@ -876,42 +795,62 @@ async def build_feature_vector(
         features["ref_avg_pts"] = NaN
         features["ref_home_win_pct_bias"] = NaN
         features["ref_over_pct"] = NaN
+    return features
 
-    # ── Opponent-adjusted ratings ───────────────────────────────
-    # Approximation: team off rating relative to opponent def rating
+
+def _derived_features(
+    features: dict[str, float], game: Any,
+) -> dict[str, float]:
+    out: dict[str, float] = {}
+
+    # Season progress
+    _hw = features.get("home_wins", NaN)
+    _hl = features.get("home_losses", NaN)
+    _aw = features.get("away_wins", NaN)
+    _al = features.get("away_losses", NaN)
+    if any(math.isnan(v) for v in (_hw, _hl, _aw, _al)):
+        out["season_progress"] = NaN
+    else:
+        out["season_progress"] = (_hw + _hl + _aw + _al) / (2.0 * 82.0)
+
+    # Opponent-adjusted ratings
     _h_off = features.get("home_off_rating", NaN)
     _a_def = features.get("away_def_rating", NaN)
     _a_off = features.get("away_off_rating", NaN)
     _h_def = features.get("home_def_rating", NaN)
-    features["home_adj_off"] = _h_off - _a_def  # NaN propagates if either missing
-    features["home_adj_def"] = _a_off - _h_def
-    features["rest_diff"] = features.get("home_rest_days", NaN) - features.get(
+    out["home_adj_off"] = _h_off - _a_def
+    out["home_adj_def"] = _a_off - _h_def
+    out["rest_diff"] = features.get("home_rest_days", NaN) - features.get(
         "away_rest_days", NaN
     )
 
-    # ── Matchup & Situational Styles ────────────────────────────
+    # Matchup & Situational Styles
     _h_3pt = features.get("home_player_3pt_pct", NaN)
     _a_3pt = features.get("away_player_3pt_pct", NaN)
-    features["matchup_3pt_diff"] = _h_3pt - _a_3pt
+    out["matchup_3pt_diff"] = _h_3pt - _a_3pt
 
     month = game.commence_time.month if game.commence_time else 1
     urgency = 0.0
-    if month in (3, 4):  # Late season (March/April)
+    if month in (3, 4):
         _h_win_pct = features.get("home_win_pct", 0.5)
         _a_win_pct = features.get("away_win_pct", 0.5)
         if _h_win_pct < 0.35:
-            urgency -= 1.0  # Home tanking penalty
+            urgency -= 1.0
         elif _h_win_pct > 0.60:
-            urgency += 0.5  # Home clinch push
+            urgency += 0.5
         if _a_win_pct < 0.35:
-            urgency += 1.0  # Away tanking penalty
+            urgency += 1.0
         elif _a_win_pct > 0.60:
-            urgency -= 0.5  # Away clinch push
-    features["situational_urgency"] = urgency
+            urgency -= 0.5
+    out["situational_urgency"] = urgency
+    return out
 
-    # ── Market signals (latest odds) ────────────────────────────
+
+async def _market_features(
+    db: AsyncSession, game: Any, odds_snapshots: list | None, home_name: str,
+) -> dict[str, float]:
+    features: dict[str, float] = {}
     if odds_snapshots is None:
-        # Training path: read historical cached odds from DB
         res_6 = await db.execute(
             select(OddsSnapshot)
             .where(OddsSnapshot.game_id == game.id)
@@ -920,8 +859,8 @@ async def build_feature_vector(
         )
         snapshots = res_6.scalars().all()
     else:
-        # Prediction path: use fresh odds passed in by the caller
         snapshots = odds_snapshots
+
     if snapshots:
         spreads = _home_spreads(snapshots, home_name)
         totals = [
@@ -981,7 +920,7 @@ async def build_feature_vector(
         else:
             features["mkt_home_ml_prob"] = 0.5
 
-        # ── Sharp vs. Square book analysis ──────────────────────
+        # Sharp vs. Square book analysis
         def _split_by_book_type(snaps: Sequence[Any], mkt: str, field: str = "point"):
             sharp_vals, square_vals = [], []
             for s in snaps:
@@ -1003,7 +942,6 @@ async def build_feature_vector(
                 return abs(price_f) / (abs(price_f) + 100)
             return 100 / (price_f + 100)
 
-        # Spread: sharp vs square (home-margin convention)
         sharp_spr = _home_spreads(snapshots, home_name, books=SHARP_BOOKS)
         square_spr = _home_spreads(snapshots, home_name, books=SQUARE_BOOKS)
         features["sharp_spread"] = (
@@ -1014,7 +952,6 @@ async def build_feature_vector(
         )
         features["sharp_square_spread_diff"] = features["sharp_spread"] - features["square_spread"]
 
-        # Total: sharp vs square
         sharp_tot, square_tot = _split_by_book_type(snapshots, "totals")
         features["sharp_total"] = (
             float(np.mean(sharp_tot)) if sharp_tot else features["mkt_total_avg"]
@@ -1024,7 +961,6 @@ async def build_feature_vector(
         )
         features["sharp_square_total_diff"] = features["sharp_total"] - features["square_total"]
 
-        # Moneyline implied prob: sharp vs square
         sharp_h2h = [
             s
             for s in snapshots
@@ -1039,7 +975,6 @@ async def build_feature_vector(
             and _as_str(s.bookmaker).lower() in SQUARE_BOOKS
             and ("home" in _as_str(s.outcome_name).lower() or _as_str(s.outcome_name) == home_name)
         ]
-
         if sharp_h2h:
             features["sharp_ml_prob"] = float(
                 np.mean([_price_to_implied(s.price) for s in sharp_h2h])
@@ -1056,9 +991,7 @@ async def build_feature_vector(
             features["sharp_ml_prob"] - features["square_ml_prob"]
         )
 
-        # ── Line movement (opening → current) ──────────────────
-        # Track timestamps per market family so later prop updates do not
-        # hide the newest spreads/totals snapshots.
+        # Line movement (opening -> current)
         spread_timestamps = [
             cast(Any, s.captured_at)
             for s in snapshots
@@ -1114,69 +1047,56 @@ async def build_feature_vector(
         features["spread_move"] = curr_spr - open_spr
         features["total_move"] = curr_tot - open_tot
 
-        # ── Reverse line movement (RLM) indicator ──────────────
-        # All spread values use betting convention (negative = home fav).
-        # sharp_square_spread_diff = sharp - square.
-        #   Negative diff → sharps have home as bigger favorite.
-        #   Positive diff → sharps have away as bigger favorite.
-        # RLM = line moved in the same direction as the sharp-square
-        # divergence (i.e. toward the sharp side, against public).
+        # Reverse line movement (RLM) indicator
         spread_moved_toward_sharp = (
             features["sharp_square_spread_diff"] > 0 and features["spread_move"] > 0
         ) or (features["sharp_square_spread_diff"] < 0 and features["spread_move"] < 0)
         features["rlm_flag"] = 1.0 if spread_moved_toward_sharp else 0.0
     else:
-        for k in [  # no market data: all NaN except binary flags
-            "mkt_spread_avg",
-            "mkt_spread_std",
-            "mkt_total_avg",
-            "mkt_total_std",
-            "mkt_1h_spread_avg",
-            "mkt_1h_total_avg",
-            "mkt_1h_home_ml_prob",
-            "mkt_home_ml_prob",
-            "sharp_spread",
-            "square_spread",
-            "sharp_square_spread_diff",
-            "sharp_total",
-            "square_total",
-            "sharp_square_total_diff",
-            "sharp_ml_prob",
-            "square_ml_prob",
-            "sharp_square_ml_diff",
-            "spread_move",
-            "total_move",
-            "rlm_flag",
+        for k in [
+            "mkt_spread_avg", "mkt_spread_std", "mkt_total_avg", "mkt_total_std",
+            "mkt_1h_spread_avg", "mkt_1h_total_avg", "mkt_1h_home_ml_prob",
+            "mkt_home_ml_prob", "sharp_spread", "square_spread",
+            "sharp_square_spread_diff", "sharp_total", "square_total",
+            "sharp_square_total_diff", "sharp_ml_prob", "square_ml_prob",
+            "sharp_square_ml_diff", "spread_move", "total_move", "rlm_flag",
         ]:
             features[k] = NaN
+    return features
 
-    # ── Matchup interaction features ───────────────────────────
+
+def _interaction_features(
+    features: dict[str, float], game: Any,
+) -> dict[str, float]:
+    out: dict[str, float] = {}
+
     _exp_pace = features.get("expected_pace", NaN)
     _m3pt = features.get("matchup_3pt_diff", NaN)
-    features["pace_x_3pt_diff"] = _exp_pace * _m3pt
+    out["pace_x_3pt_diff"] = _exp_pace * _m3pt
 
     _elo_d = features.get("elo_diff", NaN)
     _rest_d = features.get("rest_diff", NaN)
-    features["elo_x_rest"] = _elo_d * _rest_d
+    out["elo_x_rest"] = _elo_d * _rest_d
 
-    features["injury_diff"] = features.get("home_injury_impact", NaN) - features.get(
+    out["injury_diff"] = features.get("home_injury_impact", NaN) - features.get(
         "away_injury_impact", NaN
     )
-    features["venue_scoring_edge"] = features.get("home_venue_ppg", NaN) - features.get(
+    out["venue_scoring_edge"] = features.get("home_venue_ppg", NaN) - features.get(
         "away_venue_ppg", NaN
     )
-    features["off_def_mismatch"] = features.get("home_adj_off", NaN) - features.get(
+    out["off_def_mismatch"] = features.get("home_adj_off", NaN) - features.get(
         "home_adj_def", NaN
     )
-    features["streak_diff"] = features.get("home_win_streak", NaN) - features.get(
+    out["streak_diff"] = features.get("home_win_streak", NaN) - features.get(
         "away_win_streak", NaN
     )
 
-    # ── NaN prevalence check ─────────────────────────────────────
-    total_feats = len(features)
-    nan_count = sum(1 for v in features.values() if isinstance(v, float) and math.isnan(v))
+    # NaN prevalence check
+    all_features = {**features, **out}
+    total_feats = len(all_features)
+    nan_count = sum(1 for v in all_features.values() if isinstance(v, float) and math.isnan(v))
     if total_feats > 0 and nan_count / total_feats > 0.3:
-        nan_keys = [k for k, v in features.items() if isinstance(v, float) and math.isnan(v)]
+        nan_keys = [k for k, v in all_features.items() if isinstance(v, float) and math.isnan(v)]
         logger.warning(
             "High NaN prevalence in features for game %s: %d/%d (%.0f%%) are NaN. Missing keys: %s",
             game.id,
@@ -1185,6 +1105,45 @@ async def build_feature_vector(
             nan_count / total_feats * 100,
             ", ".join(nan_keys[:20]) + ("..." if len(nan_keys) > 20 else ""),
         )
+    return out
+
+
+async def build_feature_vector(
+    game: Game,
+    db: AsyncSession,
+    odds_snapshots: list | None = None,
+) -> dict[str, float] | None:
+    """Build a feature dict for a single game.
+
+    Args:
+        game: The Game ORM object.
+        db: Async database session (used for stats, recent form, injuries).
+        odds_snapshots: Pre-fetched odds data.  When provided these are used
+            instead of querying the ``OddsSnapshot`` table — this is the path
+            used at prediction time so the model always runs on *fresh* odds.
+            When ``None`` (training), historical cached odds from the DB are
+            used instead.
+    """
+    home_id = int(cast(Any, game.home_team_id))
+    away_id = int(cast(Any, game.away_team_id))
+    season = _as_str(
+        cast(Any, game.season),
+        season_for_date(cast(Any, game.commence_time)),
+    )
+    home_name = game.home_team.name if game.home_team is not None else ""
+
+    features: dict[str, float] = {}
+    features.update(await _team_season_stats(db, home_id, away_id, season))
+    features.update(await _recent_form(db, home_id, away_id, game))
+    features.update(await _schedule_features(db, home_id, away_id, game))
+    features.update(await _injury_features(db, home_id, away_id))
+    features.update(await _player_and_quarter_features(db, home_id, away_id, game))
+    features.update(await _prop_consensus_features(db, game, odds_snapshots))
+    features.update(await _venue_and_streak_features(db, home_id, away_id, game, features))
+    features.update(await _elo_h2h_referee_features(db, game, home_id, away_id))
+    features.update(_derived_features(features, game))
+    features.update(await _market_features(db, game, odds_snapshots, home_name))
+    features.update(_interaction_features(features, game))
 
     return features
 
