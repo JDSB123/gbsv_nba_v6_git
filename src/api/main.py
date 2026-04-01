@@ -20,6 +20,20 @@ async def lifespan(app: FastAPI):
     # Startup — use shared logging config (JSON in prod, plain in dev)
     _setup_logging()
     settings = get_settings()
+
+    # ── Application Insights (OpenTelemetry) ──────────────────────
+    if settings.applicationinsights_connection_string:
+        try:
+            from azure.monitor.opentelemetry import configure_azure_monitor
+
+            configure_azure_monitor(
+                logger_name="src",
+                instrumentation_options={"fastapi": {"enabled": True}},
+            )
+            logger.info("Application Insights telemetry enabled")
+        except Exception:
+            logger.warning("Failed to configure Application Insights", exc_info=True)
+
     logger.info("Starting NBA GBSV v6 — env=%s", settings.app_env)
 
     logger.info("API startup complete")

@@ -103,13 +103,13 @@ def cmd_work(args: argparse.Namespace) -> None:
     asyncio.run(_run())
 
 
-async def _run_train() -> None:
+async def _run_train(season: str | None = None) -> None:
     from src.db.session import async_session_factory
     from src.models.trainer import ModelTrainer
 
     trainer = ModelTrainer()
     async with async_session_factory() as db:
-        metrics = await trainer.train(db)
+        metrics = await trainer.train(db, season=season) if season else await trainer.train(db)
     if metrics:
         print("Training complete. Metrics:")
         for k, v in metrics.items():
@@ -121,7 +121,8 @@ async def _run_train() -> None:
 def cmd_train(args: argparse.Namespace) -> None:
     """One-shot model training."""
     _setup_logging()
-    asyncio.run(_run_train())
+    season = getattr(args, "season", None)
+    asyncio.run(_run_train(season=season))
 
 
 async def _summarize_upcoming_coverage(db: Any) -> dict[str, Any]:
@@ -274,7 +275,11 @@ def cmd_odds(args: argparse.Namespace) -> None:
     print("Odds poll complete.")
 
 
-async def _run_perf() -> None:
+async def _run_perf(
+    fmt: str = "json",
+    output_path: str | None = None,
+    model_version: str | None = None,
+) -> None:
     import json
 
     from sqlalchemy import select
@@ -285,15 +290,18 @@ async def _run_perf() -> None:
     from src.db.session import async_session_factory
 
     async with async_session_factory() as db:
-        result = await db.execute(
+        query = (
             select(Prediction, Game)
             .join(Game, Prediction.game_id == Game.id)
             .options(selectinload(Game.home_team), selectinload(Game.away_team))
             .where(Game.status == "FT")
             .where(Game.home_score_fg.isnot(None))
             .where(Game.away_score_fg.isnot(None))
-            .order_by(Game.commence_time)
         )
+        if model_version:
+            query = query.where(Prediction.model_version == model_version)
+        query = query.order_by(Game.commence_time)
+        result = await db.execute(query)
         rows = result.all()
 
     if not rows:
@@ -321,13 +329,42 @@ async def _run_perf() -> None:
         "pick_performance": _build_stats(graded),
         "clv": _clv_summary(unique),
     }
-    print(json.dumps(data, indent=2))
+
+    if fmt == "csv":
+        import csv
+        import io
+
+        buf = io.StringIO()
+        if graded:
+            writer = csv.DictWriter(buf, fieldnames=graded[0].keys())
+            writer.writeheader()
+            writer.writerows(graded)
+        content = buf.getvalue()
+        if output_path:
+            from pathlib import Path
+
+            Path(output_path).write_text(content, encoding="utf-8")
+            print(f"CSV report written to {output_path}")
+        else:
+            print(content)
+    else:
+        content = json.dumps(data, indent=2)
+        if output_path:
+            from pathlib import Path
+
+            Path(output_path).write_text(content, encoding="utf-8")
+            print(f"JSON report written to {output_path}")
+        else:
+            print(content)
 
 
 def cmd_perf(args: argparse.Namespace) -> None:
     """Show performance metrics for completed game predictions."""
     _setup_logging()
-    asyncio.run(_run_perf())
+    fmt = getattr(args, "format", "json")
+    output_path = getattr(args, "output", None)
+    model_version = getattr(args, "model_version", None)
+    asyncio.run(_run_perf(fmt=fmt, output_path=output_path, model_version=model_version))
 
 
 def cmd_migrate(args: argparse.Namespace) -> None:
@@ -587,7 +624,13 @@ def main() -> None:
 
     # train
     p_train = sub.add_parser("train", help="One-shot model training")
+    p_train.add_argument("--season", default=None, help="Train on a specific season only")
     p_train.set_defaults(func=cmd_train)
+
+    # retrain (alias for train)
+    p_retrain = sub.add_parser("retrain", help="Retrain models (alias for train)")
+    p_retrain.add_argument("--season", default=None, help="Train on a specific season only")
+    p_retrain.set_defaults(func=cmd_train)
 
     # predict
     p_pred = sub.add_parser("predict", help="Predict upcoming games (fresh odds)")
@@ -621,9 +664,18 @@ def main() -> None:
     p_odds = sub.add_parser("odds", help="Fetch and persist full-game odds")
     p_odds.set_defaults(func=cmd_odds)
 
-    # perf
+    # perf / backtest
     p_perf = sub.add_parser("perf", help="Show performance metrics")
+    p_perf.add_argument("--format", choices=["json", "csv"], default="json", help="Output format")
+    p_perf.add_argument("--output", default=None, help="Write report to file instead of stdout")
+    p_perf.add_argument("--model-version", default=None, help="Filter to a specific model version")
     p_perf.set_defaults(func=cmd_perf)
+
+    p_backtest = sub.add_parser("backtest", help="Backtest report (alias for perf)")
+    p_backtest.add_argument("--format", choices=["json", "csv"], default="json", help="Output format")
+    p_backtest.add_argument("--output", default=None, help="Write report to file instead of stdout")
+    p_backtest.add_argument("--model-version", default=None, help="Filter to a specific model version")
+    p_backtest.set_defaults(func=cmd_perf)
 
     # audit
     p_audit = sub.add_parser("audit", help="Full data audit and counts")

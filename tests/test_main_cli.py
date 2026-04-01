@@ -409,3 +409,52 @@ class TestRunAudit:
             assert "DATA AUDIT" in output
             assert "AUDIT COMPLETE" in output
             assert "v6.0" in output
+
+
+# ── New commands: retrain, backtest, perf --format ────────────────
+
+
+class TestNewCLICommands:
+    @patch("src.__main__._setup_logging")
+    def test_retrain_command(self, mock_log):
+        with patch("sys.argv", ["src", "retrain"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
+
+    @patch("src.__main__._setup_logging")
+    def test_retrain_with_season(self, mock_log):
+        with patch("sys.argv", ["src", "retrain", "--season", "2024-2025"]), patch(
+            "asyncio.run"
+        ) as mock_run:
+            main()
+            mock_run.assert_called_once()
+
+    @patch("src.__main__._setup_logging")
+    def test_train_with_season(self, mock_log):
+        with patch("sys.argv", ["src", "train", "--season", "2024-2025"]), patch(
+            "asyncio.run"
+        ) as mock_run:
+            main()
+            mock_run.assert_called_once()
+
+    @patch("src.__main__._setup_logging")
+    def test_backtest_command(self, mock_log):
+        with patch("sys.argv", ["src", "backtest"]), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
+
+    @patch("src.__main__._setup_logging")
+    def test_backtest_with_csv_format(self, mock_log):
+        with patch(
+            "sys.argv", ["src", "backtest", "--format", "csv", "--output", "report.csv"]
+        ), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
+
+    @patch("src.__main__._setup_logging")
+    def test_perf_with_model_version(self, mock_log):
+        with patch(
+            "sys.argv", ["src", "perf", "--model-version", "v6.5.0"]
+        ), patch("asyncio.run") as mock_run:
+            main()
+            mock_run.assert_called_once()
