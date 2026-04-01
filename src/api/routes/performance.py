@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,29 @@ def _get_nba_avg_total() -> float:
         return get_settings().nba_avg_total
     except Exception:
         return 230.0
+
+
+def _american_to_prob(odds_val: Any) -> float | None:
+    """Convert American odds (int/float/str) to implied probability (0-1)."""
+    if odds_val is None:
+        return None
+    try:
+        odds = float(str(odds_val).replace("+", ""))
+    except (ValueError, TypeError):
+        return None
+    if odds == 0:
+        return 0.5
+    if odds > 0:
+        return 100 / (odds + 100)
+    return -odds / (-odds + 100)
+
+
+def _consensus_ml_odds(books: dict, key: str) -> float | None:
+    """Average a ML odds field across all books, return as float."""
+    vals = [b[key] for b in books.values() if key in b and b[key] is not None]
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals))
 
 
 # ── Graded pick ──────────────────────────────────────────────
@@ -187,11 +210,24 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         )
 
     # ── FG ML ─────────────────────────────────────────────
-    ml_edge = abs(fg_spread)
-    if ml_edge >= MIN_EDGE:
+    fg_home_ml_prob = float(getattr(pred, "fg_home_ml_prob", 0) or 0.5)
+    pick_home = fg_spread > 0
+    win_prob = fg_home_ml_prob if pick_home else 1 - fg_home_ml_prob
+
+    # Get market ML odds from odds_sourced books
+    books = odds_sourced.get("books", {}) if isinstance(odds_sourced, dict) else {}
+    if pick_home:
+        ml_odds_val = _consensus_ml_odds(books, "home_ml")
+    else:
+        ml_odds_val = _consensus_ml_odds(books, "away_ml")
+    market_prob = _american_to_prob(ml_odds_val)
+    prob_edge = (win_prob - market_prob) if market_prob is not None else (win_prob - 0.5)
+
+    if prob_edge > 0.02:  # Min 2% edge (matches teams.py)
+        ml_pts_edge = round(prob_edge * 33.3, 1)
         result = _grade_ml(fg_spread, actual_home_fg, actual_away_fg)
         side = home if fg_spread > 0 else away
-        picks.append(GradedPick("FG", "ML", round(ml_edge, 1), result, matchup, f"{side} ML"))
+        picks.append(GradedPick("FG", "ML", ml_pts_edge, result, matchup, f"{side} ML"))
 
     # ── 1H markets ────────────────────────────────────────
     if actual_home_1h is not None and actual_away_1h is not None:
@@ -426,9 +462,12 @@ def _latest_valid_score_rows(rows: list[tuple[Any, Any]]) -> list[tuple[Any, Any
 
 
 @router.get("")
-async def get_performance(db: AsyncSession = Depends(get_db)):
+async def get_performance(
+    db: AsyncSession = Depends(get_db),
+    model_version: str | None = Query(None, description="Filter by model version"),
+):
     """Return performance metrics for all completed games with predictions."""
-    result = await db.execute(
+    stmt = (
         select(Prediction, Game)
         .join(Game, Prediction.game_id == Game.id)
         .options(
@@ -440,6 +479,9 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
         .where(Game.away_score_fg.isnot(None))
         .order_by(Game.commence_time)
     )
+    if model_version is not None:
+        stmt = stmt.where(Prediction.model_version == model_version)
+    result = await db.execute(stmt)
     rows = result.all()
 
     if not rows:
@@ -468,9 +510,12 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/dashboard")
-async def performance_dashboard(db: AsyncSession = Depends(get_db)):
+async def performance_dashboard(
+    db: AsyncSession = Depends(get_db),
+    model_version: str | None = Query(None, description="Filter by model version"),
+):
     """Interactive HTML dashboard showing backtest performance."""
-    result = await db.execute(
+    stmt = (
         select(Prediction, Game)
         .join(Game, Prediction.game_id == Game.id)
         .options(
@@ -482,6 +527,9 @@ async def performance_dashboard(db: AsyncSession = Depends(get_db)):
         .where(Game.away_score_fg.isnot(None))
         .order_by(Game.commence_time)
     )
+    if model_version is not None:
+        stmt = stmt.where(Prediction.model_version == model_version)
+    result = await db.execute(stmt)
     rows = result.all()
 
     unique_rows = _latest_valid_score_rows(rows)
