@@ -28,6 +28,13 @@ def _pred_game(home_fg=110, away_fg=105, spread=-3.5, total=220.0, h1_spread=Non
     pred.clv_spread = clv_spread
     pred.clv_total = clv_total
     pred.predicted_at = MagicMock()
+    # Store 1H lines in odds_sourced for _grade_game
+    odds_sourced_dict = {}
+    if h1_spread is not None:
+        odds_sourced_dict["opening_h1_spread"] = h1_spread
+    if h1_total is not None:
+        odds_sourced_dict["opening_h1_total"] = h1_total
+    pred.odds_sourced = odds_sourced_dict if odds_sourced_dict else None
 
     game = MagicMock()
     game.id = 1

@@ -462,6 +462,98 @@ class ModelTrainer:
                 metrics["calibration_1h_coef"] = h1_coef
                 metrics["calibration_1h_intercept"] = h1_intercept
 
+        # ── Quantile regression models (confidence intervals) ────
+        for target, model_name in zip(TARGETS, MODEL_NAMES, strict=True):
+            pair_key = "1h" if target.endswith("_1h") else "fg"
+            mask = target_pair_masks[pair_key]
+            X_q = X_all[mask]
+            y_q = np.asarray(
+                pd.to_numeric(df.loc[mask, target], errors="coerce").to_numpy(dtype=float)
+            )
+            if len(y_q) < 100:
+                continue
+            split_q = int(len(X_q) * 0.85)
+            for alpha, label in [(0.1, "q10"), (0.9, "q90")]:
+                qparams = {
+                    "objective": "reg:quantileerror",
+                    "quantile_alpha": alpha,
+                    "max_depth": 5,
+                    "learning_rate": 0.05,
+                    "n_estimators": 300,
+                    "subsample": 0.8,
+                    "colsample_bytree": 0.8,
+                    "random_state": 42,
+                    "early_stopping_rounds": 20,
+                }
+                qmodel = xgb.XGBRegressor(**qparams)
+                qmodel.fit(
+                    X_q[:split_q],
+                    y_q[:split_q],
+                    eval_set=[(X_q[split_q:], y_q[split_q:])],
+                    verbose=False,
+                )
+                qpath = ARTIFACTS_DIR / f"{model_name}_{label}.json"
+                qmodel.save_model(str(qpath))
+                logger.info("Quantile %s model saved for %s", label, model_name)
+
+        # ── Ensemble stacking (LightGBM + Ridge meta-learner) ────
+        try:
+            from src.models.ensemble import EnsembleStack
+
+            ensemble = EnsembleStack()
+            y_dict: dict[str, np.ndarray] = {}
+            for target, model_name in zip(TARGETS, MODEL_NAMES, strict=True):
+                pair_key = "1h" if target.endswith("_1h") else "fg"
+                mask = target_pair_masks[pair_key]
+                y_dict[model_name] = np.asarray(
+                    pd.to_numeric(df.loc[mask, target], errors="coerce").to_numpy(dtype=float)
+                )
+            ensemble_metrics = ensemble.train(X_all, y_dict, self.models, target_pair_masks)
+            metrics.update(ensemble_metrics)
+            logger.info("Ensemble training complete")
+        except Exception:
+            logger.warning("Ensemble training failed; continuing without", exc_info=True)
+
+        # ── SHAP global feature importance ───────────────────────
+        try:
+            from src.models.explainability import Explainer
+
+            explainer = Explainer()
+            explainer.initialize(self.models, self.feature_cols, background_X=X_all)
+            for model_name in MODEL_NAMES:
+                pair_key = "1h" if model_name.endswith("_1h") else "fg"
+                mask = target_pair_masks[pair_key]
+                shap_imp = explainer.compute_global_importance(X_all[mask], model_name)
+                if shap_imp:
+                    logger.info(
+                        "SHAP top-5 for %s: %s",
+                        model_name,
+                        list(sorted(shap_imp, key=shap_imp.get, reverse=True))[:5],  # type: ignore[arg-type]
+                    )
+            explainer.save_global_importance()
+
+            # Log pruning candidates
+            pruning_candidates = explainer.get_pruning_candidates(threshold_pct=0.01)
+            if pruning_candidates:
+                metrics["pruning_candidate_count"] = float(len(pruning_candidates))
+                logger.info(
+                    "SHAP pruning candidates (%d features below 1%% threshold): %s",
+                    len(pruning_candidates),
+                    ", ".join(pruning_candidates[:10]),
+                )
+        except Exception:
+            logger.warning("SHAP computation failed; continuing without", exc_info=True)
+
+        # ── OOD detector ─────────────────────────────────────────
+        try:
+            from src.models.ood import OODDetector
+
+            ood = OODDetector()
+            ood.fit(X_all)
+            logger.info("OOD detector fitted on training data")
+        except Exception:
+            logger.warning("OOD detector fitting failed; continuing without", exc_info=True)
+
         # Save metrics
         metrics_path = ARTIFACTS_DIR / "metrics.json"
         metrics_path.write_text(json.dumps(metrics, indent=2))

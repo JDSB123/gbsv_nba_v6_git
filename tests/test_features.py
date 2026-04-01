@@ -173,14 +173,15 @@ def test_feature_columns_exclude_live_unavailable_box_score_fields():
     assert "away_player_pm_avg" not in cols
 
 
-def test_feature_columns_exclude_sparse_live_market_fields():
+def test_feature_columns_include_1h_market_and_prop_fields():
+    """v6.5.0: formerly-orphaned features are now registered in the feature vector."""
     cols = get_feature_columns()
-    assert "mkt_1h_spread_avg" not in cols
-    assert "mkt_1h_total_avg" not in cols
-    assert "mkt_1h_home_ml_prob" not in cols
-    assert "prop_blk_avg_line" not in cols
-    assert "prop_stl_avg_line" not in cols
-    assert "prop_tov_avg_line" not in cols
+    assert "mkt_1h_spread_avg" in cols
+    assert "mkt_1h_total_avg" in cols
+    assert "mkt_1h_home_ml_prob" in cols
+    assert "prop_blk_avg_line" in cols
+    assert "prop_stl_avg_line" in cols
+    assert "prop_tov_avg_line" in cols
 
 
 # ── Reset Elo cache ────────────────────────────────────────────

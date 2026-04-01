@@ -67,6 +67,13 @@ def _margin_to_prob(
 
 
 class Predictor:
+    # Class-level defaults for optional components so __new__ instances
+    # (used in tests) don't raise AttributeError.
+    _ensemble: object | None = None
+    _ood: object | None = None
+    _explainer: object | None = None
+    _quantile_models: dict = {}  # noqa: RUF012
+
     def __init__(self) -> None:
         self.feature_cols = get_feature_columns()
         self._inference_feature_cols = list(self.feature_cols)
@@ -82,6 +89,10 @@ class Predictor:
         self._load_models()
         self._load_calibration()
         self._load_imputation()
+        self._load_quantile_models()
+        self._load_ensemble()
+        self._load_ood_detector()
+        self._load_explainer()
         self._run_model_smoke_test()
 
     async def _resolve_model_version(self, db: AsyncSession) -> str:
@@ -233,6 +244,58 @@ class Predictor:
 
         logger.info("Loaded imputation values for %d features", len(self._imputation_values))
 
+    def _load_quantile_models(self) -> None:
+        """Load quantile regression models for confidence intervals."""
+        self._quantile_models: dict[str, dict[str, xgb.XGBRegressor]] = {}
+        for name in MODEL_NAMES:
+            self._quantile_models[name] = {}
+            for label in ("q10", "q90"):
+                path = ARTIFACTS_DIR / f"{name}_{label}.json"
+                if path.exists():
+                    model = xgb.XGBRegressor()
+                    model.load_model(str(path))
+                    self._quantile_models[name][label] = model
+        loaded = sum(len(q) for q in self._quantile_models.values())
+        if loaded:
+            logger.info("Loaded %d quantile models", loaded)
+
+    def _load_ensemble(self) -> None:
+        """Load ensemble stacking artifacts."""
+        self._ensemble = None
+        try:
+            from src.models.ensemble import EnsembleStack
+
+            ensemble = EnsembleStack()
+            if ensemble.load():
+                self._ensemble = ensemble
+        except Exception:
+            logger.debug("Ensemble not available", exc_info=True)
+
+    def _load_ood_detector(self) -> None:
+        """Load OOD detector artifacts."""
+        self._ood = None
+        try:
+            from src.models.ood import OODDetector
+
+            ood = OODDetector()
+            if ood.load():
+                self._ood = ood
+        except Exception:
+            logger.debug("OOD detector not available", exc_info=True)
+
+    def _load_explainer(self) -> None:
+        """Initialize SHAP explainer for per-prediction attribution."""
+        self._explainer = None
+        try:
+            from src.models.explainability import Explainer
+
+            explainer = Explainer()
+            if self.models:
+                explainer.initialize(self.models, self._inference_feature_cols)
+                self._explainer = explainer
+        except Exception:
+            logger.debug("SHAP explainer not available", exc_info=True)
+
     def _has_imputation_values(self) -> bool:
         imputation_values = getattr(self, "_imputation_values", {})
         return all(col in imputation_values for col in self._inference_feature_cols)
@@ -266,10 +329,43 @@ class Predictor:
             logger.exception("Prediction failed for %s", context)
             raise RuntimeError(str(exc)) from exc
 
+        # Blend with ensemble when available
+        if self._ensemble and self._ensemble.is_ready:
+            for name, xgb_val in [
+                ("model_home_fg", home_fg),
+                ("model_away_fg", away_fg),
+                ("model_home_1h", home_1h),
+                ("model_away_1h", away_1h),
+            ]:
+                blended = self._ensemble.predict(X, name, xgb_val)
+                if blended is not None:
+                    if name == "model_home_fg":
+                        home_fg = blended
+                    elif name == "model_away_fg":
+                        away_fg = blended
+                    elif name == "model_home_1h":
+                        home_1h = blended
+                    elif name == "model_away_1h":
+                        away_1h = blended
+
         # Half-time scores should never exceed the full-game projection.
         home_1h = min(home_1h, home_fg)
         away_1h = min(away_1h, away_fg)
         return home_fg, away_fg, home_1h, away_1h
+
+    def _predict_quantiles(
+        self,
+        X: np.ndarray,
+    ) -> dict[str, dict[str, float]]:
+        """Predict 10th and 90th percentile intervals."""
+        intervals: dict[str, dict[str, float]] = {}
+        for name in MODEL_NAMES:
+            q_models = self._quantile_models.get(name, {})
+            if "q10" in q_models and "q90" in q_models:
+                low = float(q_models["q10"].predict(X)[0])
+                high = float(q_models["q90"].predict(X)[0])
+                intervals[name] = {"q10": round(low, 1), "q90": round(high, 1)}
+        return intervals
 
     def _run_model_smoke_test(self) -> None:
         if not self.is_ready or not self._has_imputation_values():
@@ -338,6 +434,10 @@ class Predictor:
             "missing_imputation_features": missing_imputation[:10],
             "incompatible_models": self._incompatible_models,
             "model_feature_counts": self._model_feature_counts,
+            "ensemble_ready": self._ensemble.is_ready if self._ensemble else False,
+            "quantile_models": sum(len(q) for q in self._quantile_models.values()),
+            "ood_ready": self._ood.is_ready if self._ood else False,
+            "shap_ready": self._explainer.is_ready if self._explainer else False,
             "reason": reason,
             "warning": getattr(self, "_runtime_warning", None),
         }
@@ -650,6 +750,43 @@ class Predictor:
             "opening_total": opening_total,
             "odds_detail": odds_detail,
         }
+
+        # ── Quantile confidence intervals ────────────────────────
+        quantiles = self._predict_quantiles(X)
+        if quantiles:
+            ci = {}
+            for name in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]:
+                if name in quantiles:
+                    ci[name] = quantiles[name]
+            if ci:
+                # Derive total/spread intervals from component intervals
+                if "model_home_fg" in ci and "model_away_fg" in ci:
+                    ci["fg_total"] = {
+                        "q10": round(ci["model_home_fg"]["q10"] + ci["model_away_fg"]["q10"], 1),
+                        "q90": round(ci["model_home_fg"]["q90"] + ci["model_away_fg"]["q90"], 1),
+                    }
+                prediction_payload["confidence_intervals"] = ci
+
+        # ── OOD detection ────────────────────────────────────────
+        if self._ood and self._ood.is_ready:
+            ood_dist, is_ood = self._ood.score(X)
+            prediction_payload["ood_score"] = round(ood_dist, 2)
+            prediction_payload["ood_flag"] = is_ood
+            if is_ood:
+                logger.warning(
+                    "Game %s flagged as out-of-distribution (score=%.2f)",
+                    game.id,
+                    ood_dist,
+                )
+
+        # ── SHAP explanation (top drivers) ───────────────────────
+        if self._explainer and self._explainer.is_ready:
+            explanation = self._explainer.explain_prediction(X, "model_home_fg")
+            if explanation:
+                prediction_payload["explanation"] = {
+                    "base_value": explanation["base_value"],
+                    "top_drivers": explanation["top_drivers"],
+                }
         if not prediction_has_valid_score_payload(SimpleNamespace(**prediction_payload)):
             logger.error(
                 "Prediction skipped for game %s: generated payload failed integrity validation",
