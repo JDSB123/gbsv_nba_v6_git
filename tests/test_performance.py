@@ -475,9 +475,9 @@ def test_grade_game_1h_total_fallback_without_market():
 
 
 def test_nba_avg_total_matches_config():
-    """_get_nba_avg_total should match config default (230.0)."""
-    from src.api.routes.performance import _get_nba_avg_total
-    avg = _get_nba_avg_total()
+    """get_nba_avg_total should match config default (230.0)."""
+    from src.config import get_nba_avg_total
+    avg = get_nba_avg_total()
     assert avg == 230.0
 
 

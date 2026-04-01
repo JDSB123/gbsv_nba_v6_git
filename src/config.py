@@ -60,8 +60,12 @@ class Settings(BaseSettings):
     # ── Prediction reliability ────────────────────────────────────
     odds_freshness_max_age_minutes: int = 30
 
-    # ── NBA constants (notifications) ─────────────────────────────
+    # ── NBA constants ─────────────────────────────────────────────
     nba_avg_total: float = 230.0  # league-average total for edge calcs
+    min_edge: float = 2.0  # minimum edge (pts) for a pick to qualify
+    edge_thresholds: list[float] = [2.0, 3.5, 5.0, 7.0, 9.0]
+    american_vig: int = 110  # standard -110 vig
+    server_port: int = 8000
 
     # ── Model governance / promotion gates ─────────────────────
     model_gate_min_rows: int = 200
@@ -103,6 +107,14 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_nba_avg_total() -> float:
+    """Single source of truth for NBA average total."""
+    try:
+        return get_settings().nba_avg_total
+    except Exception:
+        return 230.0
 
 
 def resolve_database_url() -> str:

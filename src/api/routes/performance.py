@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.config import get_nba_avg_total, get_settings
 from src.db.models import Game, Prediction
 from src.db.session import get_db
 from src.services.prediction_integrity import (
@@ -20,18 +21,10 @@ from src.services.prediction_integrity import (
 
 router = APIRouter(prefix="/performance", tags=["performance"])
 
-# Must match teams.py constants
-MIN_EDGE = 2.0
-EDGE_THRESHOLDS = [2.0, 3.5, 5.0, 7.0, 9.0]
-JUICE = 110  # standard -110 vig
-
-
-def _get_nba_avg_total() -> float:
-    try:
-        from src.config import get_settings
-        return get_settings().nba_avg_total
-    except Exception:
-        return 230.0
+_settings = get_settings()
+MIN_EDGE = _settings.min_edge
+EDGE_THRESHOLDS = _settings.edge_thresholds
+JUICE = _settings.american_vig
 
 
 def _american_to_prob(odds_val: Any) -> float | None:
@@ -166,7 +159,7 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         else None
     )
 
-    nba_avg_total = _get_nba_avg_total()
+    nba_avg_total = get_nba_avg_total()
 
     # ── FG Spread ATS ─────────────────────────────────────
     if opening_spread is not None and abs(opening_spread) >= 0.5:
