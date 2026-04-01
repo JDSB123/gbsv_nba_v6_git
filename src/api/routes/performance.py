@@ -50,6 +50,29 @@ def _consensus_ml_odds(books: dict, key: str) -> float | None:
     return round(sum(vals) / len(vals))
 
 
+def _american_to_prob(odds_val: Any) -> float | None:
+    """Convert American odds (int/float/str) to implied probability (0-1)."""
+    if odds_val is None:
+        return None
+    try:
+        odds = float(str(odds_val).replace("+", ""))
+    except (ValueError, TypeError):
+        return None
+    if odds == 0:
+        return 0.5
+    if odds > 0:
+        return 100 / (odds + 100)
+    return -odds / (-odds + 100)
+
+
+def _consensus_ml_odds(books: dict, key: str) -> float | None:
+    """Average a ML odds field across all books, return as float."""
+    vals = [b[key] for b in books.values() if key in b and b[key] is not None]
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals))
+
+
 # ── Graded pick ──────────────────────────────────────────────
 
 
