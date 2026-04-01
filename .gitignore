@@ -29,6 +29,7 @@ env/
 # Model artifacts
 src/models/artifacts/*.json
 src/models/artifacts/*.pkl
+src/models/artifacts/*.txt
 !src/models/artifacts/best_params.json
 !src/models/artifacts/feature_importance.json
 !src/models/artifacts/imputation.json

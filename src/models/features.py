@@ -1150,6 +1150,28 @@ async def build_feature_vector(
         ]:
             features[k] = NaN
 
+    # ── Matchup interaction features ───────────────────────────
+    _exp_pace = features.get("expected_pace", NaN)
+    _m3pt = features.get("matchup_3pt_diff", NaN)
+    features["pace_x_3pt_diff"] = _exp_pace * _m3pt
+
+    _elo_d = features.get("elo_diff", NaN)
+    _rest_d = features.get("rest_diff", NaN)
+    features["elo_x_rest"] = _elo_d * _rest_d
+
+    features["injury_diff"] = features.get("home_injury_impact", NaN) - features.get(
+        "away_injury_impact", NaN
+    )
+    features["venue_scoring_edge"] = features.get("home_venue_ppg", NaN) - features.get(
+        "away_venue_ppg", NaN
+    )
+    features["off_def_mismatch"] = features.get("home_adj_off", NaN) - features.get(
+        "home_adj_def", NaN
+    )
+    features["streak_diff"] = features.get("home_win_streak", NaN) - features.get(
+        "away_win_streak", NaN
+    )
+
     # ── NaN prevalence check ─────────────────────────────────────
     total_feats = len(features)
     nan_count = sum(1 for v in features.values() if isinstance(v, float) and math.isnan(v))
@@ -1163,68 +1185,6 @@ async def build_feature_vector(
             nan_count / total_feats * 100,
             ", ".join(nan_keys[:20]) + ("..." if len(nan_keys) > 20 else ""),
         )
-
-    # ── Referee History ──────────────────────────────────────────
-    # Load assigned referees and calculate historical impact (3-official crew)
-    ref_names = _assigned_referee_names(game)
-    if ref_names:
-        ref_metrics = []
-        for name in ref_names:
-            # Past games involving this official (not including current)
-            ref_games_res = await db.execute(
-                select(Game)
-                .join(GameReferee)
-                .where(
-                    GameReferee.referee_name == name,
-                    Game.status == "FT",
-                    Game.commence_time < game.commence_time,
-                    Game.home_score_fg.is_not(None),
-                    Game.away_score_fg.is_not(None),
-                )
-            )
-            ref_games = ref_games_res.scalars().all()
-            if ref_games:
-                pts_list = []
-                hw_list = []
-                ov_list = []
-                for rg in ref_games:
-                    h_pts = _as_float(cast(Any, rg.home_score_fg))
-                    a_pts = _as_float(cast(Any, rg.away_score_fg))
-                    pts_total = h_pts + a_pts
-                    pts_list.append(pts_total)
-                    hw_list.append(1.0 if h_pts > a_pts else 0.0)
-
-                    # Look for totals marketing line for O/U tracking
-                    line_res = await db.execute(
-                        select(OddsSnapshot.point)
-                        .where(
-                            OddsSnapshot.game_id == rg.id,
-                            OddsSnapshot.market == "totals",
-                        )
-                        .limit(1)
-                    )
-                    line_val = line_res.scalar()
-                    if line_val is not None:
-                        ov_list.append(1.0 if pts_total > _as_float(line_val) else 0.0)
-
-                ref_metrics.append({
-                    "pts": float(np.mean(pts_list)) if pts_list else NaN,
-                    "hw": float(np.mean(hw_list)) if hw_list else NaN,
-                    "ov": float(np.mean(ov_list)) if ov_list else NaN
-                })
-
-        if ref_metrics:
-            features["ref_avg_pts"] = float(np.mean([m["pts"] for m in ref_metrics if not math.isnan(m["pts"])]))
-            features["ref_home_win_pct_bias"] = float(np.mean([m["hw"] for m in ref_metrics if not math.isnan(m["hw"])]))
-            features["ref_over_pct"] = float(np.mean([m["ov"] for m in ref_metrics if not math.isnan(m["ov"])]))
-        else:
-            features["ref_avg_pts"] = NaN
-            features["ref_home_win_pct_bias"] = NaN
-            features["ref_over_pct"] = NaN
-    else:
-        features["ref_avg_pts"] = NaN
-        features["ref_home_win_pct_bias"] = NaN
-        features["ref_over_pct"] = NaN
 
     return features
 
@@ -1312,6 +1272,14 @@ def get_feature_columns() -> list[str]:
             "rest_diff",
         ]
     )
+    # ── Referee history ─────────────────────────────────────────
+    cols.extend(
+        [
+            "ref_avg_pts",
+            "ref_home_win_pct_bias",
+            "ref_over_pct",
+        ]
+    )
     # ── Market signals ──────────────────────────────────────────
     cols.extend(
         [
@@ -1320,6 +1288,9 @@ def get_feature_columns() -> list[str]:
             "mkt_total_avg",
             "mkt_total_std",
             "mkt_home_ml_prob",
+            "mkt_1h_spread_avg",
+            "mkt_1h_total_avg",
+            "mkt_1h_home_ml_prob",
             # Sharp vs. Square analysis
             "sharp_spread",
             "square_spread",
@@ -1344,17 +1315,31 @@ def get_feature_columns() -> list[str]:
             "prop_ast_avg_line",
             "prop_reb_avg_line",
             "prop_threes_avg_line",
+            "prop_blk_avg_line",
+            "prop_stl_avg_line",
+            "prop_tov_avg_line",
             "prop_pra_avg_line",
             "prop_dd_count",
             "prop_td_count",
             "prop_sharp_square_diff",
         ]
     )
-    # ── Matchup & Situational Styles (New/Future-proofing) ──────
+    # ── Matchup & Situational Styles ────────────────────────────
     cols.extend(
         [
             "matchup_3pt_diff",
             "situational_urgency",
+        ]
+    )
+    # ── Cross-team interaction features ─────────────────────────
+    cols.extend(
+        [
+            "pace_x_3pt_diff",
+            "elo_x_rest",
+            "injury_diff",
+            "venue_scoring_edge",
+            "off_def_mismatch",
+            "streak_diff",
         ]
     )
     return cols

@@ -17,7 +17,6 @@ async def fill_clv() -> None:
     """Fill closing-line value for predictions whose games have finished."""
     logger.info("Filling CLV for finished games...")
     try:
-        import numpy as np
         from sqlalchemy import and_
 
         async with async_session_factory() as db:
@@ -40,38 +39,51 @@ async def fill_clv() -> None:
                 pred_any = cast(Any, pred)
                 game_obj = cast(Any, pred).game
                 home_name = game_obj.home_team.name if game_obj and game_obj.home_team else ""
-                odds_q = await db.execute(
+                game_start = getattr(game_obj, "commence_time", None)
+
+                # Fetch last pre-game snapshots (true closing line)
+                snap_query = (
                     select(OddsSnapshot)
                     .where(OddsSnapshot.game_id == pred.game_id)
+                )
+                if game_start is not None:
+                    snap_query = snap_query.where(
+                        OddsSnapshot.captured_at <= game_start
+                    )
+                snap_query = (
+                    snap_query
                     .order_by(OddsSnapshot.captured_at.desc())
                     .limit(100)
                 )
+                odds_q = await db.execute(snap_query)
                 snapshots = odds_q.scalars().all()
                 if not snapshots:
                     continue
 
-                spreads = [
-                    float(cast(Any, s.point))
-                    for s in snapshots
-                    if cast(Any, s.market) == "spreads"
-                    and s.point is not None
-                    and cast(Any, s.outcome_name) == home_name
-                ]
-                totals = [
-                    float(cast(Any, s.point))
-                    for s in snapshots
-                    if cast(Any, s.market) == "totals" and s.point is not None
-                ]
-                if spreads:
-                    closing_spread = round(float(np.mean(spreads)), 1)
+                # Use the most recent pre-game snapshot per market (true close)
+                last_spread: float | None = None
+                last_total: float | None = None
+                for s in snapshots:
+                    if last_spread is None and cast(Any, s.market) == "spreads" \
+                            and s.point is not None \
+                            and cast(Any, s.outcome_name) == home_name:
+                        last_spread = float(cast(Any, s.point))
+                    if last_total is None and cast(Any, s.market) == "totals" \
+                            and s.point is not None:
+                        last_total = float(cast(Any, s.point))
+                    if last_spread is not None and last_total is not None:
+                        break
+
+                if last_spread is not None:
+                    closing_spread = round(last_spread, 1)
                     pred_any.closing_spread = closing_spread
                     opening_spread = cast(Any, pred.opening_spread)
                     if opening_spread is not None:
                         pred_any.clv_spread = round(
                             float(closing_spread) - float(opening_spread), 1
                         )
-                if totals:
-                    closing_total = round(float(np.mean(totals)), 1)
+                if last_total is not None:
+                    closing_total = round(last_total, 1)
                     pred_any.closing_total = closing_total
                     opening_total = cast(Any, pred.opening_total)
                     if opening_total is not None:

@@ -345,6 +345,7 @@ def _fake_pred(
     h1_total=120.0,
     opening_spread=-5.0,
     opening_total=220.0,
+    odds_sourced=None,
 ):
     return SimpleNamespace(
         fg_spread=fg_spread,
@@ -353,6 +354,7 @@ def _fake_pred(
         h1_total=h1_total,
         opening_spread=opening_spread,
         opening_total=opening_total,
+        odds_sourced=odds_sourced,
     )
 
 
@@ -386,8 +388,8 @@ def test_grade_game_no_opening_total_high_model():
 
 def test_grade_game_no_opening_total_near_avg():
     game = _fake_game()
-    # fg_total close to NBA avg → no FG TOTAL pick
-    pred = _fake_pred(opening_total=None, fg_total=222.0)
+    # fg_total close to NBA avg (230.0) → no FG TOTAL pick
+    pred = _fake_pred(opening_total=None, fg_total=230.0)
     picks = _grade_game(pred, game)
     assert not any(p.segment == "FG" and p.market == "TOTAL" for p in picks)
 
@@ -410,11 +412,73 @@ def test_grade_game_no_1h_scores():
 def test_grade_game_small_edge_filtered():
     game = _fake_game()
     # opening_spread + fg_spread = edge only 1.0 (below MIN_EDGE=2.0)
-    pred = _fake_pred(fg_spread=1.0, opening_spread=-2.0, h1_spread=0.5, fg_total=222.0, h1_total=111.0, opening_total=221.5)
+    pred = _fake_pred(fg_spread=1.0, opening_spread=-2.0, h1_spread=0.5, fg_total=230.0, h1_total=115.0, opening_total=229.5)
     picks = _grade_game(pred, game)
     # Small edges should be filtered
     fg_spread_picks = [p for p in picks if p.segment == "FG" and p.market == "SPREAD"]
     assert len(fg_spread_picks) == 0
+
+
+# ── 1H ATS grading (with market line from odds_sourced) ──────
+
+
+def test_grade_game_1h_spread_ats_with_market_line():
+    """When odds_sourced has opening_h1_spread, 1H spread is graded ATS."""
+    game = _fake_game(home_1h=55, away_1h=50)
+    # opening_h1_spread = -3.0; h1_spread = +5.0 → edge = -3+5 = 2.0 → home ATS
+    pred = _fake_pred(
+        h1_spread=5.0,
+        odds_sourced={"opening_h1_spread": -3.0},
+    )
+    picks = _grade_game(pred, game)
+    h1_spread_picks = [p for p in picks if p.segment == "1H" and p.market == "SPREAD"]
+    assert len(h1_spread_picks) == 1
+    assert "ATS" in h1_spread_picks[0].label
+    # Home won 1H by 5 with spread -3 → ATS_result = 5 + (-3) = 2 > 0 → W
+    assert h1_spread_picks[0].result == "W"
+
+
+def test_grade_game_1h_spread_winner_fallback_without_market():
+    """Without 1H market line, 1H spread is graded as straight winner."""
+    game = _fake_game(home_1h=55, away_1h=50)
+    pred = _fake_pred(h1_spread=5.0)  # no odds_sourced
+    picks = _grade_game(pred, game)
+    h1_spread_picks = [p for p in picks if p.segment == "1H" and p.market == "SPREAD"]
+    assert len(h1_spread_picks) == 1
+    assert "ATS" not in h1_spread_picks[0].label
+
+
+def test_grade_game_1h_total_uses_market_line():
+    """When odds_sourced has opening_h1_total, 1H total uses it instead of avg."""
+    game = _fake_game(home_1h=60, away_1h=55)  # actual 1H total = 115
+    # h1_total=120 vs opening_h1_total=112.5 → edge=7.5 → OVER
+    pred = _fake_pred(
+        h1_total=120.0,
+        odds_sourced={"opening_h1_total": 112.5},
+    )
+    picks = _grade_game(pred, game)
+    h1_total_picks = [p for p in picks if p.segment == "1H" and p.market == "TOTAL"]
+    assert len(h1_total_picks) == 1
+    assert "112.5" in h1_total_picks[0].label
+    # actual total 115 > line 112.5 and pick was over → W
+    assert h1_total_picks[0].result == "W"
+
+
+def test_grade_game_1h_total_fallback_without_market():
+    """Without 1H market total, falls back to half of nba_avg_total."""
+    game = _fake_game(home_1h=55, away_1h=50)
+    # h1_total=125 vs half-avg (~115) → edge=10, over
+    pred = _fake_pred(h1_total=125.0)  # no odds_sourced
+    picks = _grade_game(pred, game)
+    h1_total_picks = [p for p in picks if p.segment == "1H" and p.market == "TOTAL"]
+    assert len(h1_total_picks) == 1
+
+
+def test_nba_avg_total_matches_config():
+    """_get_nba_avg_total should match config default (230.0)."""
+    from src.api.routes.performance import _get_nba_avg_total
+    avg = _get_nba_avg_total()
+    assert avg == 230.0
 
 
 # ── API endpoint tests ──────────────────────────────────────

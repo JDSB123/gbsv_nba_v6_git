@@ -29,6 +29,8 @@ dependencies = [
     "python-dotenv==1.1.0",
     "azure-identity==1.25.3",
     "psycopg2-binary==2.9.11",
+    "shap>=0.45.0",
+    "lightgbm>=4.3.0",
 ]
 
 [project.optional-dependencies]

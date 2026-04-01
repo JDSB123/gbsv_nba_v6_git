@@ -22,9 +22,16 @@ router = APIRouter(prefix="/performance", tags=["performance"])
 
 # Must match teams.py constants
 MIN_EDGE = 2.0
-_NBA_AVG_TOTAL = 222.0
 EDGE_THRESHOLDS = [2.0, 3.5, 5.0, 7.0, 9.0]
 JUICE = 110  # standard -110 vig
+
+
+def _get_nba_avg_total() -> float:
+    try:
+        from src.config import get_settings
+        return get_settings().nba_avg_total
+    except Exception:
+        return 230.0
 
 
 # ── Graded pick ──────────────────────────────────────────────
@@ -117,6 +124,27 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
     opening_spread = float(pred.opening_spread) if pred.opening_spread is not None else None
     opening_total = float(pred.opening_total) if pred.opening_total is not None else None
 
+    # Extract 1H market lines from odds_sourced JSON
+    odds_sourced = getattr(pred, "odds_sourced", None)
+    if isinstance(odds_sourced, dict):
+        opening_h1_spread_raw = odds_sourced.get("opening_h1_spread")
+        opening_h1_total_raw = odds_sourced.get("opening_h1_total")
+    else:
+        opening_h1_spread_raw = None
+        opening_h1_total_raw = None
+    opening_h1_spread = (
+        float(opening_h1_spread_raw)
+        if opening_h1_spread_raw is not None
+        else None
+    )
+    opening_h1_total = (
+        float(opening_h1_total_raw)
+        if opening_h1_total_raw is not None
+        else None
+    )
+
+    nba_avg_total = _get_nba_avg_total()
+
     # ── FG Spread ATS ─────────────────────────────────────
     if opening_spread is not None and abs(opening_spread) >= 0.5:
         home_edge = opening_spread + fg_spread
@@ -143,10 +171,10 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
                     f"{direction} {opening_total:.1f}",
                 )
             )
-    elif abs(fg_total - _NBA_AVG_TOTAL) >= 5:
-        total_edge = abs(fg_total - _NBA_AVG_TOTAL)
-        direction = "OVER" if fg_total > _NBA_AVG_TOTAL else "UNDER"
-        result = _grade_total(fg_total, _NBA_AVG_TOTAL, actual_home_fg, actual_away_fg)
+    elif abs(fg_total - nba_avg_total) >= 5:
+        total_edge = abs(fg_total - nba_avg_total)
+        direction = "OVER" if fg_total > nba_avg_total else "UNDER"
+        result = _grade_total(fg_total, nba_avg_total, actual_home_fg, actual_away_fg)
         picks.append(
             GradedPick(
                 "FG",
@@ -154,7 +182,7 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
                 round(total_edge, 1),
                 result,
                 matchup,
-                f"{direction} {_NBA_AVG_TOTAL:.1f}",
+                f"{direction} {nba_avg_total:.1f}",
             )
         )
 
@@ -165,31 +193,62 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         side = home if fg_spread > 0 else away
         picks.append(GradedPick("FG", "ML", round(ml_edge, 1), result, matchup, f"{side} ML"))
 
-    # ── 1H Spread (graded as 1H winner) ──────────────────
+    # ── 1H markets ────────────────────────────────────────
     if actual_home_1h is not None and actual_away_1h is not None:
-        if abs(h1_spread) >= MIN_EDGE:
+        # ── 1H Spread ATS (when market line available) ────
+        if opening_h1_spread is not None and abs(opening_h1_spread) >= 0.5:
+            h1_home_edge = opening_h1_spread + h1_spread
+            if abs(h1_home_edge) >= MIN_EDGE:
+                result = _grade_spread_ats(
+                    h1_home_edge, actual_home_1h, actual_away_1h, opening_h1_spread
+                )
+                side = home if h1_home_edge > 0 else away
+                picks.append(
+                    GradedPick(
+                        "1H", "SPREAD", round(abs(h1_home_edge), 1), result, matchup,
+                        f"{side} 1H ATS {opening_h1_spread:+.1f}",
+                    )
+                )
+        elif abs(h1_spread) >= MIN_EDGE:
+            # No 1H market line — grade as 1H winner
             result = _grade_1h_winner(h1_spread, actual_home_1h, actual_away_1h)
             side = home if h1_spread > 0 else away
             picks.append(
                 GradedPick("1H", "SPREAD", round(abs(h1_spread), 1), result, matchup, f"{side} 1H")
             )
 
-        # ── 1H Total ─────────────────────────────────────
-        half_avg = _NBA_AVG_TOTAL / 2
-        h1_total_edge = abs(h1_total - half_avg)
-        if h1_total_edge >= 4:
-            direction = "OVER" if h1_total > half_avg else "UNDER"
-            result = _grade_total(h1_total, half_avg, actual_home_1h, actual_away_1h)
-            picks.append(
-                GradedPick(
-                    "1H",
-                    "TOTAL",
-                    round(h1_total_edge, 1),
-                    result,
-                    matchup,
-                    f"1H {direction} {h1_total:.1f}",
+        # ── 1H Total O/U ─────────────────────────────────
+        if opening_h1_total is not None:
+            h1_total_edge = abs(h1_total - opening_h1_total)
+            if h1_total_edge >= MIN_EDGE:
+                direction = "OVER" if h1_total > opening_h1_total else "UNDER"
+                result = _grade_total(h1_total, opening_h1_total, actual_home_1h, actual_away_1h)
+                picks.append(
+                    GradedPick(
+                        "1H",
+                        "TOTAL",
+                        round(h1_total_edge, 1),
+                        result,
+                        matchup,
+                        f"1H {direction} {opening_h1_total:.1f}",
+                    )
                 )
-            )
+        else:
+            half_avg = nba_avg_total / 2
+            h1_total_edge = abs(h1_total - half_avg)
+            if h1_total_edge >= 4:
+                direction = "OVER" if h1_total > half_avg else "UNDER"
+                result = _grade_total(h1_total, half_avg, actual_home_1h, actual_away_1h)
+                picks.append(
+                    GradedPick(
+                        "1H",
+                        "TOTAL",
+                        round(h1_total_edge, 1),
+                        result,
+                        matchup,
+                        f"1H {direction} {h1_total:.1f}",
+                    )
+                )
 
     return picks
 
@@ -376,7 +435,7 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
             selectinload(Game.home_team),
             selectinload(Game.away_team),
         )
-        .where(Game.status == "FT")
+        .where(Game.status.in_(["FT", "AOT"]))
         .where(Game.home_score_fg.isnot(None))
         .where(Game.away_score_fg.isnot(None))
         .order_by(Game.commence_time)
@@ -418,7 +477,7 @@ async def performance_dashboard(db: AsyncSession = Depends(get_db)):
             selectinload(Game.home_team),
             selectinload(Game.away_team),
         )
-        .where(Game.status == "FT")
+        .where(Game.status.in_(["FT", "AOT"]))
         .where(Game.home_score_fg.isnot(None))
         .where(Game.away_score_fg.isnot(None))
         .order_by(Game.commence_time)
