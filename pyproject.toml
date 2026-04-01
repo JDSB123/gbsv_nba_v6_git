@@ -32,6 +32,7 @@ dependencies = [
     "shap>=0.45.0",
     "lightgbm>=4.3.0",
     "azure-monitor-opentelemetry>=1.6.0",
+    "azure-storage-blob>=12.20.0",
 ]
 
 [project.optional-dependencies]

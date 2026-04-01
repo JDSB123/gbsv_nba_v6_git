@@ -263,6 +263,9 @@ class IngestionFailure(Base):
     job_name = Column(String(100), nullable=False, index=True)
     error_message = Column(Text, nullable=False)
     payload_summary = Column(Text)
+    retry_count = Column(Integer, nullable=False, default=0, server_default="0")
+    permanently_failed = Column(Boolean, nullable=False, default=False, server_default="false")
+    resolved_at = Column(DateTime)
     failed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 
@@ -280,6 +283,19 @@ class GameReferee(Base):
     # Future metrics: foul_rate, home_win_pct_bias
 
     game = relationship("Game", back_populates="referees")
+
+
+class ModelAuditLog(Base):
+    """Audit trail for model promotions and rollbacks."""
+
+    __tablename__ = "model_audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_version = Column(String(64), nullable=False, index=True)
+    action = Column(String(20), nullable=False)  # 'promote' or 'rollback'
+    previous_version = Column(String(64))
+    reason = Column(String(255))
+    performed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
 
 
 class RotationChange(Base):

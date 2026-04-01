@@ -48,8 +48,9 @@ def _app_build_stamp() -> str:
     )
 
 
-# Minimum edge (in points) for a pick to qualify
+# Minimum edge (in points) for a pick to qualify — from central config
 MIN_EDGE = _get_settings().min_edge
+EDGE_THRESHOLDS = _get_settings().edge_thresholds
 
 _get_nba_avg_total = get_nba_avg_total  # backward-compat alias
 

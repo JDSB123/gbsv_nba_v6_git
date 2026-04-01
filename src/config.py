@@ -74,9 +74,14 @@ class Settings(BaseSettings):
     model_gate_max_rmse_fg: float = 16.0
     model_gate_max_rmse_1h: float = 10.0
 
+    # ── CORS ──────────────────────────────────────────────────────
+    cors_origins: list[str] = []
+
     # ── Azure (production) ────────────────────────────────────────
     azure_key_vault_url: str = ""
     applicationinsights_connection_string: str = ""
+    azure_storage_connection_string: str = ""
+    azure_storage_account_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
