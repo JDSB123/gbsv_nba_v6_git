@@ -124,6 +124,12 @@ def test_format_prediction_full():
     assert abs(result["markets"]["fg_moneyline"]["away_prob"] - 0.38) < 0.001
     assert result["model_version"] == "v6.2.0"
     assert result["clv"]["clv_spread"] == 0.3
+    # New structured fields
+    assert result["status"] in ("actionable", "monitoring")
+    assert "best_edge" in result
+    assert "odds" in result
+    assert "captured_at" in result["odds"]
+    assert "consensus" in result["odds"]
 
 
 def test_format_prediction_missing_team_names():
@@ -484,31 +490,18 @@ async def test_get_prediction_detail_hides_stale_prediction():
 async def test_get_prediction_detail_with_odds():
     pred = _make_prediction()
     game = _make_game()
-    snap_spread = SimpleNamespace(
-        market="spreads",
-        point=-4.5,
-        outcome_name="Boston Celtics",
-        bookmaker="fanduel",
-        captured_at=datetime.now(UTC),
-    )
-    snap_total = SimpleNamespace(
-        market="totals",
-        point=220.0,
-        outcome_name="Over",
-        bookmaker="fanduel",
-        captured_at=datetime.now(UTC),
-    )
 
     repo = AsyncMock()
     repo.get_game_with_teams = AsyncMock(return_value=game)
     repo.get_latest_prediction_for_game = AsyncMock(return_value=pred)
-    repo.get_recent_odds_snapshots = AsyncMock(return_value=[snap_spread, snap_total])
 
     svc = PredictionService(repo, None, Settings())
     result = await svc.get_prediction_detail(1)
     assert "result" in result
-    assert result["result"]["markets"]["fg_spread"]["market_line"] == -4.5
-    assert result["result"]["markets"]["fg_total"]["market_line"] == 220.0
+    # format_prediction now computes consensus_line from opening_spread/opening_total
+    assert result["result"]["markets"]["fg_spread"]["consensus_line"] == -3.5
+    assert result["result"]["markets"]["fg_total"]["consensus_line"] == 219.0
+    assert result["result"]["status"] in ("actionable", "monitoring")
 
 
 @pytest.mark.asyncio
