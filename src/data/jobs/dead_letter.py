@@ -11,7 +11,7 @@ from src.db.session import async_session_factory
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
-_BASE_BACKOFF_MINUTES = 10  # 10, 40, 90 min backoffs
+_BASE_BACKOFF_MINUTES = 10  # quadratic: 10, 40, 90, 160 min from failed_at
 
 
 async def process_dead_letter_queue() -> int:
@@ -25,6 +25,7 @@ async def process_dead_letter_queue() -> int:
                 .where(
                     IngestionFailure.retry_count < _MAX_RETRIES,
                     IngestionFailure.permanently_failed.is_(False),
+                    IngestionFailure.resolved_at.is_(None),
                 )
                 .order_by(IngestionFailure.failed_at)
                 .limit(20)
@@ -53,10 +54,8 @@ async def process_dead_letter_queue() -> int:
                         continue
 
                     await job_fn()
-                    # Success — mark resolved
+                    # Success — mark resolved (terminal state, won't be selected again)
                     failure.resolved_at = now
-                    failure.permanently_failed = False
-                    failure.retry_count = failure.retry_count + 1
                     retried += 1
                     logger.info("DLQ retry succeeded for id=%s job=%s", failure.id, failure.job_name)
 

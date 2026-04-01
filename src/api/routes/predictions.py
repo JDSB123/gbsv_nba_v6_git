@@ -64,6 +64,8 @@ async def list_predictions(
     result = await service.get_list_predictions()
     predictions = result["predictions"]
 
+    # NOTE: filters applied in-memory — prediction set is small (max ~15 games/day).
+    # Move to DB layer if dataset grows significantly.
     if team:
         team_lower = team.lower()
         predictions = [
