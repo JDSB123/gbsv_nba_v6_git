@@ -165,6 +165,7 @@ var dbConnectionString = 'postgresql+asyncpg://pgadmin:${postgresPassword}@${pos
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${prefix}-api'
   location: location
+  identity: { type: 'SystemAssigned' }
   properties: {
     managedEnvironmentId: containerAppsEnvironmentResourceId
     configuration: {
@@ -203,6 +204,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'API_KEY', secretRef: 'api-key' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
+            { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
           ]
           probes: [
             {
@@ -239,6 +241,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
 resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${prefix}-worker'
   location: location
+  identity: { type: 'SystemAssigned' }
   properties: {
     managedEnvironmentId: containerAppsEnvironmentResourceId
     configuration: {
@@ -274,11 +277,34 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'API_BASE_URL', value: 'https://${apiApp.properties.configuration.ingress.fqdn}' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
+            { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
           ]
         }
       ]
       scale: { minReplicas: 1, maxReplicas: 1 }
     }
+  }
+}
+
+// ── RBAC: Key Vault Secrets User for API managed identity ─────────
+
+resource apiKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: keyVault
+  name: guid(keyVault.id, apiApp.id, '4633458b-17de-408a-b874-0445c86b69e6')
+  properties: {
+    principalId: apiApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
+  }
+}
+
+resource workerKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: keyVault
+  name: guid(keyVault.id, workerApp.id, '4633458b-17de-408a-b874-0445c86b69e6')
+  properties: {
+    principalId: workerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
   }
 }
 

@@ -18,9 +18,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
   libpq5 && rm -rf /var/lib/apt/lists/*
 
+RUN useradd -m -u 1000 app && chown -R app:app /app
+
 COPY --from=builder /install /usr/local
-COPY alembic.ini .
-COPY src/ src/
+COPY --chown=app:app alembic.ini .
+COPY --chown=app:app src/ src/
+
+USER app
 
 EXPOSE 8000
 

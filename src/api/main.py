@@ -47,8 +47,11 @@ _cors_settings = get_settings()
 _cors_origins: list[str] = []
 if _cors_settings.api_base_url:
     _cors_origins.append(_cors_settings.api_base_url)
-if _cors_settings.app_env == "development":
-    _cors_origins += ["http://localhost:8000", "http://127.0.0.1:8000"]
+if _cors_settings.app_env == "development" and not _cors_settings.api_base_url:
+    _cors_origins += [
+        f"http://localhost:{_cors_settings.server_port}",
+        f"http://127.0.0.1:{_cors_settings.server_port}",
+    ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from src.config import get_nba_avg_total
+from src.config import get_settings as _get_settings
 from src.models.versioning import MODEL_VERSION
 
 logger = logging.getLogger(__name__)
@@ -47,18 +49,9 @@ def _app_build_stamp() -> str:
 
 
 # Minimum edge (in points) for a pick to qualify
-MIN_EDGE = 2.0
-# League-average total used as baseline when no market line exists
-# Defaults for when odds aren't available
-_NBA_AVG_TOTAL: float = 230.0  # default; overridden from settings at runtime
+MIN_EDGE = _get_settings().min_edge
 
-
-def _get_nba_avg_total() -> float:
-    try:
-        from src.config import get_settings
-        return get_settings().nba_avg_total
-    except Exception:
-        return _NBA_AVG_TOTAL
+_get_nba_avg_total = get_nba_avg_total  # backward-compat alias
 
 
 def _fire_emojis(edge: float) -> str:
