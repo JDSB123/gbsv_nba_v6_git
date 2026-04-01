@@ -49,6 +49,18 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
+// ── Application Insights ─────────────────────────────────────────
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: 'ai-${prefix}-${shortSuffix}'
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+  }
+}
+
 // ── Key Vault ────────────────────────────────────────────────────
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
@@ -205,6 +217,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
           ]
           probes: [
             {
@@ -278,6 +291,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
           ]
         }
       ]

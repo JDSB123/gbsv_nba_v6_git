@@ -75,9 +75,8 @@ class Settings(BaseSettings):
     model_gate_max_rmse_1h: float = 10.0
 
     # ── Azure (production) ────────────────────────────────────────
-    # Placeholder for Azure Key Vault integration — not yet wired up.
-    # When set, secrets (API keys, DB URL) will be fetched from Key Vault at startup.
     azure_key_vault_url: str = ""
+    applicationinsights_connection_string: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
