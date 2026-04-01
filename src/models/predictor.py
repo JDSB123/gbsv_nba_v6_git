@@ -86,14 +86,26 @@ class Predictor:
         self._compatibility_mode = False
         self._calibration: dict[str, float] = {}
         self.model_version = MODEL_VERSION
-        self._load_models()
         self._load_calibration()
         self._load_imputation()
+        self._download_blob_artifacts()
+        self._load_models()
         self._load_quantile_models()
         self._load_ensemble()
         self._load_ood_detector()
         self._load_explainer()
         self._run_model_smoke_test()
+
+    def _download_blob_artifacts(self) -> None:
+        """Try to download model artifacts from blob storage before loading locally."""
+        try:
+            from src.models.blob_storage import sync_artifacts_down
+
+            count = sync_artifacts_down()
+            if count:
+                logger.info("Downloaded %d artifacts from blob storage", count)
+        except Exception:
+            logger.debug("Blob storage download skipped or failed", exc_info=True)
 
     async def _resolve_model_version(self, db: AsyncSession) -> str:
         result = await db.execute(

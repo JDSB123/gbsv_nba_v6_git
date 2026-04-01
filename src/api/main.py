@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 
 from src.__main__ import _setup_logging
 from src.api.rate_limit import limiter
-from src.api.routes import health, model, odds, performance, predictions
+from src.api.routes import admin, health, model, odds, performance, predictions
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -58,10 +58,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ──────────────────────────────────────────────────────────
 _cors_settings = get_settings()
-_cors_origins: list[str] = []
-if _cors_settings.api_base_url:
+_cors_origins: list[str] = list(_cors_settings.cors_origins)
+if _cors_settings.api_base_url and _cors_settings.api_base_url not in _cors_origins:
     _cors_origins.append(_cors_settings.api_base_url)
-if _cors_settings.app_env == "development" and not _cors_settings.api_base_url:
+if _cors_settings.app_env == "development" and not _cors_origins:
     _cors_origins += [
         f"http://localhost:{_cors_settings.server_port}",
         f"http://127.0.0.1:{_cors_settings.server_port}",
@@ -148,3 +148,4 @@ app.include_router(predictions.router)
 app.include_router(odds.router)
 app.include_router(model.router)
 app.include_router(performance.router)
+app.include_router(admin.router)

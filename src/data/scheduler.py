@@ -46,11 +46,14 @@ from src.data.reconciliation import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+_scheduler_instance: AsyncIOScheduler | None = None
+
 
 # -- Scheduler setup --
 
 
 def create_scheduler() -> AsyncIOScheduler:
+    global _scheduler_instance
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone="US/Eastern")
 
@@ -112,4 +115,15 @@ def create_scheduler() -> AsyncIOScheduler:
         id="db_maintenance",
     )
 
+    # Dead-letter queue retry
+    from src.data.jobs.dead_letter import process_dead_letter_queue
+
+    scheduler.add_job(
+        process_dead_letter_queue,
+        "interval",
+        minutes=30,
+        id="process_dead_letter_queue",
+    )
+
+    _scheduler_instance = scheduler
     return scheduler

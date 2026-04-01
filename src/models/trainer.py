@@ -616,4 +616,15 @@ class ModelTrainer:
             should_promote,
             promotion_reason,
         )
+
+        # Upload artifacts to blob storage (best-effort)
+        try:
+            from src.models.blob_storage import sync_artifacts_up
+
+            uploaded = sync_artifacts_up()
+            if uploaded:
+                logger.info("Uploaded %d artifacts to blob storage", uploaded)
+        except Exception:
+            logger.warning("Blob storage upload failed; artifacts remain local only", exc_info=True)
+
         return metrics

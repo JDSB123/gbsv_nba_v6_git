@@ -148,10 +148,10 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     administratorLoginPassword: postgresPassword
     storage: { storageSizeGB: 32 }
     backup: {
-      backupRetentionDays: 7
-      geoRedundantBackup: 'Disabled'
+      backupRetentionDays: 14
+      geoRedundantBackup: 'Enabled'
     }
-    highAvailability: { mode: 'Disabled' }
+    highAvailability: { mode: 'ZoneRedundant' }
   }
 }
 
@@ -218,6 +218,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'LOG_LEVEL', value: 'INFO' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+            { name: 'AZURE_STORAGE_ACCOUNT_URL', value: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}' }
           ]
           probes: [
             {
@@ -292,6 +293,7 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'LOG_LEVEL', value: 'INFO' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+            { name: 'AZURE_STORAGE_ACCOUNT_URL', value: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}' }
           ]
         }
       ]
@@ -319,6 +321,28 @@ resource workerKeyVaultRole 'Microsoft.Authorization/roleAssignments@2022-04-01'
     principalId: workerApp.identity.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
+  }
+}
+
+// ── RBAC: Storage Blob Data Contributor ──────────────────────────
+
+resource apiStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: storageAccount
+  name: guid(storageAccount.id, apiApp.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  properties: {
+    principalId: apiApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe') // Storage Blob Data Contributor
+  }
+}
+
+resource workerStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: storageAccount
+  name: guid(storageAccount.id, workerApp.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  properties: {
+    principalId: workerApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe') // Storage Blob Data Contributor
   }
 }
 

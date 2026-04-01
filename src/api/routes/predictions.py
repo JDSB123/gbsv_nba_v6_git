@@ -53,11 +53,43 @@ async def get_prediction_service(
 @limiter.limit("60/minute")
 async def list_predictions(
     request: Request,
+    team: str | None = None,
+    min_edge: float | None = None,
+    status: str | None = None,
+    limit: int | None = None,
     service: PredictionService = Depends(get_prediction_service),
 ) -> dict[str, Any]:
     if not service.predictor.is_ready:
         raise HTTPException(status_code=503, detail="Models not ready")
-    return await service.get_list_predictions()
+    result = await service.get_list_predictions()
+    predictions = result["predictions"]
+
+    if team:
+        team_lower = team.lower()
+        predictions = [
+            p
+            for p in predictions
+            if team_lower in p.get("home_team", "").lower()
+            or team_lower in p.get("away_team", "").lower()
+        ]
+
+    if min_edge is not None:
+        def _max_edge(p: dict) -> float:
+            markets = p.get("markets", {})
+            edges = []
+            for m in markets.values():
+                if isinstance(m, dict) and "edge" in m:
+                    edges.append(abs(float(m["edge"])))
+            return max(edges) if edges else 0.0
+
+        predictions = [p for p in predictions if _max_edge(p) >= min_edge]
+
+    if limit is not None and limit > 0:
+        predictions = predictions[:limit]
+
+    result["predictions"] = predictions
+    result["count"] = len(predictions)
+    return result
 
 
 @router.get("/slate.html", response_class=HTMLResponse)
