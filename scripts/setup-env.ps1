@@ -54,15 +54,15 @@ try {
   $teamsWebhook = az containerapp secret show -n $APP -g $RG --secret-name teams-webhook-url --query "value" -o tsv 2>$null
   $azureStorageAccountUrl = az containerapp show -n $APP -g $RG --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_ACCOUNT_URL'] | [0].value" -o tsv 2>$null
   if (-not $azureStorageAccountUrl) {
-    $storageName = az storage account list -g $RG --query "[0].name" -o tsv 2>$null
+    # Filter by naming convention — our Bicep creates storage with prefix matching the RG
+    $storageName = az storage account list -g $RG --query "[?starts_with(name, 'st')].name | [0]" -o tsv 2>$null
     if ($storageName) {
       $storageEndpoint = az cloud show --query "suffixes.storageEndpoint" -o tsv 2>$null
       if (-not $storageEndpoint) {
         $storageEndpoint = "core.windows.net"
       }
       $azureStorageAccountUrl = "https://$storageName.blob.$storageEndpoint"
-    }
-  }
+      Write-Host "  Auto-discovered storage account: $storageName" -ForegroundColor Yellow
   
   if (-not $oddsKey -or -not $bballKey) {
     throw "Failed to retrieve one or more secrets from ACA."
