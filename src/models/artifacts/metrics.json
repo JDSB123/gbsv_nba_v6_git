@@ -14,5 +14,7 @@
   "calibration_fg_coef": 0.17407291244397682,
   "calibration_fg_intercept": 0.30338668901381827,
   "calibration_1h_coef": 0.18887850658148703,
-  "calibration_1h_intercept": 0.15005747246287893
+  "calibration_1h_intercept": 0.15005747246287893,
+  "row_count": 1272.0,
+  "promoted": false
 }
