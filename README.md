@@ -65,6 +65,7 @@ Use `.env` for local secrets and overrides.
 - The dev container injects `DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/nba_gbsv`.
 - Host-only runs can keep `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv`.
 - Production uses Azure-injected environment variables rather than repo-local env files.
+- Remote model artifact pull requires `AZURE_STORAGE_ACCOUNT_URL` (or `AZURE_STORAGE_CONNECTION_STRING`).
 
 Optional Windows helper:
 
