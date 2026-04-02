@@ -243,7 +243,9 @@ class TestBuildSlateCsv:
         }
         pred, game = _make_pred_game(odds_sourced=odds_sourced)
         result = build_slate_csv([(pred, game)])
-        assert "fanduel" in result.lower() or "draftkings" in result.lower()
+        # CSV now uses consensus summary instead of per-book dump
+        assert "consensus" in result.lower()
+        assert "2 books" in result
 
     def test_csv_rows_populated(self):
         pred, game = _make_pred_game()

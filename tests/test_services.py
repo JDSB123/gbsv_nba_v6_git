@@ -124,12 +124,32 @@ def test_format_prediction_full():
     assert abs(result["markets"]["fg_moneyline"]["away_prob"] - 0.38) < 0.001
     assert result["model_version"] == "v6.2.0"
     assert result["clv"]["clv_spread"] == 0.3
-    # New structured fields
+    # Structured fields
     assert result["status"] in ("actionable", "monitoring")
     assert "best_edge" in result
     assert "odds" in result
     assert "captured_at" in result["odds"]
     assert "consensus" in result["odds"]
+    # Every market MUST have consistent shape
+    for mkt_key in ("fg_spread", "fg_total", "h1_spread", "h1_total"):
+        mkt = result["markets"][mkt_key]
+        assert "prediction" in mkt
+        assert "pick" in mkt  # may be None
+        assert "edge" in mkt
+        assert "consensus_line" in mkt
+        assert "actionable" in mkt
+        assert "rationale" in mkt
+    for ml_key in ("fg_moneyline", "h1_moneyline"):
+        ml = result["markets"][ml_key]
+        assert "home_prob" in ml
+        assert "away_prob" in ml
+        assert "pick" in ml
+        assert "edge" in ml
+        assert "win_prob" in ml
+        assert "implied_prob" in ml
+        assert "odds" in ml
+        assert "actionable" in ml
+        assert "rationale" in ml
 
 
 def test_format_prediction_missing_team_names():
