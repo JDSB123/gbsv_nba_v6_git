@@ -22,7 +22,7 @@ from src.models.features import (
     get_feature_columns,
     reset_elo_cache,
 )
-from src.models.versioning import MODEL_VERSION
+from src.models.versioning import MODEL_NAMES, MODEL_VERSION, TARGETS
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -30,10 +30,6 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 ARTIFACTS_DIR.mkdir(exist_ok=True)
 MAX_TRAIN_FEATURE_NAN_RATIO = 0.5
-
-# Target columns: what each model predicts
-TARGETS = ["home_score_fg", "away_score_fg", "home_score_1h", "away_score_1h"]
-MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
 
 # Baseline params (used when Optuna is skipped or as starting point)
 DEFAULT_XGB_PARAMS = {

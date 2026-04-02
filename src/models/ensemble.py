@@ -16,6 +16,8 @@ import numpy as np
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit
 
+from src.models.versioning import MODEL_NAMES
+
 logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
@@ -36,8 +38,6 @@ DEFAULT_LGB_PARAMS: dict[str, Any] = {
     "random_state": 42,
     "verbose": -1,
 }
-
-MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
 
 
 class EnsembleStack:

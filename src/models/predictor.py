@@ -17,13 +17,12 @@ from sqlalchemy.orm import selectinload
 from src.config import get_settings
 from src.db.models import Game, ModelRegistry, OddsSnapshot, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
-from src.models.versioning import MODEL_VERSION
+from src.models.versioning import MODEL_NAMES, MODEL_VERSION
 from src.services.prediction_integrity import prediction_has_valid_score_payload
 
 logger = logging.getLogger(__name__)
 
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
-MODEL_NAMES = ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
 _MAX_IMPUTED_FEATURE_RATIO = 0.2
 CORE_ODDS_MARKETS = ("h2h", "spreads", "totals", "h2h_h1", "spreads_h1", "totals_h1")
 PROP_ODDS_MARKETS = (
@@ -202,26 +201,6 @@ class Predictor:
                 expected_count,
                 model_feature_count,
             )
-            # Fire-and-forget alert — import here to avoid circular dependency
-            try:
-                import asyncio
-
-                from src.notifications.teams import send_alert
-
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    task = loop.create_task(
-                        send_alert(
-                            "Model Compatibility Mode Active",
-                            f"Models expect {model_feature_count} features but code provides "
-                            f"{expected_features}. Running in degraded mode — retrain recommended.",
-                            "warning",
-                        ),
-                        name="model_compat_alert",
-                    )
-                    task.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
-            except Exception:
-                pass  # alerting is best-effort
             return
 
         self._incompatible_models = {

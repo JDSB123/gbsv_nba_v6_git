@@ -120,7 +120,8 @@ class TestPredictorCompatibilityAlert:
             assert len(predictor._inference_feature_cols) == 3
 
     @pytest.mark.anyio
-    async def test_compatibility_mode_schedules_alert_when_loop_running(self, tmp_path):
+    async def test_compatibility_mode_logs_warning_without_fire_and_forget(self, tmp_path):
+        """After refactor: compatibility mode only logs — no fire-and-forget task."""
         from src.models.predictor import MODEL_NAMES, Predictor
 
         artifacts = tmp_path / "artifacts"
@@ -133,24 +134,13 @@ class TestPredictorCompatibilityAlert:
             model.fit(X, y)
             model.save_model(str(artifacts / f"{name}.json"))
 
-        loop = MagicMock()
-        loop.is_running.return_value = True
-
-        def _create_task(coro):
-            coro.close()
-            return MagicMock()
-
-        loop.create_task.side_effect = _create_task
-
         with (
             patch(f"{_PRED_MOD}.ARTIFACTS_DIR", artifacts),
             patch(f"{_PRED_MOD}.get_feature_columns", return_value=["a", "b", "c", "d", "e"]),
-            patch("asyncio.get_event_loop", return_value=loop),
-            patch("src.notifications.teams.send_alert", new_callable=AsyncMock),
         ):
-            Predictor()
+            p = Predictor()
 
-        loop.create_task.assert_called_once()
+        assert p._compatibility_mode is True
 
 
 class TestTrainerFeatureImportanceDrift:
