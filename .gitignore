@@ -82,3 +82,5 @@ run_outputs/
 .env.bak.old
 build_log.txt
 git_status.txt
+_train_dataset.parquet
+train_v650.py
