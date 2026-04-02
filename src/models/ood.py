@@ -98,6 +98,24 @@ class OODDetector:
         if not self._ready:
             return 0.0, False
 
+        expected = self.feature_count
+        if (
+            expected is None
+            or self._inv_cov is None
+            or X.ndim != 2
+            or X.shape[1] != expected
+            or self._inv_cov.shape != (expected, expected)
+        ):
+            actual = X.shape[1] if X.ndim == 2 else 0
+            logger.warning(
+                "OOD detector feature mismatch: detector expects %s features but input has %s. "
+                "Disabling OOD detector until artifacts are retrained.",
+                expected,
+                actual,
+            )
+            self._ready = False
+            return 0.0, False
+
         dist = float(self._compute_distances(X)[0])
         is_ood = dist > self._threshold
         return dist, is_ood
@@ -135,3 +153,9 @@ class OODDetector:
     @property
     def is_ready(self) -> bool:
         return self._ready
+
+    @property
+    def feature_count(self) -> int | None:
+        if self._mean is None:
+            return None
+        return int(np.ravel(self._mean).shape[0])

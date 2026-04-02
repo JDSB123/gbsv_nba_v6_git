@@ -85,6 +85,20 @@ class TestOODDetector:
         ood = OODDetector()
         assert ood.load() is False
 
+    def test_score_shape_mismatch_disables_detector(self):
+        from src.models.ood import OODDetector
+
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((100, 5))
+
+        ood = OODDetector()
+        ood.fit(X_train)
+
+        dist, is_ood = ood.score(np.zeros((1, 10)))
+        assert dist == 0.0
+        assert is_ood is False
+        assert ood.is_ready is False
+
 
 # ── Explainability ───────────────────────────────────────────────
 
@@ -396,3 +410,34 @@ class TestPredictorRuntimeStatusV65:
         X = np.array([[1.0, 2.0]])
         result = p._predict_quantiles(X)
         assert result == {}
+
+    def test_load_ood_detector_skips_mismatched_artifact(self, monkeypatch):
+        from src.models.predictor import Predictor
+
+        class FakeOOD:
+            def __init__(self):
+                self._ready = True
+
+            def load(self):
+                return True
+
+            @property
+            def feature_count(self):
+                return 5
+
+            @property
+            def is_ready(self):
+                return self._ready
+
+        monkeypatch.setattr("src.models.ood.OODDetector", FakeOOD)
+
+        p = Predictor.__new__(Predictor)
+        p._inference_feature_cols = ["a", "b", "c"]
+        p._runtime_warning = None
+        p._ood = None
+
+        p._load_ood_detector()
+
+        assert p._ood is None
+        assert p._runtime_warning is not None
+        assert "OOD detector disabled" in p._runtime_warning

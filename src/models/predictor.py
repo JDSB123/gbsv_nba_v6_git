@@ -286,6 +286,16 @@ class Predictor:
 
             ood = OODDetector()
             if ood.load():
+                expected_features = len(self._inference_feature_cols)
+                detector_features = ood.feature_count
+                if detector_features != expected_features:
+                    self._runtime_warning = (
+                        "OOD detector disabled: artifact expects "
+                        f"{detector_features} features but inference uses "
+                        f"{expected_features}. Retrain artifacts to re-enable OOD."
+                    )
+                    logger.warning(self._runtime_warning)
+                    return
                 self._ood = ood
         except Exception:
             logger.debug("OOD detector not available", exc_info=True)
