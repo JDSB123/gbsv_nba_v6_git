@@ -511,7 +511,7 @@ def extract_picks(
                 )
             )
 
-    # ── ML pick ────────────────────────────────────────────────
+    # ── FG ML pick ─────────────────────────────────────────────
     pick_home = fg_spread > 0
     side = home if pick_home else away
     win_prob = fg_prob if pick_home else 1 - fg_prob
@@ -554,6 +554,45 @@ def extract_picks(
                 _fire_count(ml_pts_edge),
                 odds=ml_odds,
                 rationale=rationale,
+            )
+        )
+
+    # ── 1H ML pick ────────────────────────────────────────────
+    h1_prob = float(getattr(pred, "h1_home_ml_prob", 0) or 0.5)
+    h1_pick_home = h1_spread > 0
+    h1_side = home if h1_pick_home else away
+    h1_win_prob = h1_prob if h1_pick_home else 1 - h1_prob
+
+    if h1_pick_home:
+        h1_ml_odds = odds_map.get("1H_ML_HOME", "") or _prob_to_american(h1_prob)
+    else:
+        h1_ml_odds = odds_map.get("1H_ML_AWAY", "") or _prob_to_american(1 - h1_prob)
+
+    h1_market_prob = _american_to_prob(h1_ml_odds)
+    h1_prob_edge = (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+
+    if h1_prob_edge > 0.02:
+        h1_ml_pts_edge = round(h1_prob_edge * 33.3, 1)
+        h1_m_prob_str = f"{h1_market_prob:.0%}" if h1_market_prob is not None else "N/A"
+        h1_rationale = (
+            f"1H Model projects {h1_side} by {abs(h1_spread):.1f}pts. "
+            f"Edge: {h1_win_prob:.0%} win prob vs {h1_m_prob_str} implied ({h1_ml_odds or 'n/a'})"
+        )
+        picks.append(
+            Pick(
+                f"{h1_side} 1H ML",
+                h1_ml_pts_edge,
+                t_cst,
+                matchup,
+                "1H",
+                "ML",
+                h1_ml_odds or _prob_to_american(h1_win_prob),
+                h1_scores,
+                h_rec,
+                a_rec,
+                _fire_count(h1_ml_pts_edge),
+                odds=h1_ml_odds,
+                rationale=h1_rationale,
             )
         )
 

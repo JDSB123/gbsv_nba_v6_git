@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import os
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -98,12 +99,27 @@ class Predictor:
 
     def _download_blob_artifacts(self) -> None:
         """Try to download model artifacts from blob storage before loading locally."""
+        has_blob_config = bool(
+            (os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip())
+            or (os.getenv("AZURE_STORAGE_ACCOUNT_URL", "").strip())
+        )
+        if not has_blob_config:
+            logger.warning(
+                "Blob storage model sync disabled: set AZURE_STORAGE_ACCOUNT_URL or "
+                "AZURE_STORAGE_CONNECTION_STRING to pull remote artifacts."
+            )
+            return
         try:
             from src.models.blob_storage import sync_artifacts_down
 
             count = sync_artifacts_down()
             if count:
                 logger.info("Downloaded %d artifacts from blob storage", count)
+            else:
+                logger.warning(
+                    "Blob storage sync ran but downloaded 0 artifacts; "
+                    "falling back to local model artifacts.",
+                )
         except Exception:
             logger.debug("Blob storage download skipped or failed", exc_info=True)
 

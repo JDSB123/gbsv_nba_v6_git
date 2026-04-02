@@ -36,6 +36,7 @@ $databaseUrl = "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
 $oddsKey = "dev-odds-placeholder"
 $bballKey = "dev-basketball-placeholder"
 $teamsWebhook = ""
+$azureStorageAccountUrl = ""
 $logLevel = "INFO"
 
 Write-Host "Preparing .env (optionally from ACA: $APP in $RG)..." -ForegroundColor Cyan
@@ -51,6 +52,17 @@ try {
   $oddsKey = az containerapp secret show -n $APP -g $RG --secret-name odds-api-key --query "value" -o tsv
   $bballKey = az containerapp secret show -n $APP -g $RG --secret-name basketball-api-key --query "value" -o tsv
   $teamsWebhook = az containerapp secret show -n $APP -g $RG --secret-name teams-webhook-url --query "value" -o tsv 2>$null
+  $azureStorageAccountUrl = az containerapp show -n $APP -g $RG --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_ACCOUNT_URL'] | [0].value" -o tsv 2>$null
+  if (-not $azureStorageAccountUrl) {
+    $storageName = az storage account list -g $RG --query "[0].name" -o tsv 2>$null
+    if ($storageName) {
+      $storageEndpoint = az cloud show --query "suffixes.storageEndpoint" -o tsv 2>$null
+      if (-not $storageEndpoint) {
+        $storageEndpoint = "core.windows.net"
+      }
+      $azureStorageAccountUrl = "https://$storageName.blob.$storageEndpoint"
+    }
+  }
   
   if (-not $oddsKey -or -not $bballKey) {
     throw "Failed to retrieve one or more secrets from ACA."
@@ -80,6 +92,8 @@ LOG_LEVEL=$logLevel
 
 # ── Azure (production only) ───────────────────────────
 AZURE_KEY_VAULT_URL=
+AZURE_STORAGE_CONNECTION_STRING=
+AZURE_STORAGE_ACCOUNT_URL=$azureStorageAccountUrl
 
 # ── Teams delivery ────────────────────────────────────
 TEAMS_WEBHOOK_URL=$teamsWebhook

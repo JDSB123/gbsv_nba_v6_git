@@ -50,27 +50,10 @@ def _consensus_ml_odds(books: dict, key: str) -> float | None:
     return round(sum(vals) / len(vals))
 
 
-def _american_to_prob(odds_val: Any) -> float | None:
-    """Convert American odds (int/float/str) to implied probability (0-1)."""
-    if odds_val is None:
-        return None
-    try:
-        odds = float(str(odds_val).replace("+", ""))
-    except (ValueError, TypeError):
-        return None
-    if odds == 0:
-        return 0.5
-    if odds > 0:
-        return 100 / (odds + 100)
-    return -odds / (-odds + 100)
-
-
-def _consensus_ml_odds(books: dict, key: str) -> float | None:
-    """Average a ML odds field across all books, return as float."""
+def _consensus_line(books: dict, key: str) -> float | None:
+    """Average a numeric line field across all books."""
     vals = [b[key] for b in books.values() if key in b and b[key] is not None]
-    if not vals:
-        return None
-    return round(sum(vals) / len(vals))
+    return round(sum(vals) / len(vals), 1) if vals else None
 
 
 # ── Graded pick ──────────────────────────────────────────────
@@ -163,8 +146,9 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
     opening_spread = float(pred.opening_spread) if pred.opening_spread is not None else None
     opening_total = float(pred.opening_total) if pred.opening_total is not None else None
 
-    # Extract 1H market lines from odds_sourced JSON
+    # Extract 1H market lines from odds_sourced JSON, fallback to book consensus
     odds_sourced = getattr(pred, "odds_sourced", None)
+    books = odds_sourced.get("books", {}) if isinstance(odds_sourced, dict) else {}
     if isinstance(odds_sourced, dict):
         opening_h1_spread_raw = odds_sourced.get("opening_h1_spread")
         opening_h1_total_raw = odds_sourced.get("opening_h1_total")
@@ -174,12 +158,12 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
     opening_h1_spread = (
         float(opening_h1_spread_raw)
         if opening_h1_spread_raw is not None
-        else None
+        else _consensus_line(books, "spread_h1")
     )
     opening_h1_total = (
         float(opening_h1_total_raw)
         if opening_h1_total_raw is not None
-        else None
+        else _consensus_line(books, "total_h1")
     )
 
     nba_avg_total = get_nba_avg_total()
@@ -231,7 +215,6 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
     win_prob = fg_home_ml_prob if pick_home else 1 - fg_home_ml_prob
 
     # Get market ML odds from odds_sourced books
-    books = odds_sourced.get("books", {}) if isinstance(odds_sourced, dict) else {}
     if pick_home:
         ml_odds_val = _consensus_ml_odds(books, "home_ml")
     else:
@@ -301,6 +284,24 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
                         f"1H {direction} {h1_total:.1f}",
                     )
                 )
+
+        # ── 1H ML ─────────────────────────────────────────
+        h1_home_ml_prob = float(getattr(pred, "h1_home_ml_prob", 0) or 0.5)
+        h1_pick_home = h1_spread > 0
+        h1_win_prob = h1_home_ml_prob if h1_pick_home else 1 - h1_home_ml_prob
+
+        if h1_pick_home:
+            h1_ml_odds_val = _consensus_ml_odds(books, "home_ml_h1")
+        else:
+            h1_ml_odds_val = _consensus_ml_odds(books, "away_ml_h1")
+        h1_market_prob = _american_to_prob(h1_ml_odds_val)
+        h1_prob_edge = (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+
+        if h1_prob_edge > 0.02:
+            h1_ml_pts = round(h1_prob_edge * 33.3, 1)
+            h1_result = _grade_1h_winner(h1_spread, actual_home_1h, actual_away_1h)
+            h1_side = home if h1_pick_home else away
+            picks.append(GradedPick("1H", "ML", h1_ml_pts, h1_result, matchup, f"{h1_side} 1H ML"))
 
     return picks
 
