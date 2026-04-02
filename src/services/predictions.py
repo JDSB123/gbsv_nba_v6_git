@@ -104,73 +104,133 @@ class PredictionService:
 
         # ── Edge calculations ───────────────────────────────────
         # Spread: edge = market_line + model_spread (+ = HOME better than market)
-        fg_spread_edge = round(mkt_spread + fg_spread, 1) if mkt_spread else None
-        h1_spread_edge = round(h1_mkt_spread + h1_spread, 1) if h1_mkt_spread else None
-        fg_total_edge = round(fg_total - mkt_total, 1) if mkt_total else None
-        h1_total_edge = round(h1_total - h1_mkt_total, 1) if h1_mkt_total else None
+        fg_spread_edge = round(mkt_spread + fg_spread, 1) if mkt_spread is not None else None
+        h1_spread_edge = round(h1_mkt_spread + h1_spread, 1) if h1_mkt_spread is not None else None
+        fg_total_edge = round(fg_total - mkt_total, 1) if mkt_total is not None else None
+        h1_total_edge = round(h1_total - h1_mkt_total, 1) if h1_mkt_total is not None else None
 
         # ML: compare model prob vs consensus implied prob
         home_ml_odds = _consensus_price(books, "home_ml")
         away_ml_odds = _consensus_price(books, "away_ml")
-        ml_pick_home = fg_spread > 0
-        ml_prob = fg_home_ml_prob if ml_pick_home else (1 - fg_home_ml_prob)
-        ml_odds_str = home_ml_odds if ml_pick_home else away_ml_odds
-        mkt_prob = _american_to_prob(ml_odds_str)
-        ml_prob_edge = (ml_prob - mkt_prob) if mkt_prob is not None else None
 
-        def _spread_pick(edge_val: float | None, mkt_line: float | None, seg: str) -> dict:
+        # FG ML
+        fg_ml_pick_home = fg_spread > 0
+        fg_ml_prob = fg_home_ml_prob if fg_ml_pick_home else (1 - fg_home_ml_prob)
+        fg_ml_odds_str = home_ml_odds if fg_ml_pick_home else away_ml_odds
+        fg_mkt_prob = _american_to_prob(fg_ml_odds_str)
+        fg_ml_prob_edge = (fg_ml_prob - fg_mkt_prob) if fg_mkt_prob is not None else None
+
+        # H1 ML
+        h1_home_ml_odds = _consensus_price(books, "home_ml_h1")
+        h1_away_ml_odds = _consensus_price(books, "away_ml_h1")
+        h1_ml_pick_home = h1_spread > 0
+        h1_ml_prob = h1_home_ml_prob if h1_ml_pick_home else (1 - h1_home_ml_prob)
+        h1_ml_odds_str = h1_home_ml_odds if h1_ml_pick_home else h1_away_ml_odds
+        h1_mkt_prob = _american_to_prob(h1_ml_odds_str)
+        h1_ml_prob_edge = (h1_ml_prob - h1_mkt_prob) if h1_mkt_prob is not None else None
+
+        # ── Spread pick builder ─────────────────────────────────
+        def _spread_market(
+            model_val: float, edge_val: float | None, mkt_line: float | None, seg: str,
+        ) -> dict:
+            base: dict[str, Any] = {
+                "prediction": model_val,
+                "consensus_line": round(mkt_line, 1) if mkt_line is not None else None,
+                "pick": None, "edge": 0.0, "side": None, "actionable": False,
+                "rationale": None,
+            }
             if edge_val is None or mkt_line is None:
-                return {}
+                return base
             pick_home = edge_val > 0
             side = home_name if pick_home else away_name
             e = round(abs(edge_val), 1)
             line = mkt_line if pick_home else -mkt_line
-            return {
+            base.update({
                 "pick": f"{side} {line:+.1f}",
                 "edge": e,
                 "side": side,
-                "consensus_line": round(mkt_line, 1),
                 "actionable": e >= min_edge,
-            }
+                "rationale": (
+                    f"Model: {home_name} by {model_val:+.1f} vs line {mkt_line:+.1f} "
+                    f"→ {e:.1f}pt edge on {side}"
+                ),
+            })
+            return base
 
-        def _total_pick(edge_val: float | None, mkt_line: float | None, seg: str) -> dict:
+        # ── Total pick builder ──────────────────────────────────
+        def _total_market(
+            model_val: float, edge_val: float | None, mkt_line: float | None, seg: str,
+        ) -> dict:
+            base: dict[str, Any] = {
+                "prediction": model_val,
+                "consensus_line": round(mkt_line, 1) if mkt_line is not None else None,
+                "pick": None, "edge": 0.0, "direction": None, "actionable": False,
+                "rationale": None,
+            }
             if edge_val is None or mkt_line is None:
-                return {}
+                return base
             direction = "OVER" if edge_val > 0 else "UNDER"
             e = round(abs(edge_val), 1)
-            return {
+            base.update({
                 "pick": f"{direction} {mkt_line:.1f}",
                 "edge": e,
                 "direction": direction,
-                "consensus_line": round(mkt_line, 1),
                 "actionable": e >= min_edge,
-            }
+                "rationale": (
+                    f"Model total {model_val:.1f} vs line {mkt_line:.1f} "
+                    f"→ {e:.1f}pt {direction.lower()}"
+                ),
+            })
+            return base
 
-        fg_sp = _spread_pick(fg_spread_edge, mkt_spread, "FG")
-        h1_sp = _spread_pick(h1_spread_edge, h1_mkt_spread, "1H")
-        fg_tp = _total_pick(fg_total_edge, mkt_total, "FG")
-        h1_tp = _total_pick(h1_total_edge, h1_mkt_total, "1H")
-
-        # ML pick
-        ml_pick: dict[str, Any] = {}
-        if ml_prob_edge is not None and ml_prob_edge > 0.02:
-            ml_side = home_name if ml_pick_home else away_name
-            ml_pts = round(ml_prob_edge * 33.3, 1)
-            ml_pick = {
-                "pick": f"{ml_side} ML",
-                "edge": ml_pts,
-                "win_prob": round(ml_prob, 3),
-                "implied_prob": round(mkt_prob, 3) if mkt_prob else None,
-                "odds": ml_odds_str,
-                "actionable": ml_pts >= min_edge,
+        # ── ML pick builder ─────────────────────────────────────
+        def _ml_market(
+            home_prob: float,
+            pick_home: bool,
+            model_prob: float,
+            market_prob: float | None,
+            prob_edge: float | None,
+            odds_str: str,
+            model_spread: float,
+        ) -> dict:
+            side = home_name if pick_home else away_name
+            base: dict[str, Any] = {
+                "home_prob": round(home_prob, 3),
+                "away_prob": round(1 - home_prob, 3),
+                "pick": None, "edge": 0.0, "win_prob": round(model_prob, 3),
+                "implied_prob": round(market_prob, 3) if market_prob is not None else None,
+                "odds": odds_str or None, "actionable": False, "rationale": None,
             }
+            if prob_edge is not None and prob_edge > 0.02:
+                ml_pts = round(prob_edge * 33.3, 1)
+                m_str = f"{market_prob:.0%}" if market_prob is not None else "N/A"
+                base.update({
+                    "pick": f"{side} ML",
+                    "edge": ml_pts,
+                    "actionable": ml_pts >= min_edge,
+                    "rationale": (
+                        f"Model projects {side} by {abs(model_spread):.1f}pts. "
+                        f"Edge: {model_prob:.0%} win prob vs {m_str} implied ({odds_str or 'n/a'})"
+                    ),
+                })
+            return base
+
+        fg_sp = _spread_market(fg_spread, fg_spread_edge, mkt_spread, "FG")
+        h1_sp = _spread_market(h1_spread, h1_spread_edge, h1_mkt_spread, "1H")
+        fg_tp = _total_market(fg_total, fg_total_edge, mkt_total, "FG")
+        h1_tp = _total_market(h1_total, h1_total_edge, h1_mkt_total, "1H")
+        fg_ml = _ml_market(
+            fg_home_ml_prob, fg_ml_pick_home, fg_ml_prob,
+            fg_mkt_prob, fg_ml_prob_edge, fg_ml_odds_str, fg_spread,
+        )
+        h1_ml = _ml_market(
+            h1_home_ml_prob, h1_ml_pick_home, h1_ml_prob,
+            h1_mkt_prob, h1_ml_prob_edge, h1_ml_odds_str, h1_spread,
+        )
 
         # Collect actionable edges for status
-        edges = [
-            d.get("edge", 0)
-            for d in (fg_sp, h1_sp, fg_tp, h1_tp, ml_pick)
-            if d.get("actionable")
-        ]
+        all_markets = [fg_sp, h1_sp, fg_tp, h1_tp, fg_ml, h1_ml]
+        edges = [m["edge"] for m in all_markets if m.get("actionable")]
         best_edge = max(edges) if edges else 0.0
         status = "actionable" if edges else "monitoring"
 
@@ -202,19 +262,12 @@ class PredictionService:
                 "first_half": {"home": pred.predicted_home_1h, "away": pred.predicted_away_1h},
             },
             "markets": {
-                "fg_spread": {"prediction": pred.fg_spread, **fg_sp},
-                "fg_total": {"prediction": pred.fg_total, **fg_tp},
-                "fg_moneyline": {
-                    "home_prob": fg_home_ml_prob,
-                    "away_prob": round(1 - fg_home_ml_prob, 3),
-                    **ml_pick,
-                },
-                "h1_spread": {"prediction": pred.h1_spread, **h1_sp},
-                "h1_total": {"prediction": pred.h1_total, **h1_tp},
-                "h1_moneyline": {
-                    "home_prob": h1_home_ml_prob,
-                    "away_prob": round(1 - h1_home_ml_prob, 3),
-                },
+                "fg_spread": fg_sp,
+                "fg_total": fg_tp,
+                "fg_moneyline": fg_ml,
+                "h1_spread": h1_sp,
+                "h1_total": h1_tp,
+                "h1_moneyline": h1_ml,
             },
             "model_version": pred.model_version,
             "predicted_at": pred.predicted_at.isoformat()

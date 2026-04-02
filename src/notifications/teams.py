@@ -280,7 +280,7 @@ def extract_picks(
     mkt_spread = (
         float(opening_spread)
         if opening_spread is not None and abs(float(opening_spread)) >= 0.5
-        else None
+        else _consensus_line(books, "spread")
     )
     if mkt_spread is not None:
         home_edge = mkt_spread + fg_spread
@@ -336,7 +336,11 @@ def extract_picks(
         )
 
     # ── Full-game total ───────────────────────────────────────
-    mkt_total = float(opening_total) if opening_total is not None else None
+    mkt_total = (
+        float(opening_total)
+        if opening_total is not None
+        else _consensus_line(books, "total")
+    )
     if mkt_total is not None:
         total_edge = abs(fg_total - mkt_total)
         if total_edge >= min_edge:
@@ -392,7 +396,7 @@ def extract_picks(
     mkt_h1_spread = (
         float(opening_h1_spread)
         if opening_h1_spread is not None and abs(float(opening_h1_spread)) >= 0.5
-        else None
+        else _consensus_line(books, "spread_h1")
     )
     if mkt_h1_spread is not None:
         # Compare model vs market, same formula as FG spread
@@ -449,7 +453,11 @@ def extract_picks(
         )
 
     # ── 1H total ──────────────────────────────────────────────
-    mkt_h1_total = float(opening_h1_total) if opening_h1_total is not None else None
+    mkt_h1_total = (
+        float(opening_h1_total)
+        if opening_h1_total is not None
+        else _consensus_line(books, "total_h1")
+    )
     if mkt_h1_total is not None:
         h1_total_edge = abs(h1_total - mkt_h1_total)
         if h1_total_edge >= min_edge:
@@ -924,16 +932,15 @@ def build_slate_csv(
     for p in all_picks:
         sourced = odds_by_matchup.get(p.matchup, {})
         books = sourced.get("books", {})
-        source_parts = []
-        for bk, lines in sorted(books.items()):
-            pieces = []
-            if "spread" in lines:
-                pieces.append(f"S:{lines['spread']:+.1f}")
-            if "total" in lines:
-                pieces.append(f"T:{lines['total']:.1f}")
-            if pieces:
-                source_parts.append(f"{bk}({'/'.join(pieces)})")
-        odds_source_str = "; ".join(source_parts)
+        # Consensus summary instead of per-book dump
+        cons_spread = _consensus_line(books, "spread")
+        cons_total = _consensus_line(books, "total")
+        cons_parts = []
+        if cons_spread is not None:
+            cons_parts.append(f"S:{cons_spread:+.1f}")
+        if cons_total is not None:
+            cons_parts.append(f"T:{cons_total:.1f}")
+        odds_source_str = f"consensus({'/'.join(cons_parts)}) [{len(books)} books]" if cons_parts else ""
         odds_pulled_str = sourced.get("captured_at", "")
         writer.writerow(
             [
