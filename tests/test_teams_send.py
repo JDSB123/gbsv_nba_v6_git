@@ -130,6 +130,101 @@ class TestBuildTeamsCardRemainingPicks:
         assert len(body) > 0
 
 
+class TestBuildTeamsCardLayouts:
+    def test_webhook_layout_omits_odds_sources_and_uses_compact_rows(self):
+        from src.notifications.teams import build_teams_card
+
+        pred = SimpleNamespace(
+            fg_spread=5.0, fg_total=215.0,
+            fg_home_ml_prob=0.65, h1_home_ml_prob=0.60,
+            predicted_home_fg=110.0, predicted_away_fg=105.0,
+            predicted_home_1h=55.0, predicted_away_1h=52.0,
+            opening_spread=-3.5, opening_total=220.0,
+            opening_h1_spread=-1.5, opening_h1_total=109.5,
+            odds_sourced={
+                "books": {
+                    "fanduel": {
+                        "spread": -3.5, "spread_price": -110,
+                        "total": 220.0, "total_price": -105,
+                        "home_ml": -150, "away_ml": 130,
+                        "spread_h1": -1.5, "spread_h1_price": -115,
+                        "total_h1": 109.5, "total_h1_price": -112,
+                    },
+                },
+                "captured_at": "2024-12-01T18:00:00Z",
+            },
+            game_id=1,
+        )
+        game = SimpleNamespace(
+            id=1,
+            home_team=SimpleNamespace(
+                name="Lakers",
+                team_season_stats=[SimpleNamespace(wins=30, losses=10)],
+            ),
+            away_team=SimpleNamespace(
+                name="Celtics",
+                team_season_stats=[SimpleNamespace(wins=25, losses=15)],
+            ),
+            commence_time=None,
+        )
+
+        result = build_teams_card(
+            [(pred, game)],
+            max_games=1,
+            min_edge=0.1,
+            download_url="https://example.com/slate.html",
+            csv_download_url="https://example.com/slate.csv",
+            layout="webhook",
+        )
+
+        content = result["attachments"][0]["content"]
+        body = content["body"]
+        top_level_text = " ".join(item.get("text", "") for item in body if item.get("type") == "TextBlock")
+
+        assert all(item["type"] != "ColumnSet" for item in body)
+        assert any(item["type"] == "Container" for item in body)
+        assert "Odds Sources" not in top_level_text
+        assert "fanduel" not in top_level_text
+        assert "Full odds board details are available" in top_level_text
+        assert len(content["actions"]) == 2
+
+    def test_graph_layout_keeps_odds_sources(self):
+        from src.notifications.teams import build_teams_card
+
+        pred = SimpleNamespace(
+            fg_spread=5.0, fg_total=215.0,
+            fg_home_ml_prob=0.65, h1_home_ml_prob=0.60,
+            predicted_home_fg=110.0, predicted_away_fg=105.0,
+            predicted_home_1h=55.0, predicted_away_1h=52.0,
+            opening_spread=-3.5, opening_total=220.0,
+            opening_h1_spread=-1.5, opening_h1_total=109.5,
+            odds_sourced={
+                "books": {
+                    "fanduel": {
+                        "spread": -3.5, "spread_price": -110,
+                        "total": 220.0, "total_price": -105,
+                        "home_ml": -150, "away_ml": 130,
+                    },
+                },
+                "captured_at": "2024-12-01T18:00:00Z",
+            },
+            game_id=1,
+        )
+        game = SimpleNamespace(
+            id=1,
+            home_team=SimpleNamespace(name="Lakers"),
+            away_team=SimpleNamespace(name="Celtics"),
+            commence_time=None,
+        )
+
+        result = build_teams_card([(pred, game)], max_games=1, min_edge=0.1)
+        body = result["attachments"][0]["content"]["body"]
+        top_level_text = " ".join(item.get("text", "") for item in body if item.get("type") == "TextBlock")
+
+        assert any(item["type"] == "ColumnSet" for item in body)
+        assert "Odds Sources" in top_level_text
+
+
 class TestSendCardToTeams:
     @pytest.mark.anyio
     async def test_send_card_success(self):

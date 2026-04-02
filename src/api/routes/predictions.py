@@ -196,6 +196,7 @@ async def publish_slate_to_teams(
         odds_pulled_at=odds_pulled_at,
         download_url=download_url,
         csv_download_url=csv_download_url,
+        layout="webhook",
     )
     await send_card_to_teams(settings.teams_webhook_url, card)
 

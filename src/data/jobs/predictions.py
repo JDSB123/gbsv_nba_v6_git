@@ -301,6 +301,7 @@ async def generate_predictions_and_publish(
                         odds_pulled_at=odds_pulled_at,
                         download_url=download_url,
                         csv_download_url=csv_dl,
+                        layout="webhook",
                     )
                     await send_card_to_teams(_s.teams_webhook_url, payload)
                     logger.info("Published %d predictions to Teams (webhook)", len(rows))

@@ -686,6 +686,67 @@ def _pick_row(pick: Pick) -> dict:
     }
 
 
+def _pick_compact_row(pick: Pick) -> dict:
+    """Build a simpler pick block for webhook delivery."""
+    fires = _fire_emojis(pick.edge)
+    odds_tag = f" ({pick.odds})" if pick.odds else ""
+    if pick.away_record and pick.home_record:
+        matchup_line = (
+            f"{pick.matchup.split(' @ ')[0]} ({pick.away_record})"
+            f" @ {pick.matchup.split(' @ ')[1]} ({pick.home_record})"
+        )
+    else:
+        matchup_line = pick.matchup
+    detail_line = (
+        f"Edge {pick.edge:.1f} · {pick.segment} {pick.market_type}"
+        f" · Line: {pick.market_line} · Model: {pick.model_scores}"
+    )
+
+    items: list[dict] = [
+        {
+            "type": "TextBlock",
+            "text": f"**{pick.label}**{odds_tag}{fires}",
+            "wrap": True,
+            "weight": "Bolder",
+        },
+        {
+            "type": "TextBlock",
+            "text": f"{pick.time_cst} · {matchup_line}",
+            "size": "Small",
+            "isSubtle": True,
+            "spacing": "None",
+            "wrap": True,
+        },
+        {
+            "type": "TextBlock",
+            "text": detail_line,
+            "size": "Small",
+            "isSubtle": True,
+            "spacing": "None",
+            "wrap": True,
+            "color": _edge_color(pick.edge),
+        },
+    ]
+    if pick.rationale:
+        items.append(
+            {
+                "type": "TextBlock",
+                "text": f"_{pick.rationale}_",
+                "size": "Small",
+                "isSubtle": True,
+                "spacing": "None",
+                "wrap": True,
+            }
+        )
+
+    return {
+        "type": "Container",
+        "separator": True,
+        "spacing": "Medium",
+        "items": items,
+    }
+
+
 def _odds_source_block(odds_sourced: dict | None) -> list[dict]:
     """Build Adaptive Card elements showing per-book odds breakdown."""
     if not odds_sourced:
@@ -742,12 +803,14 @@ def build_teams_card(
     min_edge: float = MIN_EDGE,
     download_url: str | None = None,
     csv_download_url: str | None = None,
+    layout: str = "graph",
 ) -> dict[str, Any]:
     """Build a pick-focused Adaptive Card sorted by edge.
 
     Each row shows: pick label + fires, matchup with records,
     segment/market/model scores, and edge value.
     """
+    compact_layout = layout == "webhook"
     now_cst = datetime.now(_CST)
     now_str = now_cst.strftime("%Y-%m-%d %I:%M %p CT")
     odds_ts = (
@@ -805,47 +868,56 @@ def build_teams_card(
             "weight": "Bolder",
             "spacing": "Small",
         },
-        {
-            "type": "ColumnSet",
-            "spacing": "Small",
-            "columns": [
-                {
-                    "type": "Column",
-                    "width": "stretch",
-                    "items": [
-                        {
-                            "type": "TextBlock",
-                            "text": "**PICK**",
-                            "size": "Small",
-                            "isSubtle": True,
-                        }
-                    ],
-                },
-                {
-                    "type": "Column",
-                    "width": "auto",
-                    "items": [
-                        {
-                            "type": "TextBlock",
-                            "text": "**EDGE**",
-                            "size": "Small",
-                            "isSubtle": True,
-                            "horizontalAlignment": "Right",
-                        }
-                    ],
-                },
-            ],
-        },
     ]
 
+    if not compact_layout:
+        body.append(
+            {
+                "type": "ColumnSet",
+                "spacing": "Small",
+                "columns": [
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": "**PICK**",
+                                "size": "Small",
+                                "isSubtle": True,
+                            }
+                        ],
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": "**EDGE**",
+                                "size": "Small",
+                                "isSubtle": True,
+                                "horizontalAlignment": "Right",
+                            }
+                        ],
+                    },
+                ],
+            }
+        )
+
     for pick in display_picks:
-        body.append(_pick_row(pick))
+        body.append(_pick_compact_row(pick) if compact_layout else _pick_row(pick))
 
     if remaining > 0:
+        more_text = (
+            f"Showing top {len(display_picks)} picks here. {remaining} more picks are available in the full slate below."
+            if compact_layout
+            else f"• {remaining} more picks — download full slate below"
+        )
         body.append(
             {
                 "type": "TextBlock",
-                "text": f"• {remaining} more picks — download full slate below",
+                "text": more_text,
                 "size": "Small",
                 "isSubtle": True,
                 "spacing": "Medium",
@@ -854,7 +926,7 @@ def build_teams_card(
         )
 
     # ── Per-game odds source breakdown ────────────────────────
-    if odds_by_game:
+    if odds_by_game and not compact_layout:
         body.append(
             {
                 "type": "TextBlock",
@@ -879,6 +951,17 @@ def build_teams_card(
                     }
                 )
                 body.extend(blocks)
+    elif odds_by_game and compact_layout and (download_url or csv_download_url):
+        body.append(
+            {
+                "type": "TextBlock",
+                "text": "Full odds board details are available in the HTML slate and CSV below.",
+                "size": "Small",
+                "isSubtle": True,
+                "spacing": "Medium",
+                "wrap": True,
+            }
+        )
 
     card: dict[str, Any] = {
         "type": "AdaptiveCard",
