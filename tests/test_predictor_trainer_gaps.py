@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
