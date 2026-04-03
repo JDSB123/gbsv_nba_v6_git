@@ -180,12 +180,21 @@ class TestBuildTeamsCardLayouts:
         content = result["attachments"][0]["content"]
         body = content["body"]
         top_level_text = " ".join(item.get("text", "") for item in body if item.get("type") == "TextBlock")
+        container_text = " ".join(
+            inner.get("text", "")
+            for item in body if item.get("type") == "Container"
+            for inner in item.get("items", [])
+        )
 
         assert all(item["type"] != "ColumnSet" for item in body)
         assert any(item["type"] == "Container" for item in body)
         assert "Odds Sources" not in top_level_text
         assert "fanduel" not in top_level_text
         assert "Full odds board details are available" in top_level_text
+        assert content["version"] == "1.2"
+        assert "Showing top" in top_level_text
+        assert "**" not in container_text
+        assert "_" not in container_text
         assert len(content["actions"]) == 2
 
     def test_graph_layout_keeps_odds_sources(self):
@@ -223,6 +232,51 @@ class TestBuildTeamsCardLayouts:
 
         assert any(item["type"] == "ColumnSet" for item in body)
         assert "Odds Sources" in top_level_text
+
+    def test_webhook_layout_caps_display_to_top_eight_picks(self):
+        from src.notifications.teams import build_teams_card
+
+        rows = []
+        for idx in range(10):
+            pred = SimpleNamespace(
+                fg_spread=10.0 + idx,
+                fg_total=220.0 + idx,
+                fg_home_ml_prob=0.80,
+                h1_home_ml_prob=0.75,
+                predicted_home_fg=118.0,
+                predicted_away_fg=108.0,
+                predicted_home_1h=59.0,
+                predicted_away_1h=53.0,
+                opening_spread=-2.0,
+                opening_total=225.0,
+                opening_h1_spread=-1.0,
+                opening_h1_total=112.0,
+                odds_sourced=None,
+                game_id=idx,
+            )
+            game = SimpleNamespace(
+                id=idx,
+                home_team=SimpleNamespace(name=f"Home {idx}"),
+                away_team=SimpleNamespace(name=f"Away {idx}"),
+                commence_time=None,
+            )
+            rows.append((pred, game))
+
+        result = build_teams_card(
+            rows,
+            max_games=20,
+            min_edge=0.1,
+            download_url="https://example.com/slate.html",
+            csv_download_url="https://example.com/slate.csv",
+            layout="webhook",
+        )
+
+        body = result["attachments"][0]["content"]["body"]
+        containers = [item for item in body if item.get("type") == "Container"]
+        trailing_text = " ".join(item.get("text", "") for item in body if item.get("type") == "TextBlock")
+
+        assert len(containers) == 8
+        assert "Showing top 8" in trailing_text
 
 
 class TestSendCardToTeams:

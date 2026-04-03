@@ -688,7 +688,6 @@ def _pick_row(pick: Pick) -> dict:
 
 def _pick_compact_row(pick: Pick) -> dict:
     """Build a simpler pick block for webhook delivery."""
-    fires = _fire_emojis(pick.edge)
     odds_tag = f" ({pick.odds})" if pick.odds else ""
     if pick.away_record and pick.home_record:
         matchup_line = (
@@ -697,15 +696,12 @@ def _pick_compact_row(pick: Pick) -> dict:
         )
     else:
         matchup_line = pick.matchup
-    detail_line = (
-        f"Edge {pick.edge:.1f} · {pick.segment} {pick.market_type}"
-        f" · Line: {pick.market_line} · Model: {pick.model_scores}"
-    )
+    detail_line = f"Edge {pick.edge:.1f} | {pick.segment} {pick.market_type} | Line {pick.market_line}"
 
     items: list[dict] = [
         {
             "type": "TextBlock",
-            "text": f"**{pick.label}**{odds_tag}{fires}",
+            "text": f"{pick.label}{odds_tag}",
             "wrap": True,
             "weight": "Bolder",
         },
@@ -727,17 +723,6 @@ def _pick_compact_row(pick: Pick) -> dict:
             "color": _edge_color(pick.edge),
         },
     ]
-    if pick.rationale:
-        items.append(
-            {
-                "type": "TextBlock",
-                "text": f"_{pick.rationale}_",
-                "size": "Small",
-                "isSubtle": True,
-                "spacing": "None",
-                "wrap": True,
-            }
-        )
 
     return {
         "type": "Container",
@@ -840,21 +825,25 @@ def build_teams_card(
 
     n_games = len(game_ids)
     total_picks = len(all_picks)
-    max_picks = max_games * 2
+    max_picks = min(max_games, 8) if compact_layout else max_games * 2
     display_picks = all_picks[:max_picks]
     remaining = total_picks - len(display_picks)
 
     body: list[dict] = [
         {
             "type": "TextBlock",
-            "text": "🏀 **NBA Daily Slate**",
+            "text": "NBA Daily Slate" if compact_layout else "🏀 **NBA Daily Slate**",
             "size": "Large",
             "weight": "Bolder",
             "wrap": True,
         },
         {
             "type": "TextBlock",
-            "text": f"Model {MODEL_VERSION} · Odds pulled {odds_ts}",
+            "text": (
+                f"Model {MODEL_VERSION} | Odds pulled {odds_ts}"
+                if compact_layout
+                else f"Model {MODEL_VERSION} · Odds pulled {odds_ts}"
+            ),
             "wrap": True,
             "size": "Small",
             "isSubtle": True,
@@ -862,7 +851,11 @@ def build_teams_card(
         },
         {
             "type": "TextBlock",
-            "text": f"{n_games} games · {total_picks} qualified picks",
+            "text": (
+                f"{n_games} games | {total_picks} qualified picks | Showing top {len(display_picks)}"
+                if compact_layout
+                else f"{n_games} games · {total_picks} qualified picks"
+            ),
             "wrap": True,
             "size": "Medium",
             "weight": "Bolder",
@@ -966,7 +959,7 @@ def build_teams_card(
     card: dict[str, Any] = {
         "type": "AdaptiveCard",
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-        "version": "1.4",
+        "version": "1.2" if compact_layout else "1.4",
         "body": body,
     }
 
@@ -975,7 +968,7 @@ def build_teams_card(
         actions.append(
             {
                 "type": "Action.OpenUrl",
-                "title": "📊 View Full Slate",
+                "title": "View Full Slate" if compact_layout else "📊 View Full Slate",
                 "url": download_url,
             }
         )
@@ -983,7 +976,7 @@ def build_teams_card(
         actions.append(
             {
                 "type": "Action.OpenUrl",
-                "title": "📥 Download CSV",
+                "title": "Download CSV" if compact_layout else "📥 Download CSV",
                 "url": csv_download_url,
             }
         )
