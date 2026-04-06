@@ -5,7 +5,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from dotenv import dotenv_values
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,27 +12,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def resolve_settings_env_file() -> str:
     env_file = os.getenv("G_BSV_ENV_FILE", ".env").strip()
     return env_file or ".env"
-
-
-def load_selected_env_values() -> dict[str, str]:
-    env_file = Path(resolve_settings_env_file())
-    if not env_file.is_absolute():
-        env_file = Path.cwd() / env_file
-    if not env_file.exists():
-        return {}
-    return {
-        key: value
-        for key, value in dotenv_values(env_file).items()
-        if value is not None
-    }
-
-
-def map_env_values_to_fields(env_values: dict[str, str]) -> dict[str, Any]:
-    return {
-        field_name: env_values[field_name.upper()]
-        for field_name in Settings.model_fields
-        if field_name.upper() in env_values
-    }
 
 
 class Settings(BaseSettings):
@@ -116,6 +94,7 @@ class Settings(BaseSettings):
     azure_storage_account_url: str = ""
 
     model_config = SettingsConfigDict(
+        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -142,10 +121,11 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    if os.getenv("G_BSV_ENV_FILE"):
-        base_settings = Settings()
-        overrides = map_env_values_to_fields(load_selected_env_values())
-        return base_settings.model_copy(update=overrides)
+    env_file = resolve_settings_env_file()
+    env_path = Path(env_file)
+    if env_path.is_absolute() or env_path.exists() or env_file != ".env":
+        settings_kwargs: dict[str, Any] = {"_env_file": env_file}
+        return Settings(**settings_kwargs)
     return Settings()
 
 

@@ -240,8 +240,8 @@ class TestDbMaintenance:
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             await db_maintenance()
-            # 4 ANALYZE calls + 1 commit
-            assert mock_db.execute.call_count == 4
+            # 5 ANALYZE calls + 1 commit, including the archive table.
+            assert mock_db.execute.call_count == 5
 
     @pytest.mark.anyio
     async def test_maintenance_error_handled(self):

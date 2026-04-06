@@ -5,7 +5,8 @@
       "executable": "pwsh.exe",
       "args": [
         "-NoLogo",
-        "-NoProfile"
+        "-NoProfile",
+        "-Command"
       ]
     }
   },
@@ -45,7 +46,7 @@
     {
       "label": "env: reset local",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "scripts/sync_env.py",
         "--force"
@@ -60,7 +61,7 @@
     {
       "label": "env: sync azure",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "scripts/sync_env.py",
         "--from-azd",
@@ -80,7 +81,7 @@
     {
       "label": "app: serve",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -96,7 +97,7 @@
     {
       "label": "app: serve (azure env)",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -117,7 +118,7 @@
     {
       "label": "app: work",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -133,7 +134,7 @@
     {
       "label": "db: migrate (azure env)",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -154,7 +155,7 @@
     {
       "label": "model: retrain (azure env)",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -175,7 +176,7 @@
     {
       "label": "model: train",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -191,7 +192,7 @@
     {
       "label": "model: predict",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -207,7 +208,7 @@
     {
       "label": "ops: audit",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -223,7 +224,7 @@
     {
       "label": "db: migrate",
       "type": "shell",
-      "command": "python",
+      "command": "${command:python.interpreterPath}",
       "args": [
         "-m",
         "src",
@@ -239,8 +240,10 @@
     {
       "label": "test",
       "type": "shell",
-      "command": "pytest",
+      "command": "${command:python.interpreterPath}",
       "args": [
+        "-m",
+        "pytest",
         "tests",
         "-v"
       ],

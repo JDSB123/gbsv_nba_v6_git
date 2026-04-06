@@ -1059,6 +1059,106 @@ def _pick_side_border(pick: Pick) -> str:
     return "#2563eb"  # away = blue
 
 
+def _build_html_odds_section(odds_by_game: dict[int, dict], game_labels: dict[int, str]) -> str:
+    if not odds_by_game:
+        return ""
+
+    odds_rows: list[str] = []
+    oth = (
+        "background:#1a2332;color:#d4af37;font-weight:600;font-size:11px;"
+        "letter-spacing:1px;text-transform:uppercase;padding:6px 8px;"
+        "text-align:left;white-space:nowrap"
+    )
+    for gid, detail in odds_by_game.items():
+        label = game_labels.get(gid, "")
+        books = detail.get("books", {})
+        if not books:
+            continue
+        first = True
+        for bk, lines in sorted(books.items()):
+            pieces: list[str] = []
+            if "spread" in lines:
+                price = f" ({lines['spread_price']:+d})" if lines.get("spread_price") else ""
+                pieces.append(f"{lines['spread']:+.1f}{price}")
+            else:
+                pieces.append("—")
+            if "total" in lines:
+                price = f" ({lines['total_price']:+d})" if lines.get("total_price") else ""
+                pieces.append(f"{lines['total']:.1f}{price}")
+            else:
+                pieces.append("—")
+            if "home_ml" in lines:
+                pieces.append(f"{lines['home_ml']:+d}")
+            else:
+                pieces.append("—")
+            if "away_ml" in lines:
+                pieces.append(f"{lines['away_ml']:+d}")
+            else:
+                pieces.append("—")
+            if "spread_h1" in lines:
+                price = (
+                    f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
+                )
+                pieces.append(f"{lines['spread_h1']:+.1f}{price}")
+            else:
+                pieces.append("—")
+            if "total_h1" in lines:
+                price = (
+                    f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
+                )
+                pieces.append(f"{lines['total_h1']:.1f}{price}")
+            else:
+                pieces.append("—")
+
+            otd = 'style="padding:4px 8px;border-bottom:1px solid #e9ecef;font-size:12px"'
+            matchup_cell = f"<td {otd}><b>{_esc(label)}</b></td>" if first else f"<td {otd}></td>"
+            odds_rows.append(
+                f"<tr>"
+                f"{matchup_cell}"
+                f"<td {otd}><b>{_esc(bk)}</b></td>"
+                f"<td {otd}>{_esc(pieces[0])}</td>"
+                f"<td {otd}>{_esc(pieces[1])}</td>"
+                f"<td {otd}>{_esc(pieces[2])}</td>"
+                f"<td {otd}>{_esc(pieces[3])}</td>"
+                f"<td {otd}>{_esc(pieces[4])}</td>"
+                f"<td {otd}>{_esc(pieces[5])}</td>"
+                f"</tr>"
+            )
+            first = False
+
+    if not odds_rows:
+        return ""
+
+    any_detail = next(iter(odds_by_game.values()), {})
+    ts_raw = any_detail.get("captured_at", "")
+    ts_display = ""
+    if ts_raw:
+        try:
+            dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone(_CST)
+            ts_display = f" &middot; As of {dt.strftime('%I:%M %p').lstrip('0')} CT"
+        except Exception:
+            pass
+
+    return (
+        '<div style="margin-top:16px">'
+        f'<div style="font-size:14px;font-weight:700;color:#1a2332;margin-bottom:4px">'
+        f"\U0001f4ca Odds Sources{ts_display}</div>"
+        '<table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
+        f"<thead><tr>"
+        f'<th style="{oth}">Game</th>'
+        f'<th style="{oth}">Book</th>'
+        f'<th style="{oth}">Spread</th>'
+        f'<th style="{oth}">Total</th>'
+        f'<th style="{oth}">Home ML</th>'
+        f'<th style="{oth}">Away ML</th>'
+        f'<th style="{oth}">1H Spread</th>'
+        f'<th style="{oth}">1H Total</th>'
+        f"</tr></thead>"
+        f"<tbody>{''.join(odds_rows)}</tbody>"
+        "</table></div>"
+    )
+
+
 def build_html_slate(
     predictions_with_games: list[tuple[Any, ...]],
     odds_pulled_at: datetime | None = None,
@@ -1100,6 +1200,7 @@ def build_html_slate(
     all_picks.sort(key=lambda p: -p.edge)
 
     n_games = len(game_ids)
+    odds_section = _build_html_odds_section(odds_by_game, game_labels)
 
     # ── header ─────────────────────────────────────
     header = (
@@ -1115,7 +1216,7 @@ def build_html_slate(
 
     if not all_picks:
         message = empty_message or "No qualified picks today."
-        return header + f'<p style="color:#6b7280">{_esc(message)}</p>'
+        return header + f'<p style="color:#6b7280">{_esc(message)}</p>' + odds_section
 
     # Collect unique values for filter dropdowns
     matchups = sorted({p.matchup for p in all_picks})
@@ -1233,105 +1334,6 @@ def build_html_slate(
     )
 
     # ── Per-game odds source breakdown ────────────────────────
-    odds_section = ""
-    if odds_by_game:
-        odds_rows: list[str] = []
-        oth = (
-            "background:#1a2332;color:#d4af37;font-weight:600;font-size:11px;"
-            "letter-spacing:1px;text-transform:uppercase;padding:6px 8px;"
-            "text-align:left;white-space:nowrap"
-        )
-        for gid, detail in odds_by_game.items():
-            label = game_labels.get(gid, "")
-            books = detail.get("books", {})
-            if not books:
-                continue
-            first = True
-            for bk, lines in sorted(books.items()):
-                pieces: list[str] = []
-                if "spread" in lines:
-                    price = f" ({lines['spread_price']:+d})" if lines.get("spread_price") else ""
-                    pieces.append(f"{lines['spread']:+.1f}{price}")
-                else:
-                    pieces.append("—")
-                if "total" in lines:
-                    price = f" ({lines['total_price']:+d})" if lines.get("total_price") else ""
-                    pieces.append(f"{lines['total']:.1f}{price}")
-                else:
-                    pieces.append("—")
-                if "home_ml" in lines:
-                    pieces.append(f"{lines['home_ml']:+d}")
-                else:
-                    pieces.append("—")
-                if "away_ml" in lines:
-                    pieces.append(f"{lines['away_ml']:+d}")
-                else:
-                    pieces.append("—")
-                # 1H markets
-                if "spread_h1" in lines:
-                    price = (
-                        f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
-                    )
-                    pieces.append(f"{lines['spread_h1']:+.1f}{price}")
-                else:
-                    pieces.append("—")
-                if "total_h1" in lines:
-                    price = (
-                        f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
-                    )
-                    pieces.append(f"{lines['total_h1']:.1f}{price}")
-                else:
-                    pieces.append("—")
-
-                otd = 'style="padding:4px 8px;border-bottom:1px solid #e9ecef;font-size:12px"'
-                matchup_cell = (
-                    f"<td {otd}><b>{_esc(label)}</b></td>" if first else f"<td {otd}></td>"
-                )
-                odds_rows.append(
-                    f"<tr>"
-                    f"{matchup_cell}"
-                    f"<td {otd}><b>{_esc(bk)}</b></td>"
-                    f"<td {otd}>{_esc(pieces[0])}</td>"
-                    f"<td {otd}>{_esc(pieces[1])}</td>"
-                    f"<td {otd}>{_esc(pieces[2])}</td>"
-                    f"<td {otd}>{_esc(pieces[3])}</td>"
-                    f"<td {otd}>{_esc(pieces[4])}</td>"
-                    f"<td {otd}>{_esc(pieces[5])}</td>"
-                    f"</tr>"
-                )
-                first = False
-
-        if odds_rows:
-            # Timestamp from first game's detail
-            any_detail = next(iter(odds_by_game.values()), {})
-            ts_raw = any_detail.get("captured_at", "")
-            ts_display = ""
-            if ts_raw:
-                try:
-                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone(_CST)
-                    ts_display = f" &middot; As of {dt.strftime('%I:%M %p').lstrip('0')} CT"
-                except Exception:
-                    pass
-
-            odds_section = (
-                '<div style="margin-top:16px">'
-                f'<div style="font-size:14px;font-weight:700;color:#1a2332;margin-bottom:4px">'
-                f"\U0001f4ca Odds Sources{ts_display}</div>"
-                '<table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6">'
-                f"<thead><tr>"
-                f'<th style="{oth}">Game</th>'
-                f'<th style="{oth}">Book</th>'
-                f'<th style="{oth}">Spread</th>'
-                f'<th style="{oth}">Total</th>'
-                f'<th style="{oth}">Home ML</th>'
-                f'<th style="{oth}">Away ML</th>'
-                f'<th style="{oth}">1H Spread</th>'
-                f'<th style="{oth}">1H Total</th>'
-                f"</tr></thead>"
-                f"<tbody>{''.join(odds_rows)}</tbody>"
-                "</table></div>"
-            )
-
     footer = (
         f'<div style="text-align:center;padding:8px;color:#9ca3af;font-size:11px">'
         f"GBSV NBA {_esc(MODEL_VERSION)} &middot; Sorted by edge descending</div>"

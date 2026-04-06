@@ -407,7 +407,7 @@ class TestDbMaintenance:
         mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
 
         await db_maintenance()
-        assert mock_db.execute.await_count == 4
+        assert mock_db.execute.await_count == 5
         mock_db.commit.assert_awaited_once()
 
 

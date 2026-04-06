@@ -95,9 +95,12 @@ class Explainer:
             )
             return None
 
-        base_value = float(explainer.expected_value)
-        if isinstance(base_value, np.ndarray):
-            base_value = float(base_value[0])
+        raw_base_value = explainer.expected_value
+        if isinstance(raw_base_value, list):
+            raw_base_value = raw_base_value[0]
+        if isinstance(raw_base_value, np.ndarray):
+            raw_base_value = raw_base_value.flatten()[0]
+        base_value = float(raw_base_value)
 
         feature_shap = {
             name: round(float(val), 4) for name, val in zip(self._feature_cols, values, strict=True)
