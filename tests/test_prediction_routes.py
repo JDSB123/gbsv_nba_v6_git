@@ -602,11 +602,11 @@ async def test_publish_graph_success():
                     return_value=([("pred", "game")], None),
                 ),
                 patch(
-                    "src.notifications.teams.build_teams_card",
-                    return_value={"card": "payload"},
+                    "src.notifications.teams.build_html_slate",
+                    return_value="<html>slate</html>",
                 ),
                 patch(
-                    "src.notifications.teams.send_card_via_graph",
+                    "src.notifications.teams.send_html_via_graph",
                     new_callable=AsyncMock,
                 ) as mock_send,
             ):
