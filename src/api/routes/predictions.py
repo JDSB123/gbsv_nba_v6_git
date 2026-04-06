@@ -222,14 +222,10 @@ async def publish_slate_via_graph(
     if not rows:
         raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
 
-    from src.notifications.teams import build_teams_card, send_card_via_graph
+    from src.notifications.teams import build_html_slate, send_html_via_graph
 
-    card = build_teams_card(
-        rows,
-        settings.teams_max_games_per_message,
-        odds_pulled_at=odds_pulled_at,
-    )
-    await send_card_via_graph(settings.teams_team_id, settings.teams_channel_id, card)
+    html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+    await send_html_via_graph(settings.teams_team_id, settings.teams_channel_id, html)
 
     return {"message": "Published slate to Teams (Graph API) successfully"}
 

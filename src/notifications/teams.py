@@ -22,6 +22,74 @@ logger = logging.getLogger(__name__)
 
 _ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "models" / "artifacts"
 
+# ── Graph token helpers  ───────────────────────────────────────────
+# App registration: nba-gbsv-v6-teams-publisher (public client)
+_TEAMS_PUB_APP_ID = "f94c3f4a-15d1-4fee-a16c-c2133d72466e"
+_TEAMS_PUB_TENANT = "18ee0910-417d-4a81-a3f5-7945bdbd5a78"
+_KV_SECRET_REFRESH_TOKEN = "teams-publisher-refresh-token"
+_GRAPH_SCOPES = [
+    "https://graph.microsoft.com/ChannelMessage.Send",
+    "https://graph.microsoft.com/Files.ReadWrite.All",
+]
+
+
+async def _get_graph_token() -> str:
+    """Acquire a Microsoft Graph access token for Teams publishing.
+
+    Strategy:
+      1. If Key Vault is configured, use the stored refresh token + public
+         app registration to get a fresh delegated token (works in ACA).
+      2. Fall back to ``DefaultAzureCredential`` (works with ``az login``
+         locally but NOT in ACA for delegated permissions).
+
+    Automatically writes the updated refresh token back to Key Vault so
+    the credential stays alive indefinitely.
+    """
+    settings = _get_settings()
+
+    if settings.azure_key_vault_url:
+        try:
+            from azure.identity import DefaultAzureCredential
+            from azure.keyvault.secrets import SecretClient
+            from msal import PublicClientApplication
+
+            credential = DefaultAzureCredential()
+            kv = SecretClient(vault_url=settings.azure_key_vault_url, credential=credential)
+
+            refresh_token = kv.get_secret(_KV_SECRET_REFRESH_TOKEN).value
+
+            if refresh_token:
+                app = PublicClientApplication(
+                    _TEAMS_PUB_APP_ID,
+                    authority=f"https://login.microsoftonline.com/{_TEAMS_PUB_TENANT}",
+                )
+                result = app.acquire_token_by_refresh_token(refresh_token, scopes=_GRAPH_SCOPES)
+                if "access_token" in result:
+                    # Persist rotated refresh token
+                    new_rt = result.get("refresh_token")
+                    if new_rt and new_rt != refresh_token:
+                        try:
+                            kv.set_secret(_KV_SECRET_REFRESH_TOKEN, new_rt)
+                            logger.debug("Rotated Graph refresh token in Key Vault")
+                        except Exception:
+                            logger.warning("Could not persist rotated refresh token", exc_info=True)
+                    return result["access_token"]
+                else:
+                    logger.warning(
+                        "Refresh-token flow failed: %s — %s",
+                        result.get("error"),
+                        result.get("error_description"),
+                    )
+        except Exception:
+            logger.warning("Key Vault / refresh-token path failed", exc_info=True)
+
+    # Fallback: DefaultAzureCredential (e.g. local dev with az login)
+    from azure.identity import DefaultAzureCredential
+
+    credential = DefaultAzureCredential()
+    token = credential.get_token("https://graph.microsoft.com/.default")
+    return token.token
+
 
 # ── Helpers ────────────────────────────────────────────────────────
 
@@ -337,9 +405,7 @@ def extract_picks(
 
     # ── Full-game total ───────────────────────────────────────
     mkt_total = (
-        float(opening_total)
-        if opening_total is not None
-        else _consensus_line(books, "total")
+        float(opening_total) if opening_total is not None else _consensus_line(books, "total")
     )
     if mkt_total is not None:
         total_edge = abs(fg_total - mkt_total)
@@ -569,7 +635,9 @@ def extract_picks(
         h1_ml_odds = odds_map.get("1H_ML_AWAY", "") or _prob_to_american(1 - h1_prob)
 
     h1_market_prob = _american_to_prob(h1_ml_odds)
-    h1_prob_edge = (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+    h1_prob_edge = (
+        (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+    )
 
     if h1_prob_edge > 0.02:
         h1_ml_pts_edge = round(h1_prob_edge * 33.3, 1)
@@ -979,7 +1047,9 @@ def build_slate_csv(
             cons_parts.append(f"S:{cons_spread:+.1f}")
         if cons_total is not None:
             cons_parts.append(f"T:{cons_total:.1f}")
-        odds_source_str = f"consensus({'/'.join(cons_parts)}) [{len(books)} books]" if cons_parts else ""
+        odds_source_str = (
+            f"consensus({'/'.join(cons_parts)}) [{len(books)} books]" if cons_parts else ""
+        )
         odds_pulled_str = sourced.get("captured_at", "")
         writer.writerow(
             [
@@ -1096,16 +1166,12 @@ def _build_html_odds_section(odds_by_game: dict[int, dict], game_labels: dict[in
             else:
                 pieces.append("—")
             if "spread_h1" in lines:
-                price = (
-                    f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
-                )
+                price = f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
                 pieces.append(f"{lines['spread_h1']:+.1f}{price}")
             else:
                 pieces.append("—")
             if "total_h1" in lines:
-                price = (
-                    f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
-                )
+                price = f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
                 pieces.append(f"{lines['total_h1']:.1f}{price}")
             else:
                 pieces.append("—")
@@ -1568,15 +1634,12 @@ async def send_card_via_graph(
 ) -> dict[str, Any]:
     """Post an Adaptive Card to a Teams channel via Microsoft Graph API.
 
-    Uses ``DefaultAzureCredential`` to obtain a token (works with
-    Azure CLI, managed identity, environment creds, etc.).
+    Uses the app-registration refresh-token path (works in ACA) with
+    ``DefaultAzureCredential`` fallback for local dev.
 
     ``payload`` should be the dict returned by ``build_teams_card()``.
     """
-    from azure.identity import DefaultAzureCredential
-
-    credential = DefaultAzureCredential()
-    token = credential.get_token("https://graph.microsoft.com/.default")
+    access_token = await _get_graph_token()
 
     # Extract the Adaptive Card from the webhook-format payload
     attachment = payload["attachments"][0]
@@ -1603,7 +1666,7 @@ async def send_card_via_graph(
             url,
             json=graph_body,
             headers={
-                "Authorization": f"Bearer {token.token}",
+                "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
             },
         )
@@ -1616,10 +1679,7 @@ async def send_html_via_graph(team_id: str, channel_id: str, html_content: str) 
 
     Renders as native HTML in Teams — no Adaptive Card, no login prompt.
     """
-    from azure.identity import DefaultAzureCredential
-
-    credential = DefaultAzureCredential()
-    token = credential.get_token("https://graph.microsoft.com/.default")
+    access_token = await _get_graph_token()
 
     graph_body = {
         "body": {
@@ -1635,7 +1695,7 @@ async def send_html_via_graph(team_id: str, channel_id: str, html_content: str) 
             url,
             json=graph_body,
             headers={
-                "Authorization": f"Bearer {token.token}",
+                "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
             },
         )
@@ -1656,12 +1716,9 @@ async def upload_csv_to_channel(
     2. PUT the CSV content to that folder
     3. Return the webUrl for the uploaded file
     """
-    from azure.identity import DefaultAzureCredential
-
-    credential = DefaultAzureCredential()
-    token = credential.get_token("https://graph.microsoft.com/.default")
+    access_token = await _get_graph_token()
     headers = {
-        "Authorization": f"Bearer {token.token}",
+        "Authorization": f"Bearer {access_token}",
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:

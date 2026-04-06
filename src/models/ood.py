@@ -98,6 +98,16 @@ class OODDetector:
         if not self._ready:
             return 0.0, False
 
+        # Guard against dimension mismatch between saved detector and current features
+        if self._mean is not None and X.shape[-1] != self._mean.shape[0]:
+            logger.warning(
+                "OOD detector dimension mismatch: input has %d features, "
+                "detector expects %d. Skipping OOD check — retrain recommended.",
+                X.shape[-1],
+                self._mean.shape[0],
+            )
+            return 0.0, False
+
         dist = float(self._compute_distances(X)[0])
         is_ood = dist > self._threshold
         return dist, is_ood
@@ -128,7 +138,7 @@ class OODDetector:
             self._ready = True
             logger.info("OOD detector loaded (threshold=%.2f)", self._threshold)
             return True
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except json.JSONDecodeError, KeyError, ValueError:
             logger.warning("Failed to load OOD detector", exc_info=True)
             return False
 
