@@ -445,8 +445,22 @@ jobs:
             --vault-name "$KV_NAME" \
             --name postgres-password \
             --query value -o tsv)
+          ODDS_API_KEY=$(az keyvault secret show \
+            --only-show-errors \
+            --vault-name "$KV_NAME" \
+            --name odds-api-key \
+            --query value -o tsv)
+          BASKETBALL_API_KEY=$(az keyvault secret show \
+            --only-show-errors \
+            --vault-name "$KV_NAME" \
+            --name basketball-api-key \
+            --query value -o tsv)
 
           export DATABASE_URL="postgresql+asyncpg://pgadmin:${PG_PASSWORD}@${PG_HOST}:5432/nba_gbsv?ssl=require"
+          export ODDS_API_KEY
+          export BASKETBALL_API_KEY
+          export APP_ENV=production
+          export LOG_LEVEL=INFO
 
           python -m pip install .
 
