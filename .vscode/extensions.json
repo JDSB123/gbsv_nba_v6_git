@@ -3,6 +3,9 @@
     "ms-vscode-remote.remote-containers",
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "charliermarsh.ruff"
+    "charliermarsh.ruff",
+    "ms-vscode.powershell",
+    "ms-azuretools.vscode-bicep",
+    "ms-azuretools.vscode-docker"
   ]
 }

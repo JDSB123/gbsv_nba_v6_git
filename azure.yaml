@@ -10,14 +10,33 @@ infra:
 services:
   api:
     project: .
+    resourceName: ca-nba-gbsv-v6-api
     host: containerapp
     language: python
     docker:
+      registry: acrnbagbsvv6.azurecr.io
+      image: nba-gbsv-v6
+      tag: latest
       path: ./Dockerfile
 
   worker:
     project: .
+    resourceName: ca-nba-gbsv-v6-worker
     host: containerapp
     language: python
     docker:
+      registry: acrnbagbsvv6.azurecr.io
+      image: nba-gbsv-v6
+      tag: latest
       path: ./Dockerfile
+
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: ./scripts/setup-env.ps1 -Force -FromAzd -EnvironmentName $env:AZURE_ENV_NAME
+      interactive: false
+    posix:
+      shell: sh
+      run: python scripts/sync_env.py --quiet --from-azd --environment-name "$AZURE_ENV_NAME"
+      interactive: false

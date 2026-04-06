@@ -10,7 +10,8 @@
     8000,
     5432
   ],
-  "postCreateCommand": "sh -lc 'test -f .env || cp .env.example .env; python -m src migrate 2>/dev/null || echo \"Skipped migration; generate one first with: alembic revision --autogenerate -m initial\"'",
+  "postCreateCommand": "sh -lc 'python scripts/sync_env.py --quiet && python -m src migrate || { status=$?; echo \"Dev container bootstrap: migration failed with exit ${status}. Run python -m src migrate after checking DATABASE_URL and Alembic state.\"; exit 0; }'",
+  "postStartCommand": "sh -lc 'python scripts/sync_env.py --quiet'",
   "customizations": {
     "vscode": {
       "extensions": [

@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
     retry,
@@ -13,7 +14,7 @@ from tenacity import (
 )
 
 from src.config import get_settings
-from src.db.models import Game, OddsSnapshot
+from src.db.models import Game, GameOddsArchive, OddsSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,11 @@ _RETRY = retry(
     retry=retry_if_exception_type(
         (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
     ),
-    before_sleep=lambda rs: logger.warning("Retry #%d for %s", rs.attempt_number, rs.fn.__name__),
+    before_sleep=lambda rs: logger.warning(
+        "Retry #%d for %s",
+        rs.attempt_number,
+        getattr(rs.fn, "__name__", "<unknown>"),
+    ),
     reraise=True,
 )
 
@@ -184,11 +189,18 @@ class OddsClient:
             return resp.json()
 
     async def persist_odds(self, odds_data: list[dict], db: AsyncSession) -> int:
-        """Parse odds response and insert OddsSnapshot rows. Returns count of inserted rows."""
+        """Parse odds response and persist odds records.
+
+        Inserts `OddsSnapshot` rows for each parsed outcome and also writes
+        first-seen-per-day records to `GameOddsArchive`. Returns the count of
+        inserted `OddsSnapshot` rows.
+        """
         now = datetime.now(UTC).replace(tzinfo=None)
+        capture_date = now.date()
         count = 0
         skipped_no_game = 0
         skipped_no_id = 0
+        archive_rows: list[dict] = []
         for event in odds_data:
             odds_api_id = event.get("id")
             if not odds_api_id:
@@ -240,7 +252,34 @@ class OddsClient:
                         )
                         db.add(snapshot)
                         count += 1
+                        # Collect for permanent archive (first-seen per day)
+                        archive_rows.append({
+                            "game_id": game_id,
+                            "source": "odds_api",
+                            "bookmaker": bk_name,
+                            "market": market_key,
+                            "outcome_name": name[:128],
+                            "description": outcome.get("description"),
+                            "price": price,
+                            "point": point,
+                            "capture_date": capture_date,
+                            "captured_at": now,
+                        })
+        # Batch-insert into permanent archive using ON CONFLICT DO NOTHING so we
+        # keep the FIRST snapshot of each day for every game/bookmaker/market/outcome.
+        if archive_rows:
+            await db.execute(
+                pg_insert(GameOddsArchive)
+                .values(archive_rows)
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        "game_id", "bookmaker", "market", "outcome_name", "capture_date",
+                    ]
+                )
+            )
+
         await db.commit()
+
         if skipped_no_id:
             logger.warning(
                 "persist_odds: %d events had no 'id' field and were skipped",
@@ -260,3 +299,4 @@ class OddsClient:
         else:
             logger.info("Persisted %d odds snapshots (all events matched)", count)
         return count
+

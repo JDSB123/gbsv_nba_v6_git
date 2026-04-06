@@ -259,8 +259,8 @@ class TestExtractPicks:
         assert len(total_picks) == 0
 
     def test_spread_pick_with_market_line(self):
-        # Model says home by 8 (fg_spread=8), market line=-3 → edge=5
-        pred = _make_pred(fg_spread=8, opening_spread=-3.0)
+        # Model says home by 9 (fg_spread=9), market line=-3 → edge=6
+        pred = _make_pred(fg_spread=9, opening_spread=-3.0)
         picks = extract_picks(pred, _make_game())
         spread_picks = [p for p in picks if p.market_type == "SPREAD" and p.segment == "FG"]
         assert len(spread_picks) == 1
@@ -298,9 +298,9 @@ class TestExtractPicks:
         assert len(total_picks) == 1
 
     def test_1h_spread_with_odds_sourced(self):
-        # 1H model spread = 6, opening_h1_spread = -1 → edge = 5
+        # 1H model spread = 7, opening_h1_spread = -1 → edge = 6
         odds_sourced = {"opening_h1_spread": -1.0, "opening_h1_total": None, "books": {}}
-        pred = _make_pred(h1_spread=6, odds_sourced=odds_sourced)
+        pred = _make_pred(h1_spread=7, odds_sourced=odds_sourced)
         picks = extract_picks(pred, _make_game())
         h1_spread = [p for p in picks if p.segment == "1H" and p.market_type == "SPREAD"]
         assert len(h1_spread) == 1

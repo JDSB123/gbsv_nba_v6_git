@@ -125,7 +125,7 @@ async def db_maintenance() -> None:
     try:
         from sqlalchemy import text
 
-        tables = ["games", "odds_snapshots", "predictions", "player_game_stats"]
+        tables = ["games", "odds_snapshots", "game_odds_archive", "predictions", "player_game_stats"]
         async with async_session_factory() as db:
             for table in tables:
                 await db.execute(text(f"ANALYZE {table}"))

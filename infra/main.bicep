@@ -1,5 +1,7 @@
 targetScope = 'resourceGroup'
 
+var stack = loadJsonContent('stack-config.json')
+
 @description('Location for all resources')
 param location string = resourceGroup().location
 
@@ -30,18 +32,30 @@ param teamsWebhookUrl string = ''
 @description('API key for X-API-Key authentication')
 param apiKey string = ''
 
-@description('Existing Container Apps Environment resource ID to host the API and worker apps.')
-param containerAppsEnvironmentResourceId string
+@description('Optional existing Container Apps Environment resource ID. Leave empty to create one from this template.')
+param containerAppsEnvironmentResourceId string = ''
 
-var prefix = 'nba-gbsv-v6'
-var uniqueSuffix = toLower(uniqueString(subscription().id, resourceGroup().id, prefix))
-var shortSuffix = take(uniqueSuffix, 6)
-var postgresSuffix = take(uniqueString(postgresLocation, resourceGroup().id, prefix), 6)
+var applicationName = string(stack.applicationName)
+var imageRepository = string(stack.imageRepository)
+var registryName = string(stack.registryName)
+var keyVaultName = string(stack.keyVaultName)
+var postgresServerName = string(stack.postgresServerName)
+var logAnalyticsName = string(stack.logAnalyticsName)
+var appInsightsName = string(stack.applicationInsightsName)
+var managedEnvironmentName = string(stack.containerAppsEnvironmentName)
+var configuredStorageAccountName = string(stack.storageAccountName)
+var storageAccountPrefix = string(stack.storageAccountPrefix)
+var apiAppName = string(stack.containerApps.api)
+var workerAppName = string(stack.containerApps.worker)
+var uniqueSuffix = toLower(uniqueString(subscription().id, resourceGroup().id, applicationName))
+var storageAccountName = !empty(configuredStorageAccountName) ? configuredStorageAccountName : take('${storageAccountPrefix}${uniqueSuffix}', 24)
+var storageAccountUrl = 'https://${storageAccountName}.blob.${az.environment().suffixes.storage}'
+var useExistingManagedEnvironment = !empty(containerAppsEnvironmentResourceId)
 
 // ── Log Analytics ────────────────────────────────────────────────
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: 'log-${prefix}-${shortSuffix}'
+  name: logAnalyticsName
   location: location
   properties: {
     sku: { name: 'PerGB2018' }
@@ -52,7 +66,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // ── Application Insights ─────────────────────────────────────────
 
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'ai-${prefix}-${shortSuffix}'
+  name: appInsightsName
   location: location
   kind: 'web'
   properties: {
@@ -64,7 +78,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 // ── Key Vault ────────────────────────────────────────────────────
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: 'kv-${prefix}-${shortSuffix}'
+  name: keyVaultName
   location: location
   properties: {
     tenantId: subscription().tenantId
@@ -102,7 +116,7 @@ resource secretApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 // ── Storage Account (model artifacts) ────────────────────────────
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: 'st${uniqueSuffix}'
+  name: storageAccountName
   location: location
   kind: 'StorageV2'
   sku: { name: 'Standard_LRS' }
@@ -127,7 +141,7 @@ resource modelContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
 // ── Container Registry ───────────────────────────────────────────
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
-  name: 'acr${uniqueSuffix}'
+  name: registryName
   location: location
   sku: { name: 'Basic' }
   properties: { adminUserEnabled: true }
@@ -136,7 +150,7 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
 // ── PostgreSQL Flexible Server ───────────────────────────────────
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
-  name: 'psql-${prefix}-${postgresSuffix}'
+  name: postgresServerName
   location: postgresLocation
   sku: {
     name: 'Standard_B1ms'
@@ -151,7 +165,7 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       backupRetentionDays: 14
       geoRedundantBackup: 'Enabled'
     }
-    highAvailability: { mode: 'ZoneRedundant' }
+      highAvailability: { mode: 'Disabled' }
   }
 }
 
@@ -174,12 +188,29 @@ resource postgresFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRul
 
 var dbConnectionString = 'postgresql+asyncpg://pgadmin:${postgresPassword}@${postgres.properties.fullyQualifiedDomainName}:5432/nba_gbsv?ssl=require'
 
+resource managedEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = if (!useExistingManagedEnvironment) {
+  name: managedEnvironmentName
+  location: location
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
+var managedEnvironmentId = useExistingManagedEnvironment ? containerAppsEnvironmentResourceId : managedEnvironment.id
+var managedEnvironmentNameOutput = useExistingManagedEnvironment ? last(split(containerAppsEnvironmentResourceId, '/')) : managedEnvironmentName
+
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-${prefix}-api'
+  name: apiAppName
   location: location
   identity: { type: 'SystemAssigned' }
   properties: {
-    managedEnvironmentId: containerAppsEnvironmentResourceId
+    managedEnvironmentId: managedEnvironmentId
     configuration: {
       ingress: {
         external: true
@@ -193,33 +224,37 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           passwordSecretRef: 'acr-password'
         }
       ]
-      secrets: [
+      secrets: concat([
         { name: 'acr-password', value: acr.listCredentials().passwords[0].value }
         { name: 'database-url', value: dbConnectionString }
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
+      ], !empty(teamsWebhookUrl) ? [
         { name: 'teams-webhook-url', value: teamsWebhookUrl }
+      ] : [], !empty(apiKey) ? [
         { name: 'api-key', value: apiKey }
-      ]
+      ] : [])
     }
     template: {
       containers: [
         {
           name: 'api'
-          image: '${acr.properties.loginServer}/nba-gbsv-v6:latest'
+          image: '${acr.properties.loginServer}/${imageRepository}:latest'
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: [
+          env: concat([
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }
             { name: 'BASKETBALL_API_KEY', secretRef: 'basketball-api-key' }
-            { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
-            { name: 'API_KEY', secretRef: 'api-key' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
-            { name: 'AZURE_STORAGE_ACCOUNT_URL', value: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}' }
-          ]
+            { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageAccountUrl }
+          ], !empty(teamsWebhookUrl) ? [
+            { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
+          ] : [], !empty(apiKey) ? [
+            { name: 'API_KEY', secretRef: 'api-key' }
+          ] : [])
           probes: [
             {
               type: 'Liveness'
@@ -253,11 +288,11 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
 // ── Container App: Worker ────────────────────────────────────────
 
 resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-${prefix}-worker'
+  name: workerAppName
   location: location
   identity: { type: 'SystemAssigned' }
   properties: {
-    managedEnvironmentId: containerAppsEnvironmentResourceId
+    managedEnvironmentId: managedEnvironmentId
     configuration: {
       registries: [
         {
@@ -266,35 +301,39 @@ resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
           passwordSecretRef: 'acr-password'
         }
       ]
-      secrets: [
+      secrets: concat([
         { name: 'acr-password', value: acr.listCredentials().passwords[0].value }
         { name: 'database-url', value: dbConnectionString }
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
+      ], !empty(teamsWebhookUrl) ? [
         { name: 'teams-webhook-url', value: teamsWebhookUrl }
+      ] : [], !empty(apiKey) ? [
         { name: 'api-key', value: apiKey }
-      ]
+      ] : [])
     }
     template: {
       containers: [
         {
           name: 'worker'
-          image: '${acr.properties.loginServer}/nba-gbsv-v6:latest'
+          image: '${acr.properties.loginServer}/${imageRepository}:latest'
           resources: { cpu: json('0.5'), memory: '1Gi' }
           command: ['python', '-m', 'src', 'work']
-          env: [
+          env: concat([
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'ODDS_API_KEY', secretRef: 'odds-api-key' }
             { name: 'BASKETBALL_API_KEY', secretRef: 'basketball-api-key' }
-            { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
-            { name: 'API_KEY', secretRef: 'api-key' }
             { name: 'API_BASE_URL', value: 'https://${apiApp.properties.configuration.ingress.fqdn}' }
             { name: 'APP_ENV', value: environment }
             { name: 'LOG_LEVEL', value: 'INFO' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
-            { name: 'AZURE_STORAGE_ACCOUNT_URL', value: 'https://${storageAccount.name}.blob.${environment().suffixes.storage}' }
-          ]
+            { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageAccountUrl }
+          ], !empty(teamsWebhookUrl) ? [
+            { name: 'TEAMS_WEBHOOK_URL', secretRef: 'teams-webhook-url' }
+          ] : [], !empty(apiKey) ? [
+            { name: 'API_KEY', secretRef: 'api-key' }
+          ] : [])
         }
       ]
       scale: { minReplicas: 1, maxReplicas: 1 }
@@ -352,3 +391,18 @@ output apiUrl string = 'https://${apiApp.properties.configuration.ingress.fqdn}'
 output acrLoginServer string = acr.properties.loginServer
 output postgresHost string = postgres.properties.fullyQualifiedDomainName
 output keyVaultUri string = keyVault.properties.vaultUri
+output API_BASE_URL string = 'https://${apiApp.properties.configuration.ingress.fqdn}'
+output AZURE_ACR_LOGIN_SERVER string = acr.properties.loginServer
+output ACR_NAME string = acr.name
+output IMAGE_NAME string = imageRepository
+output RESOURCE_GROUP string = resourceGroup().name
+output API_APP string = apiApp.name
+output WORKER_APP string = workerApp.name
+output PG_SERVER_NAME string = postgres.name
+output KV_NAME string = keyVault.name
+output ACA_ENVIRONMENT_NAME string = managedEnvironmentNameOutput
+output ACA_ENVIRONMENT_ID string = managedEnvironmentId
+output POSTGRES_HOST string = postgres.properties.fullyQualifiedDomainName
+output AZURE_KEY_VAULT_URL string = keyVault.properties.vaultUri
+output AZURE_STORAGE_ACCOUNT_URL string = storageAccountUrl
+output APPLICATIONINSIGHTS_CONNECTION_STRING string = appInsights.properties.ConnectionString

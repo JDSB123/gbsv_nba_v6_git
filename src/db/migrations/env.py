@@ -1,11 +1,12 @@
 import asyncio
+import re
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.config import resolve_database_url
+from src.config import get_settings, resolve_database_url
 from src.db.models import Base
 
 config = context.config
@@ -15,7 +16,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-config.set_main_option("sqlalchemy.url", resolve_database_url())
+_raw_url = resolve_database_url()
+_clean_url = re.sub(r"[?&]ssl(?:mode)?=[^&]*", "", _raw_url).rstrip("?&")
+config.set_main_option("sqlalchemy.url", _clean_url)
 
 
 def run_migrations_offline() -> None:
@@ -41,6 +44,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"ssl": get_settings().db_ssl},
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

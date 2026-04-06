@@ -1,104 +1,206 @@
 <#
 .SYNOPSIS
-    Prepare `.env` for container-first development.
+  Sync `.env` for local development and optional Azure sync.
 
 .DESCRIPTION
-    After cloning the repo, run this script once to:
-      1. Generate `.env` from repo defaults
-      2. Optionally hydrate secrets from Azure Container Apps if az CLI is logged in
+    After cloning the repo, run this script to:
+  1. Sync `.env` from `.env.example`
+  2. Preserve existing local values unless `-Force` is used
+  3. Optionally merge values from an `azd` environment
 
-    The Python toolchain is owned by the dev container. This script does
+  Use `scripts/bootstrap-host.ps1` when you want the full Windows host
+  bootstrap: `.venv`, Python dependencies, `.env`, and recommended
+  VS Code extensions.
+
+  This is the Windows wrapper for the same env contract used by
+  `python scripts/sync_env.py`.
+
+    The default workflow still uses the dev container. This script does
     not create a virtual environment or install Python packages.
 
 .EXAMPLE
     .\scripts\setup-env.ps1
-    .\scripts\setup-env.ps1 -Force   # overwrite existing .env
+    .\scripts\setup-env.ps1 -Force
+    .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName dev
+    .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName validation -OutputPath .env.azure
+  .\scripts\bootstrap-host.ps1
 #>
 param(
-  [switch]$Force
+  [switch]$Force,
+  [switch]$FromAzd,
+  [string]$EnvironmentName,
+  [string]$OutputPath = ".env"
 )
 
 $ErrorActionPreference = "Stop"
 
 $ROOT = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$ENV_FILE = Join-Path $ROOT ".env"
+$ENV_FILE = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
+  $OutputPath
+} else {
+  Join-Path $ROOT $OutputPath
+}
+$ENV_TEMPLATE_FILE = Join-Path $ROOT ".env.example"
 
-$RG = "nba_gbsv_v6_az"
-$APP = "ca-nba-gbsv-v6-worker"
+function Get-DotEnvValues {
+  param(
+    [string]$Path
+  )
 
+  $values = @{}
+  if (-not (Test-Path $Path)) {
+    return $values
+  }
+
+  foreach ($line in Get-Content -Path $Path) {
+    if ($line -match '^\s*([A-Z][A-Z0-9_]*)=(.*)$') {
+      $values[$Matches[1]] = $Matches[2]
+    }
+  }
+
+  return $values
+}
+
+function New-SyncedEnvContent {
+  param(
+    [string[]]$TemplateLines,
+    [hashtable]$ExistingValues,
+    [hashtable]$OverrideValues
+  )
+
+  $templateKeys = New-Object System.Collections.Generic.List[string]
+  $rendered = New-Object System.Collections.Generic.List[string]
+
+  foreach ($line in $TemplateLines) {
+    if ($line -match '^\s*([A-Z][A-Z0-9_]*)=(.*)$') {
+      $key = $Matches[1]
+      $templateValue = $Matches[2]
+      $value = $templateValue
+
+      if ($ExistingValues.ContainsKey($key) -and -not [string]::IsNullOrWhiteSpace($ExistingValues[$key])) {
+        $value = [string]$ExistingValues[$key]
+      }
+
+      if ($OverrideValues.ContainsKey($key) -and -not [string]::IsNullOrWhiteSpace($OverrideValues[$key])) {
+        $value = [string]$OverrideValues[$key]
+      }
+
+      $templateKeys.Add($key) | Out-Null
+      $rendered.Add("$key=$value") | Out-Null
+      continue
+    }
+
+    $rendered.Add($line) | Out-Null
+  }
+
+  $extraKeys = @($ExistingValues.Keys | Where-Object { $templateKeys -notcontains $_ })
+  if ($extraKeys.Count -gt 0) {
+    $rendered.Add("") | Out-Null
+    $rendered.Add("# Preserved local-only keys") | Out-Null
+    foreach ($key in $extraKeys) {
+      $rendered.Add("$key=$($ExistingValues[$key])") | Out-Null
+    }
+  }
+
+  return $rendered
+}
+
+function Get-AzdEnvironmentValues {
+  param(
+    [string]$RootPath,
+    [string]$Name
+  )
+
+  if (-not (Get-Command azd -ErrorAction SilentlyContinue)) {
+    throw "azd CLI was not found on PATH."
+  }
+
+  $arguments = @("env", "get-values", "--output", "json")
+  if ($Name) {
+    $arguments += @("--environment", $Name)
+  }
+
+  Push-Location $RootPath
+  try {
+    $output = & azd @arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      throw ($output | Out-String).Trim()
+    }
+  } finally {
+    Pop-Location
+  }
+
+  $json = ($output | Out-String).Trim()
+  if (-not $json) {
+    return @{}
+  }
+
+  $parsed = $json | ConvertFrom-Json
+  $values = @{}
+  foreach ($property in $parsed.PSObject.Properties) {
+    $values[$property.Name] = [string]$property.Value
+  }
+
+  return $values
+}
+
+if (-not (Test-Path $ENV_TEMPLATE_FILE)) {
+  throw "Missing template file: $ENV_TEMPLATE_FILE"
+}
+
+$templateLines = Get-Content -Path $ENV_TEMPLATE_FILE
+$existingValues = @{}
 if ((Test-Path $ENV_FILE) -and -not $Force) {
-  Write-Host ".env already exists at $ENV_FILE" -ForegroundColor Yellow
-  Write-Host "Use -Force to overwrite." -ForegroundColor Yellow
+  $existingValues = Get-DotEnvValues -Path $ENV_FILE
+}
+
+$sourceDescription = ".env.example"
+$azdValues = @{}
+$syncedKeys = @()
+
+if ($FromAzd) {
+  Write-Host "Loading values from azd environment..." -ForegroundColor Cyan
+  $azdValues = Get-AzdEnvironmentValues -RootPath $ROOT -Name $EnvironmentName
+  $syncedKeys = @($azdValues.Keys | Sort-Object)
+
+  if ($EnvironmentName) {
+    $sourceDescription = ".env.example + azd environment '$EnvironmentName'"
+  } else {
+    $sourceDescription = ".env.example + current azd environment"
+  }
+}
+
+$rerunCommand = ".\\scripts\\setup-env.ps1 -Force"
+if ($FromAzd) {
+  $rerunCommand += " -FromAzd"
+}
+if ($EnvironmentName) {
+  $rerunCommand += " -EnvironmentName $EnvironmentName"
+}
+
+$syncedTemplateLines = New-SyncedEnvContent -TemplateLines $templateLines -ExistingValues $existingValues -OverrideValues $azdValues
+$newContent = ($syncedTemplateLines -join "`n") + "`n"
+$existingContent = if (Test-Path $ENV_FILE) { Get-Content -Path $ENV_FILE -Raw } else { $null }
+
+if ($existingContent -eq $newContent) {
+  Write-Host ".env is already up to date at $ENV_FILE" -ForegroundColor Green
   exit 0
 }
 
-$databaseUrl = "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
-$oddsKey = "dev-odds-placeholder"
-$bballKey = "dev-basketball-placeholder"
-$teamsWebhook = ""
-$azureStorageAccountUrl = ""
-$logLevel = "INFO"
-
-Write-Host "Preparing .env (optionally from ACA: $APP in $RG)..." -ForegroundColor Cyan
-
-# Check if logged in before trying to pull secrets
-try {
-  $azActive = az account show --query "environment" -o tsv 2>$null
-  if (-not $azActive) {
-      throw "Not logged into az CLI"
-  }
-  
-  # Fetch secrets
-  $oddsKey = az containerapp secret show -n $APP -g $RG --secret-name odds-api-key --query "value" -o tsv
-  $bballKey = az containerapp secret show -n $APP -g $RG --secret-name basketball-api-key --query "value" -o tsv
-  $teamsWebhook = az containerapp secret show -n $APP -g $RG --secret-name teams-webhook-url --query "value" -o tsv 2>$null
-  $azureStorageAccountUrl = az containerapp show -n $APP -g $RG --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_ACCOUNT_URL'] | [0].value" -o tsv 2>$null
-  if (-not $azureStorageAccountUrl) {
-    # Filter by naming convention — our Bicep creates storage with prefix matching the RG
-    $storageName = az storage account list -g $RG --query "[?starts_with(name, 'st')].name | [0]" -o tsv 2>$null
-    if ($storageName) {
-      $storageEndpoint = az cloud show --query "suffixes.storageEndpoint" -o tsv 2>$null
-      if (-not $storageEndpoint) {
-        $storageEndpoint = "core.windows.net"
-      }
-      $azureStorageAccountUrl = "https://$storageName.blob.$storageEndpoint"
-      Write-Host "  Auto-discovered storage account: $storageName" -ForegroundColor Yellow
-  
-  if (-not $oddsKey -or -not $bballKey) {
-    throw "Failed to retrieve one or more secrets from ACA."
-  }
-} catch {
-    Write-Host "Warning: Could not fetch secrets from ACA ($($_.Exception.Message))." -ForegroundColor Yellow
-    Write-Host "Writing local defaults from the repo template instead." -ForegroundColor Yellow
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($ENV_FILE, $newContent, $utf8NoBom)
+if ($existingContent) {
+  Write-Host "Updated $ENV_FILE" -ForegroundColor Green
+} else {
+  Write-Host "Created $ENV_FILE" -ForegroundColor Green
 }
-
-# Build .env content
-$content = @"
-# ── Auto-generated by scripts/setup-env.ps1 ──────────
-# Source of truth: pyproject.toml + dev container
-# Optional secret source: ACA secrets from $APP in $RG
-# Re-run: .\scripts\setup-env.ps1 -Force
-
-# ── Required secrets ──────────────────────────────────
-ODDS_API_KEY=$oddsKey
-BASKETBALL_API_KEY=$bballKey
-
-# ── Database ──────────────────────────────────────────
-DATABASE_URL=$databaseUrl
-
-# ── App ───────────────────────────────────────────────
-APP_ENV=development
-LOG_LEVEL=$logLevel
-
-# ── Azure (production only) ───────────────────────────
-AZURE_KEY_VAULT_URL=
-AZURE_STORAGE_CONNECTION_STRING=
-AZURE_STORAGE_ACCOUNT_URL=$azureStorageAccountUrl
-
-# ── Teams delivery ────────────────────────────────────
-TEAMS_WEBHOOK_URL=$teamsWebhook
-"@
-
-Set-Content -Path $ENV_FILE -Value $content -Encoding UTF8
-Write-Host "Created $ENV_FILE" -ForegroundColor Green
-Write-Host "Done. Open the repo in the dev container and run: python -m src migrate" -ForegroundColor Green
+if ($syncedKeys.Count -gt 0) {
+  Write-Host "Synced from azd: $($syncedKeys -join ', ')" -ForegroundColor Green
+} elseif ($FromAzd) {
+  Write-Host "No matching override values were found in the azd environment; kept repo defaults." -ForegroundColor Yellow
+}
+if ($OutputPath -eq ".env") {
+  Write-Host "Done. Open the repo in the dev container and run: python -m src migrate" -ForegroundColor Green
+} else {
+  Write-Host "Done. Use G_BSV_ENV_FILE=$OutputPath when you want the Azure-attached host profile." -ForegroundColor Green
+}

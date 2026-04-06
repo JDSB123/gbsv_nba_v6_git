@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_settings
-from src.db.models import Game, ModelRegistry
+from src.db.models import Game, GameOddsArchive, ModelRegistry
 from src.models.features import (
     build_feature_vector,
     get_feature_columns,
@@ -262,9 +263,30 @@ class ModelTrainer:
         games = result.scalars().all()
         logger.info("Building dataset from %d completed games", len(games))
 
+        game_ids = [int(cast(Any, game.id)) for game in games]
+        archive_by_game_id: dict[int, list[GameOddsArchive]] = defaultdict(list)
+        if game_ids:
+            archive_result = await db.execute(
+                select(GameOddsArchive)
+                .where(GameOddsArchive.game_id.in_(game_ids))
+                .order_by(GameOddsArchive.game_id, GameOddsArchive.captured_at)
+            )
+            for archive in archive_result.scalars().all():
+                archive_game_id = getattr(archive, "game_id", None)
+                if archive_game_id is None:
+                    continue
+                archive_by_game_id[int(cast(Any, archive_game_id))].append(archive)
+
         rows: list[dict[str, Any]] = []
         for game in games:
-            features = await build_feature_vector(game, db)
+            # Pull archived odds for this training game from the preloaded batch —
+            # these are never pruned, so every historical game gets real market
+            # feature values instead of NaN without an extra query per row.
+            archive_snaps = archive_by_game_id.get(int(cast(Any, game.id)))
+            features = await build_feature_vector(
+                game, db,
+                odds_snapshots=list(archive_snaps) if archive_snaps else None,
+            )
             if features is None:
                 continue
             row: dict[str, Any] = dict(features)
@@ -308,11 +330,12 @@ class ModelTrainer:
 
         dead_features = _all_nan_feature_columns(df, self.feature_cols)
         if dead_features:
-            sample = ", ".join(dead_features[:10])
-            raise ValueError(
-                "Training aborted: feature columns have no finite values in the dataset: "
-                f"{sample}"
+            logger.warning(
+                "Dropping %d all-NaN feature column(s) from training (no data available): %s",
+                len(dead_features),
+                ", ".join(dead_features[:10]),
             )
+            self.feature_cols = [c for c in self.feature_cols if c not in dead_features]
 
         # ── Outlier detection on target variables ─────────────────
         for target in TARGETS:

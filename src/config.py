@@ -2,9 +2,29 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def resolve_settings_env_file() -> str:
+    env_file = os.getenv("G_BSV_ENV_FILE", ".env").strip()
+    return env_file or ".env"
+
+
+def load_selected_env_values() -> dict[str, str]:
+    env_file = resolve_settings_env_file()
+    env_path = Path(env_file)
+    if not env_path.is_absolute():
+        env_path = Path(__file__).resolve().parent.parent / env_path
+    if not env_path.exists():
+        return {}
+
+    values = dotenv_values(env_path)
+    return {key: str(value) for key, value in values.items() if value is not None}
 
 
 class Settings(BaseSettings):
@@ -13,7 +33,9 @@ class Settings(BaseSettings):
     basketball_api_key: str = ""
 
     # ── Database ──────────────────────────────────────────────────
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
+    database_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
+    )
 
     # ── App ───────────────────────────────────────────────────────
     app_env: str = "development"
@@ -56,23 +78,24 @@ class Settings(BaseSettings):
     # ── Database pool ──────────────────────────────────────────────
     db_pool_size: int = 5
     db_max_overflow: int = 5
+    db_ssl: bool = True  # set DB_SSL=false for local Postgres without SSL
 
     # ── Prediction reliability ────────────────────────────────────
     odds_freshness_max_age_minutes: int = 30
 
     # ── NBA constants ─────────────────────────────────────────────
     nba_avg_total: float = 230.0  # league-average total for edge calcs
-    min_edge: float = 2.0  # minimum edge (pts) for a pick to qualify
-    edge_thresholds: list[float] = [2.0, 3.5, 5.0, 7.0, 9.0]
+    min_edge: float = 6.0  # minimum edge (pts) for a pick to qualify
+    edge_thresholds: list[float] = [6.0, 7.0, 8.5, 10.0, 12.0]
     american_vig: int = 110  # standard -110 vig
     server_port: int = 8000
 
     # ── Model governance / promotion gates ─────────────────────
     model_gate_min_rows: int = 200
-    model_gate_max_mae_fg: float = 13.0
-    model_gate_max_mae_1h: float = 8.0
-    model_gate_max_rmse_fg: float = 16.0
-    model_gate_max_rmse_1h: float = 10.0
+    model_gate_max_mae_fg: float = 10.5
+    model_gate_max_mae_1h: float = 7.5
+    model_gate_max_rmse_fg: float = 14.0
+    model_gate_max_rmse_1h: float = 9.5
 
     # ── CORS ──────────────────────────────────────────────────────
     cors_origins: list[str] = []
@@ -103,13 +126,19 @@ class Settings(BaseSettings):
             missing.append("DATABASE_URL")
         if missing:
             raise ValueError(
-                f"Missing required env vars for env={self.app_env}: " + ", ".join(missing)
+                f"Missing required env vars for env={self.app_env}: "
+                + ", ".join(missing)
             )
         return self
 
 
 @lru_cache
 def get_settings() -> Settings:
+    env_file = resolve_settings_env_file()
+    env_path = Path(env_file)
+    if env_path.is_absolute() or env_path.exists() or env_file != ".env":
+        settings_kwargs: dict[str, Any] = {"_env_file": env_file}
+        return Settings(**settings_kwargs)
     return Settings()
 
 
