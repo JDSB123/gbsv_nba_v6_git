@@ -1,0 +1,26 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.envFile": "${workspaceFolder}/.env",
+  "python.createEnvironment.trigger": "off",
+  "python.createEnvironment.contentButton": "hide",
+  "python.terminal.activateEnvironment": true,
+  "ruff.importStrategy": "useBundled",
+  "ruff.nativeServer": "on",
+  "ruff.configuration": "${workspaceFolder}/pyproject.toml",
+  "ruff.configurationPreference": "filesystemFirst",
+
+  // Disable redundant linters/formatters — this project uses ruff
+  "autopep8.enabled": false,
+  "black-formatter.enabled": false,
+  "flake8.enabled": false,
+  "isort.enabled": false,
+  "mypy-type-checker.enabled": false,
+
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  }
+}

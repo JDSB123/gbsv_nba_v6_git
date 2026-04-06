@@ -25,6 +25,7 @@ env/
 .vscode/*
 !.vscode/tasks.json
 !.vscode/extensions.json
+!.vscode/settings.json
 *.swp
 *.swo
 
