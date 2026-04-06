@@ -1,0 +1,17 @@
+{
+  "applicationName": "nba-gbsv-v6",
+  "imageRepository": "nba-gbsv-v6",
+  "resourceGroupName": "nba_gbsv_v6_az",
+  "registryName": "acrnbagbsvv6",
+  "keyVaultName": "kv-nba-gbsv-v6",
+  "postgresServerName": "psql-nba-gbsv-v6-db",
+  "logAnalyticsName": "log-nba-gbsv-v6",
+  "applicationInsightsName": "ai-nba-gbsv-v6",
+  "containerAppsEnvironmentName": "cae-nba-gbsv-v6",
+  "storageAccountName": "stnbagbsvv6",
+  "storageAccountPrefix": "stnbagbsvv6",
+  "containerApps": {
+    "api": "ca-nba-gbsv-v6-api",
+    "worker": "ca-nba-gbsv-v6-worker"
+  }
+}

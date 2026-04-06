@@ -17,6 +17,8 @@ env/
 
 # Environment variables (.env.example is the only committed template)
 .env
+.env.azure
+.env.azure.*
 
 # IDE
 .idea/
@@ -58,6 +60,7 @@ _*.json
 _*.txt
 *.tmp
 *.log
+*_output*.txt
 test_player_stats.py
 
 # Root-level test / debug artifacts (not in tests/)
@@ -79,6 +82,7 @@ run_outputs/
 
 # Azure
 .azure/
+infra/main.json
 .env.bak.old
 build_log.txt
 git_status.txt

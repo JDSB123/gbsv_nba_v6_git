@@ -1,10 +1,35 @@
 {
   "version": "2.0.0",
+  "options": {
+    "shell": {
+      "executable": "pwsh.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile"
+      ]
+    }
+  },
   "tasks": [
+    {
+      "label": "dev: bootstrap host",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/scripts/bootstrap-host.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
     {
       "label": "env: bootstrap",
       "type": "shell",
-      "command": "powershell",
+      "command": "pwsh",
       "args": [
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
@@ -18,6 +43,184 @@
       "problemMatcher": []
     },
     {
+      "label": "env: reset local",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "scripts/sync_env.py",
+        "--force"
+      ],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "close": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "env: sync azure",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "scripts/sync_env.py",
+        "--from-azd",
+        "--environment-name",
+        "validation",
+        "--output",
+        ".env.azure",
+        "--force"
+      ],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "close": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "app: serve",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "serve"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "app: serve (azure env)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "serve"
+      ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "app: work",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "work"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "db: migrate (azure env)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "migrate"
+      ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "model: retrain (azure env)",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "retrain"
+      ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "model: train",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "train"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "model: predict",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "predict"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "ops: audit",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "-m",
+        "src",
+        "audit"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "db: migrate",
       "type": "shell",
       "command": "python",
@@ -26,6 +229,11 @@
         "src",
         "migrate"
       ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
       "problemMatcher": []
     },
     {
@@ -36,6 +244,11 @@
         "tests",
         "-v"
       ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
       "problemMatcher": []
     }
   ]

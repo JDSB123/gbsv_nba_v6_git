@@ -1,13 +1,15 @@
-# deployment script targeting existing nba_gbsv_v6_az environment
-#
-# Infrastructure coupling:
-#   Resource Group:  nba_gbsv_v6_az
-#   ACR:             acrnbagbsvv6  (Azure Container Registry)
-#   Container Apps:  ca-nba-gbsv-v6-api, ca-nba-gbsv-v6-worker
-#
-# Usage:
-#   .\deploy.ps1                         # build, push, migrate, deploy
-#   .\deploy.ps1 -Rollback -RollbackTag <tag>  # roll back to a previous image
+<#
+.SYNOPSIS
+    Build and deploy the shared ACA prediction image using the stack contract.
+
+.DESCRIPTION
+    This script reads Azure deployment metadata from `infra/stack-config.json`
+    so local deployment uses the same logical stack contract as Bicep and CI.
+
+.EXAMPLE
+    .\scripts\deploy.ps1
+    .\scripts\deploy.ps1 -Rollback -RollbackTag 20260406-120000
+#>
 param(
     [switch]$Rollback,
     [string]$RollbackTag = ""
@@ -15,24 +17,32 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$ResourceGroup = "nba_gbsv_v6_az"
-$AcrName = "acrnbagbsvv6"
-$AcrLoginServer = "acrnbagbsvv6.azurecr.io"
+$StackConfigPath = Join-Path $PSScriptRoot "..\infra\stack-config.json"
+if (-not (Test-Path $StackConfigPath)) {
+    throw "Missing stack contract: $StackConfigPath"
+}
+
+$Stack = Get-Content -Path $StackConfigPath -Raw | ConvertFrom-Json
+
+$ResourceGroup = [string]$Stack.resourceGroupName
+$AcrName = [string]$Stack.registryName
+$AcrLoginServer = "$AcrName.azurecr.io"
+$ImageRepository = [string]$Stack.imageRepository
 $Tag = (Get-Date -Format "yyyyMMdd-HHmmss")
-$ImageName = "$AcrLoginServer/nba-gbsv-v6:$Tag"
-$ApiApp = "ca-nba-gbsv-v6-api"
-$WorkerApp = "ca-nba-gbsv-v6-worker"
+$ImageName = "${AcrLoginServer}/${ImageRepository}:${Tag}"
+$ApiApp = [string]$Stack.containerApps.api
+$WorkerApp = [string]$Stack.containerApps.worker
 
 if ($Rollback) {
     if (-not $RollbackTag) {
         Write-Host "Fetching available tags..."
-        $tags = az acr repository show-tags --name $AcrName --repository nba-gbsv-v6 --orderby time_desc --top 5 -o tsv
+        $tags = az acr repository show-tags --name $AcrName --repository $ImageRepository --orderby time_desc --top 5 -o tsv
         Write-Host "Recent tags:"
         $tags | ForEach-Object { Write-Host "  $_" }
         Write-Error "Specify -RollbackTag <tag> to roll back. Use one of the tags above."
         return
     }
-    $rollbackImage = "$AcrLoginServer/nba-gbsv-v6:$RollbackTag"
+    $rollbackImage = "${AcrLoginServer}/${ImageRepository}:${RollbackTag}"
     Write-Host "Rolling back to image: $rollbackImage"
     az containerapp update -n $ApiApp -g $ResourceGroup --image $rollbackImage
     az containerapp update -n $WorkerApp -g $ResourceGroup --image $rollbackImage
@@ -60,7 +70,7 @@ Write-Host "Deploying new image to API Container App: $ApiApp..."
 az containerapp update -n $ApiApp -g $ResourceGroup --image $ImageName
 
 Write-Host "Running database migrations..."
-az containerapp exec -n $ApiApp -g $ResourceGroup --command "python -m alembic upgrade head"
+az containerapp exec -n $ApiApp -g $ResourceGroup --command "python -m src migrate"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Database migrations failed with exit code $LASTEXITCODE"
     exit 1
