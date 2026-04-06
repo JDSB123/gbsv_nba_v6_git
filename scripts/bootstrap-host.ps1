@@ -32,6 +32,12 @@ $ROOT = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $VENV_DIR = Join-Path $ROOT ".venv"
 $VENV_PYTHON = Join-Path $VENV_DIR "Scripts\python.exe"
 $EXTENSIONS_FILE = Join-Path $ROOT ".vscode\extensions.json"
+$PYTHON_VERSION_FILE = Join-Path $ROOT ".python-version"
+$MINIMUM_PYTHON_VERSION = "3.14"
+if (Test-Path $PYTHON_VERSION_FILE) {
+  $MINIMUM_PYTHON_VERSION = (Get-Content -Path $PYTHON_VERSION_FILE -TotalCount 1 | Out-String).Trim()
+}
+$MINIMUM_PYTHON_VERSION_OBJECT = [version]("$MINIMUM_PYTHON_VERSION.0")
 
 function Invoke-CheckedCommand {
   param(
@@ -56,8 +62,8 @@ function Resolve-BootstrapPython {
   if ($pyLauncher) {
     return @{
       Executable = $pyLauncher.Source
-      Arguments = @("-3.12")
-      Display = "py -3.12"
+      Arguments = @("-$MINIMUM_PYTHON_VERSION")
+      Display = "py -$MINIMUM_PYTHON_VERSION"
     }
   }
 
@@ -70,7 +76,7 @@ function Resolve-BootstrapPython {
     }
   }
 
-  throw "Python 3.12+ was not found. Install Python 3.12 and rerun .\\scripts\\bootstrap-host.ps1."
+  throw "Python $MINIMUM_PYTHON_VERSION+ was not found. Install Python $MINIMUM_PYTHON_VERSION and rerun .\\scripts\\bootstrap-host.ps1."
 }
 
 function Get-PythonVersion {
@@ -126,8 +132,8 @@ if ($RecreateVenv -and (Test-Path $VENV_DIR)) {
 if (-not (Test-Path $VENV_PYTHON)) {
   $bootstrapPython = Resolve-BootstrapPython
   $bootstrapVersion = Get-PythonVersion -Executable $bootstrapPython.Executable -Arguments $bootstrapPython.Arguments
-  if ($bootstrapVersion -lt [version]"3.12.0") {
-    throw "Resolved bootstrap Python is $bootstrapVersion. Python 3.12+ is required."
+  if ($bootstrapVersion -lt $MINIMUM_PYTHON_VERSION_OBJECT) {
+    throw "Resolved bootstrap Python is $bootstrapVersion. Python $MINIMUM_PYTHON_VERSION+ is required."
   }
 
   Write-Host "Creating .venv with $($bootstrapPython.Display)" -ForegroundColor Cyan
@@ -142,8 +148,8 @@ if (-not (Test-Path $VENV_PYTHON)) {
 }
 
 $venvVersion = Get-PythonVersion -Executable $VENV_PYTHON
-if ($venvVersion -lt [version]"3.12.0") {
-  throw ".venv is using Python $venvVersion. Re-run with -RecreateVenv against Python 3.12+."
+if ($venvVersion -lt $MINIMUM_PYTHON_VERSION_OBJECT) {
+  throw ".venv is using Python $venvVersion. Re-run with -RecreateVenv against Python $MINIMUM_PYTHON_VERSION+."
 }
 
 if (-not $SkipDependencyInstall) {

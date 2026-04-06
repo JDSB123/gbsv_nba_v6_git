@@ -56,7 +56,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap-host.ps1
 
 That script will:
 
-- create `.venv` with Python 3.12+
+- create `.venv` with Python 3.14+
 - install the repo's dev dependencies from `pyproject.toml`
 - sync `.env` from `.env.example`
 - install the recommended VS Code extensions when the `code` CLI is available
@@ -208,7 +208,8 @@ It now:
 
 ## Compatibility Files
 
-`requirements.txt` and `requirements-dev.txt` remain compatibility shims only.
+`requirements.txt` is a compatibility shim only. All dependencies live in
+`pyproject.toml`.
 
 - Runtime install: `pip install .`
 - Dev install: `pip install -e ".[dev]"`

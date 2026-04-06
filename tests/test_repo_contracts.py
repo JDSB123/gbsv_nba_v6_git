@@ -21,8 +21,8 @@ def test_pyproject_is_dependency_source_of_truth():
     assert 'readme = "README.md"' in pyproject
     assert "dependencies = [" in pyproject
     assert "[project.optional-dependencies]" in pyproject
-    assert _non_comment_lines(ROOT / "requirements.txt") == ["."]
-    assert _non_comment_lines(ROOT / "requirements-dev.txt") == ["-e .[dev]"]
+    assert _non_comment_lines(ROOT / "requirements.txt") == ["-e .[dev]"]
+    assert not (ROOT / "requirements-dev.txt").exists()
 
 
 def test_repo_uses_single_committed_env_template():

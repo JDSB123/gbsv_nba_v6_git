@@ -1,3 +1,5 @@
-# Compatibility shim.
-# Runtime dependencies live in pyproject.toml.
-.
+# Compatibility shim — all dependencies live in pyproject.toml.
+#
+#   Runtime install : pip install .
+#   Dev install     : pip install -e ".[dev]"
+-e .[dev]
