@@ -69,17 +69,29 @@ def build_synced_lines(
 
 
 def get_azd_values(environment_name: str | None) -> dict[str, str]:
-    command = ["azd", "env", "get-values", "--output", "json"]
-    if environment_name:
-        command.extend(["--environment", environment_name])
-
     try:
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        if environment_name:
+            result = subprocess.run(
+                [
+                    "azd",
+                    "env",
+                    "get-values",
+                    "--output",
+                    "json",
+                    "--environment",
+                    environment_name,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        else:
+            result = subprocess.run(
+                ["azd", "env", "get-values", "--output", "json"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
     except FileNotFoundError as exc:
         raise RuntimeError("azd CLI was not found on PATH") from exc
     except subprocess.CalledProcessError as exc:

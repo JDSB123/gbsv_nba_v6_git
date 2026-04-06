@@ -11,6 +11,7 @@ import pytest
 
 from src.models.features import (
     _as_str,
+    _injury_features,
     build_feature_vector,
     reset_elo_cache,
 )
@@ -227,6 +228,21 @@ class TestBuildFeatureVectorProps:
         assert features["prop_pts_lines_count"] == 0.0
         assert math.isnan(features["prop_pts_avg_line"])
         assert features["prop_dd_count"] == 0.0
+
+    @pytest.mark.anyio
+    async def test_injury_features_missing_commence_time_returns_zeroes(self):
+        db = AsyncMock()
+        game = SimpleNamespace(commence_time=None)
+
+        features = await _injury_features(db, 1, 2, game)
+
+        assert features == {
+            "home_injury_impact": 0.0,
+            "home_injured_count": 0.0,
+            "away_injury_impact": 0.0,
+            "away_injured_count": 0.0,
+        }
+        db.execute.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_expected_pace_with_valid_values(self):

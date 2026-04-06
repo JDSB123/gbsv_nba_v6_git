@@ -312,6 +312,12 @@ async def _injury_features(
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     game_time = cast(Any, game.commence_time)
+    if game_time is None:
+        for prefix in ("home", "away"):
+            features[f"{prefix}_injury_impact"] = 0.0
+            features[f"{prefix}_injured_count"] = 0.0
+        return features
+
     window_start = game_time - timedelta(days=14)
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
         inj_result = await db.execute(

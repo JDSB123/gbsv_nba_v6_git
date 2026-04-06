@@ -23,18 +23,19 @@ import json
 import os
 import re
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from src.config import load_selected_env_values, resolve_database_url, resolve_settings_env_file
 
 _CST = ZoneInfo("US/Central")
 
 
 def _env_value(key: str, default: str = "") -> str:
+    from src.config import load_selected_env_values
+
     raw = os.getenv(key)
     if raw is not None and raw.strip():
         return raw.strip()
@@ -76,6 +77,8 @@ def _resolve_export_root() -> Path:
 
 
 def _resolve_export_database_url() -> tuple[str, bool]:
+    from src.config import resolve_database_url, resolve_settings_env_file
+
     database_url = _env_value("DATABASE_URL") or resolve_database_url().strip()
     if not database_url:
         raise RuntimeError(
@@ -94,8 +97,8 @@ def _resolve_export_database_url() -> tuple[str, bool]:
 
 async def main() -> None:
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from sqlalchemy.orm import selectinload, sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy.orm import selectinload
 
     from src.db.models import Game, Prediction, Team
     from src.notifications.teams import (
@@ -113,11 +116,14 @@ async def main() -> None:
         echo=False,
         connect_args={"ssl": db_ssl},
     )
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    today = date.today()
-    day_start = datetime(today.year, today.month, today.day)
-    day_end = day_start + timedelta(days=1)
+    day_now_cst = datetime.now(_CST)
+    day_start_cst = day_now_cst.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end_cst = day_start_cst + timedelta(days=1)
+    today = day_start_cst.date()
+    day_start = day_start_cst.astimezone(UTC).replace(tzinfo=None)
+    day_end = day_end_cst.astimezone(UTC).replace(tzinfo=None)
 
     async with async_session() as db:
         # Load games + teams first, then predictions
@@ -176,8 +182,8 @@ async def main() -> None:
     csv_dated = date_dir / f"GBSV_NBA_Predictions_{stamp}.csv"
     csv_latest = latest_dir / "GBSV_NBA_Predictions.csv"
     csv_root = one_drive_root / f"nba_slate_{date_str}.csv"
-    for p in [csv_dated, csv_latest, csv_root]:
-        p.write_text(csv_content, encoding="utf-8")
+    for output_path in [csv_dated, csv_latest, csv_root]:
+        output_path.write_text(csv_content, encoding="utf-8")
     print(f"Wrote CSV: {csv_dated}")
 
     # ── Build HTML (interactive dark-themed slate) ────────────────────────
@@ -186,14 +192,14 @@ async def main() -> None:
     html_slate_dated = date_dir / f"GBSV_NBA_Slate_{stamp}.html"
     html_latest = latest_dir / "GBSV_NBA_Predictions.html"
     html_slate_latest = latest_dir / "GBSV_NBA_Slate.html"
-    for p in [html_dated, html_slate_dated, html_latest, html_slate_latest]:
-        p.write_text(html_content, encoding="utf-8")
+    for output_path in [html_dated, html_slate_dated, html_latest, html_slate_latest]:
+        output_path.write_text(html_content, encoding="utf-8")
     print(f"Wrote HTML (Predictions): {html_dated}")
     print(f"Wrote HTML (Slate):       {html_slate_dated}")
 
     # ── Build JSON ────────────────────────────────────────────────────────
     started_at = datetime.now(_CST)
-    json_games = []
+    json_games: list[dict[str, Any]] = []
     for pred, game in rows:
         home = game.home_team.name if game.home_team else f"Team {game.home_team_id}"
         away = game.away_team.name if game.away_team else f"Team {game.away_team_id}"
@@ -211,8 +217,8 @@ async def main() -> None:
         opening_spread = float(pred.opening_spread) if pred.opening_spread is not None else None
         opening_total = float(pred.opening_total) if pred.opening_total is not None else None
 
-        odds_sourced = pred.odds_sourced or {}
-        books = odds_sourced.get("books", {})
+        odds_sourced = cast(dict[str, Any], getattr(pred, "odds_sourced", None) or {})
+        books = cast(dict[str, dict[str, Any]], odds_sourced.get("books", {}))
         opening_h1_spread = odds_sourced.get("opening_h1_spread")
         opening_h1_total = odds_sourced.get("opening_h1_total")
 
@@ -231,18 +237,18 @@ async def main() -> None:
         picks_list = extract_picks(pred, game, min_edge=0.0)
 
         # Build markets dict
-        markets: dict = {}
-        for p in picks_list:
-            key = f"{p.segment}_{p.market_type}"
+        markets: dict[str, dict[str, Any]] = {}
+        for pick in picks_list:
+            key = f"{pick.segment}_{pick.market_type}"
             markets[key] = {
-                "segment": p.segment,
-                "market": p.market_type,
-                "pick_label": p.label,
-                "line": p.market_line,
-                "edge": p.edge,
-                "fire_rating": p.confidence,
-                "odds": p.odds,
-                "rationale": p.rationale,
+                "segment": pick.segment,
+                "market": pick.market_type,
+                "pick_label": pick.label,
+                "line": pick.market_line,
+                "edge": pick.edge,
+                "fire_rating": pick.confidence,
+                "odds": pick.odds,
+                "rationale": pick.rationale,
             }
 
         ct_time = None
@@ -299,8 +305,8 @@ async def main() -> None:
     json_content = json.dumps(json_payload, indent=2, default=str)
     json_dated = date_dir / f"GBSV_NBA_Predictions_{stamp}.json"
     json_latest = latest_dir / "GBSV_NBA_Predictions.json"
-    for p in [json_dated, json_latest]:
-        p.write_text(json_content, encoding="utf-8")
+    for output_path in [json_dated, json_latest]:
+        output_path.write_text(json_content, encoding="utf-8")
     print(f"Wrote JSON: {json_dated}")
 
     # ── Build TXT ─────────────────────────────────────────────────────────
@@ -310,23 +316,26 @@ async def main() -> None:
         "=" * 60,
         "",
     ]
-    for game_data in json_games:
+    for raw_game_data in json_games:
+        game_data = cast(dict[str, Any], raw_game_data)
+        proj = cast(dict[str, float], game_data["projected_scores"])
+        proj1h = cast(dict[str, float], game_data["projected_scores_1h"])
+        game_picks = cast(dict[str, dict[str, Any]], game_data.get("picks") or {})
         txt_lines.append(
             f"{game_data['away']} @ {game_data['home']}  |  {game_data.get('game_time', 'TBD')}"
         )
-        proj = game_data["projected_scores"]
         txt_lines.append(
             f"  FG: {game_data['home']} {proj['home_pred']} – {game_data['away']} {proj['away_pred']}"
             f"  (spread {proj['proj_margin']:+.1f}, total {proj['proj_total']:.1f})"
         )
-        proj1h = game_data["projected_scores_1h"]
         txt_lines.append(
             f"  1H: {game_data['home']} {proj1h['home_pred']} – {game_data['away']} {proj1h['away_pred']}"
             f"  (spread {proj1h['proj_margin']:+.1f}, total {proj1h['proj_total']:.1f})"
         )
-        if game_data["picks"]:
+        if game_picks:
             txt_lines.append("  PICKS:")
-            for pk in game_data["picks"].values():
+            for raw_pick_data in game_picks.values():
+                pk = cast(dict[str, Any], raw_pick_data)
                 fires = "🔥" * pk["fire_rating"]
                 txt_lines.append(
                     f"    [{pk['segment']} {pk['market']}] {pk['pick_label']}  "
@@ -343,8 +352,8 @@ async def main() -> None:
     txt_content = "\n".join(txt_lines)
     txt_dated = date_dir / f"GBSV_NBA_Predictions_{stamp}.txt"
     txt_latest = latest_dir / "GBSV_NBA_Predictions.txt"
-    for p in [txt_dated, txt_latest]:
-        p.write_text(txt_content, encoding="utf-8")
+    for output_path in [txt_dated, txt_latest]:
+        output_path.write_text(txt_content, encoding="utf-8")
     print(f"Wrote TXT: {txt_dated}")
 
     # ── Build XLSX ────────────────────────────────────────────────────────
@@ -398,8 +407,8 @@ async def main() -> None:
 
         xlsx_dated = date_dir / f"GBSV_NBA_Predictions_{stamp}.xlsx"
         xlsx_latest = latest_dir / "GBSV_NBA_Predictions.xlsx"
-        for p in [xlsx_dated, xlsx_latest]:
-            p.write_bytes(xlsx_bytes)
+        for output_path in [xlsx_dated, xlsx_latest]:
+            output_path.write_bytes(xlsx_bytes)
         print(f"Wrote XLSX: {xlsx_dated}")
     except ImportError:
         print("openpyxl not installed — skipping XLSX")

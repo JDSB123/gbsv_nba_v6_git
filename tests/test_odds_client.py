@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from src.data.odds_client import OddsClient
 
@@ -140,6 +141,12 @@ async def test_persist_odds_inserts_snapshots():
     db.commit.assert_awaited_once()
     assert db.execute.await_count == 2
 
+    archive_stmt = db.execute.call_args_list[-1].args[0]
+    archive_sql = str(archive_stmt.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT" in archive_sql
+    for col in ("game_id", "bookmaker", "market", "outcome_name", "capture_date"):
+        assert col in archive_sql
+
     # Verify first snapshot
     snap = db.add.call_args_list[0][0][0]
     assert snap.game_id == 42
@@ -216,6 +223,52 @@ async def test_persist_odds_multiple_events():
     count = await client.persist_odds(odds_data, db)
     assert count == 1
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persist_odds_batches_archive_insert_for_duplicate_daily_keys():
+    client = OddsClient()
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=42)))
+
+    odds_data = [
+        {
+            "id": "oa_id_1",
+            "bookmakers": [
+                {
+                    "key": "fanduel",
+                    "markets": [
+                        {
+                            "key": "spreads",
+                            "outcomes": [
+                                {"name": "Boston Celtics", "price": -110, "point": -5.5},
+                            ],
+                        },
+                        {
+                            "key": "spreads",
+                            "outcomes": [
+                                {"name": "Boston Celtics", "price": -105, "point": -5.5},
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+    ]
+
+    count = await client.persist_odds(odds_data, db)
+
+    assert count == 2
+    assert db.add.call_count == 2
+    db.commit.assert_awaited_once()
+    assert db.execute.await_count == 2
+
+    archive_stmt = db.execute.call_args_list[-1].args[0]
+    archive_sql = str(archive_stmt.compile(dialect=postgresql.dialect()))
+    assert "ON CONFLICT" in archive_sql
+    for col in ("game_id", "bookmaker", "market", "outcome_name", "capture_date"):
+        assert col in archive_sql
 
 
 @pytest.mark.asyncio

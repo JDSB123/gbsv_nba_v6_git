@@ -24,7 +24,11 @@ _RETRY = retry(
     retry=retry_if_exception_type(
         (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
     ),
-    before_sleep=lambda rs: logger.warning("Retry #%d for %s", rs.attempt_number, rs.fn.__name__),
+    before_sleep=lambda rs: logger.warning(
+        "Retry #%d for %s",
+        rs.attempt_number,
+        getattr(rs.fn, "__name__", "<unknown>"),
+    ),
     reraise=True,
 )
 
@@ -185,7 +189,12 @@ class OddsClient:
             return resp.json()
 
     async def persist_odds(self, odds_data: list[dict], db: AsyncSession) -> int:
-        """Parse odds response and insert OddsSnapshot rows. Returns count of inserted rows."""
+        """Parse odds response and persist odds records.
+
+        Inserts `OddsSnapshot` rows for each parsed outcome and also writes
+        first-seen-per-day records to `GameOddsArchive`. Returns the count of
+        inserted `OddsSnapshot` rows.
+        """
         now = datetime.now(UTC).replace(tzinfo=None)
         capture_date = now.date()
         count = 0

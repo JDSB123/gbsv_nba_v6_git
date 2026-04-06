@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,6 +13,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def resolve_settings_env_file() -> str:
     env_file = os.getenv("G_BSV_ENV_FILE", ".env").strip()
     return env_file or ".env"
+
+
+def load_selected_env_values() -> dict[str, str]:
+    env_file = resolve_settings_env_file()
+    env_path = Path(env_file)
+    if not env_path.is_absolute():
+        env_path = Path(__file__).resolve().parent.parent / env_path
+    if not env_path.exists():
+        return {}
+
+    values = dotenv_values(env_path)
+    return {key: str(value) for key, value in values.items() if value is not None}
 
 
 class Settings(BaseSettings):

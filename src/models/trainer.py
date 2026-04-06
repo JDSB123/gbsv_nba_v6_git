@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -262,16 +263,26 @@ class ModelTrainer:
         games = result.scalars().all()
         logger.info("Building dataset from %d completed games", len(games))
 
-        rows: list[dict[str, Any]] = []
-        for game in games:
-            # Pull archived odds for this training game — these are never pruned,
-            # so every historical game gets real market feature values instead of NaN.
+        game_ids = [int(cast(Any, game.id)) for game in games]
+        archive_by_game_id: dict[int, list[GameOddsArchive]] = defaultdict(list)
+        if game_ids:
             archive_result = await db.execute(
                 select(GameOddsArchive)
-                .where(GameOddsArchive.game_id == game.id)
-                .order_by(GameOddsArchive.captured_at)
+                .where(GameOddsArchive.game_id.in_(game_ids))
+                .order_by(GameOddsArchive.game_id, GameOddsArchive.captured_at)
             )
-            archive_snaps = archive_result.scalars().all()
+            for archive in archive_result.scalars().all():
+                archive_game_id = getattr(archive, "game_id", None)
+                if archive_game_id is None:
+                    continue
+                archive_by_game_id[int(cast(Any, archive_game_id))].append(archive)
+
+        rows: list[dict[str, Any]] = []
+        for game in games:
+            # Pull archived odds for this training game from the preloaded batch —
+            # these are never pruned, so every historical game gets real market
+            # feature values instead of NaN without an extra query per row.
+            archive_snaps = archive_by_game_id.get(int(cast(Any, game.id)))
             features = await build_feature_vector(
                 game, db,
                 odds_snapshots=list(archive_snaps) if archive_snaps else None,
