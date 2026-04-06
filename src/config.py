@@ -5,9 +5,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from dotenv import dotenv_values
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from dotenv import dotenv_values
 
 
 def resolve_settings_env_file() -> str:

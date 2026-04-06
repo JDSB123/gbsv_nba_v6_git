@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ENV_LINE_PATTERN = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
 
 

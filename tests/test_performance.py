@@ -343,7 +343,7 @@ def _fake_pred(
     fg_total=232.0,
     h1_spread=4.0,
     h1_total=120.0,
-    opening_spread=-5.0,
+    opening_spread=-2.0,
     opening_total=220.0,
     odds_sourced=None,
 ):
@@ -411,7 +411,7 @@ def test_grade_game_no_1h_scores():
 
 def test_grade_game_small_edge_filtered():
     game = _fake_game()
-    # opening_spread + fg_spread = edge only 1.0 (below MIN_EDGE=2.0)
+    # opening_spread + fg_spread = edge only 1.0 (below MIN_EDGE=6.0)
     pred = _fake_pred(fg_spread=1.0, opening_spread=-2.0, h1_spread=0.5, fg_total=230.0, h1_total=115.0, opening_total=229.5)
     picks = _grade_game(pred, game)
     # Small edges should be filtered
@@ -425,9 +425,9 @@ def test_grade_game_small_edge_filtered():
 def test_grade_game_1h_spread_ats_with_market_line():
     """When odds_sourced has opening_h1_spread, 1H spread is graded ATS."""
     game = _fake_game(home_1h=55, away_1h=50)
-    # opening_h1_spread = -3.0; h1_spread = +5.0 → edge = -3+5 = 2.0 → home ATS
+    # opening_h1_spread = -3.0; h1_spread = +9.5 → edge = -3+9.5 = 6.5 → home ATS
     pred = _fake_pred(
-        h1_spread=5.0,
+        h1_spread=9.5,
         odds_sourced={"opening_h1_spread": -3.0},
     )
     picks = _grade_game(pred, game)
@@ -441,7 +441,7 @@ def test_grade_game_1h_spread_ats_with_market_line():
 def test_grade_game_1h_spread_winner_fallback_without_market():
     """Without 1H market line, 1H spread is graded as straight winner."""
     game = _fake_game(home_1h=55, away_1h=50)
-    pred = _fake_pred(h1_spread=5.0)  # no odds_sourced
+    pred = _fake_pred(h1_spread=7.0)  # no odds_sourced; abs(7.0) >= MIN_EDGE=6.0
     picks = _grade_game(pred, game)
     h1_spread_picks = [p for p in picks if p.segment == "1H" and p.market == "SPREAD"]
     assert len(h1_spread_picks) == 1

@@ -138,6 +138,7 @@ async def test_persist_odds_inserts_snapshots():
     assert count == 2
     assert db.add.call_count == 2
     db.commit.assert_awaited_once()
+    assert db.execute.await_count == 2
 
     # Verify first snapshot
     snap = db.add.call_args_list[0][0][0]
@@ -187,6 +188,7 @@ async def test_persist_odds_multiple_events():
         side_effect=[
             MagicMock(scalar_one_or_none=MagicMock(return_value=1)),
             MagicMock(scalar_one_or_none=MagicMock(return_value=None)),
+            MagicMock(),
         ]
     )
 
@@ -213,6 +215,7 @@ async def test_persist_odds_multiple_events():
 
     count = await client.persist_odds(odds_data, db)
     assert count == 1
+    db.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio

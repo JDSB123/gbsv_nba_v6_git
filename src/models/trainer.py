@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.config import get_settings
-from src.db.models import Game, ModelRegistry
+from src.db.models import Game, GameOddsArchive, ModelRegistry
 from src.models.features import (
     build_feature_vector,
     get_feature_columns,
@@ -264,7 +264,18 @@ class ModelTrainer:
 
         rows: list[dict[str, Any]] = []
         for game in games:
-            features = await build_feature_vector(game, db)
+            # Pull archived odds for this training game — these are never pruned,
+            # so every historical game gets real market feature values instead of NaN.
+            archive_result = await db.execute(
+                select(GameOddsArchive)
+                .where(GameOddsArchive.game_id == game.id)
+                .order_by(GameOddsArchive.captured_at)
+            )
+            archive_snaps = archive_result.scalars().all()
+            features = await build_feature_vector(
+                game, db,
+                odds_snapshots=list(archive_snaps) if archive_snaps else None,
+            )
             if features is None:
                 continue
             row: dict[str, Any] = dict(features)
@@ -308,11 +319,12 @@ class ModelTrainer:
 
         dead_features = _all_nan_feature_columns(df, self.feature_cols)
         if dead_features:
-            sample = ", ".join(dead_features[:10])
-            raise ValueError(
-                "Training aborted: feature columns have no finite values in the dataset: "
-                f"{sample}"
+            logger.warning(
+                "Dropping %d all-NaN feature column(s) from training (no data available): %s",
+                len(dead_features),
+                ", ".join(dead_features[:10]),
             )
+            self.feature_cols = [c for c in self.feature_cols if c not in dead_features]
 
         # ── Outlier detection on target variables ─────────────────
         for target in TARGETS:

@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -176,6 +177,40 @@ class OddsSnapshot(Base):
     game = relationship("Game", back_populates="odds_snapshots")
 
     __table_args__ = (Index("ix_odds_game_market_captured", "game_id", "market", "captured_at"),)
+
+
+class GameOddsArchive(Base):
+    """Permanent per-day odds archive — never pruned, used for model training.
+
+    Stores at most one row per (game_id, bookmaker, market, outcome_name, capture_date),
+    retaining the first snapshot of each polling day via ON CONFLICT DO NOTHING inserts.
+    Unlike OddsSnapshot, rows are never deleted by maintenance jobs, ensuring every
+    historical game has non-NaN market feature values at training time.
+    """
+
+    __tablename__ = "game_odds_archive"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    game_id = Column(
+        Integer, ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source = Column(String(30), nullable=False)
+    bookmaker = Column(String(60), nullable=False)
+    market = Column(String(60), nullable=False)
+    outcome_name = Column(String(128), nullable=False)
+    description = Column(String(120))
+    price = Column(Float, nullable=False)
+    point = Column(Float)
+    capture_date = Column(Date, nullable=False, index=True)
+    captured_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "bookmaker", "market", "outcome_name", "capture_date",
+            name="uq_game_odds_archive_daily",
+        ),
+        Index("ix_game_odds_archive_game_date", "game_id", "capture_date"),
+    )
 
 
 class Prediction(Base):

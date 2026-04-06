@@ -107,6 +107,20 @@ The default development workflow remains the dev container. The dev container st
 
 Production does not depend on repo-local `.env` or `.env.azure`; production values come from Azure and azd environment state.
 
+## Host Export
+
+The OneDrive export helper uses the same host env contract as the rest of the repo.
+
+For an Azure-backed export on the Windows host:
+
+```powershell
+$env:G_BSV_ENV_FILE = '.env.azure'
+$env:ONEDRIVE_EXPORT_ROOT = 'C:\Users\<you>\OneDrive - Green Bier Capital\Early Stage Sport Ventures - Documents\NBA - Green Bier Sports'
+.\.venv\Scripts\python.exe .\scripts\export_onedrive.py
+```
+
+`scripts/export_onedrive.py` refuses to use a localhost database unless `EXPORT_ALLOW_LOCAL_DB=true` is set explicitly.
+
 ## Clean And Prune
 
 For a fresh local reset without touching tracked source files, use Git only for generated state:

@@ -308,11 +308,20 @@ async def _schedule_features(
 
 
 async def _injury_features(
-    db: AsyncSession, home_id: int, away_id: int,
+    db: AsyncSession, home_id: int, away_id: int, game: Any,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
+    game_time = cast(Any, game.commence_time)
+    window_start = game_time - timedelta(days=14)
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
-        inj_result = await db.execute(select(Injury).where(Injury.team_id == team_id))
+        inj_result = await db.execute(
+            select(Injury).where(
+                Injury.team_id == team_id,
+                Injury.reported_at >= window_start,
+                Injury.reported_at <= game_time,
+                Injury.status.in_(["out", "doubtful", "questionable", "probable"]),
+            )
+        )
         injuries = inj_result.scalars().all()
         injury_impact = 0.0
         injured_count = 0
@@ -991,28 +1000,36 @@ async def _market_features(
             features["sharp_ml_prob"] - features["square_ml_prob"]
         )
 
-        # Line movement (opening -> current)
-        spread_timestamps = [
-            cast(Any, s.captured_at)
+        # Line movement: opening = first capture day, current = most recent capture day.
+        # Comparing per capture_date prevents stale multi-week comparisons when the
+        # archive holds many days of data.
+        spread_dates = sorted({
+            cast(Any, s.captured_at).date() if hasattr(cast(Any, s.captured_at), "date")
+            else cast(Any, s.captured_at)
             for s in snapshots
             if _as_str(s.market) == "spreads"
             and s.point is not None
             and _as_str(s.outcome_name) == home_name
-        ]
-        total_timestamps = [
-            cast(Any, s.captured_at)
+        })
+        total_dates = sorted({
+            cast(Any, s.captured_at).date() if hasattr(cast(Any, s.captured_at), "date")
+            else cast(Any, s.captured_at)
             for s in snapshots
             if _as_str(s.market) == "totals" and s.point is not None
-        ]
-        oldest_spread_ts = min(spread_timestamps) if spread_timestamps else None
-        latest_spread_ts = max(spread_timestamps) if spread_timestamps else None
-        oldest_total_ts = min(total_timestamps) if total_timestamps else None
-        latest_total_ts = max(total_timestamps) if total_timestamps else None
+        })
+        oldest_spread_date = spread_dates[0] if spread_dates else None
+        latest_spread_date = spread_dates[-1] if spread_dates else None
+        oldest_total_date = total_dates[0] if total_dates else None
+        latest_total_date = total_dates[-1] if total_dates else None
+
+        def _date_of(ts: Any) -> Any:
+            return ts.date() if hasattr(ts, "date") else ts
+
         opening_spreads = [
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "spreads"
-            and cast(Any, s.captured_at) == oldest_spread_ts
+            and _date_of(cast(Any, s.captured_at)) == oldest_spread_date
             and s.point is not None
             and _as_str(s.outcome_name) == home_name
         ]
@@ -1020,7 +1037,7 @@ async def _market_features(
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "spreads"
-            and cast(Any, s.captured_at) == latest_spread_ts
+            and _date_of(cast(Any, s.captured_at)) == latest_spread_date
             and s.point is not None
             and _as_str(s.outcome_name) == home_name
         ]
@@ -1028,14 +1045,14 @@ async def _market_features(
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "totals"
-            and cast(Any, s.captured_at) == oldest_total_ts
+            and _date_of(cast(Any, s.captured_at)) == oldest_total_date
             and s.point is not None
         ]
         current_totals = [
             _as_float(s.point)
             for s in snapshots
             if _as_str(s.market) == "totals"
-            and cast(Any, s.captured_at) == latest_total_ts
+            and _date_of(cast(Any, s.captured_at)) == latest_total_date
             and s.point is not None
         ]
 
@@ -1136,7 +1153,7 @@ async def build_feature_vector(
     features.update(await _team_season_stats(db, home_id, away_id, season))
     features.update(await _recent_form(db, home_id, away_id, game))
     features.update(await _schedule_features(db, home_id, away_id, game))
-    features.update(await _injury_features(db, home_id, away_id))
+    features.update(await _injury_features(db, home_id, away_id, game))
     features.update(await _player_and_quarter_features(db, home_id, away_id, game))
     features.update(await _prop_consensus_features(db, game, odds_snapshots))
     features.update(await _venue_and_streak_features(db, home_id, away_id, game, features))
