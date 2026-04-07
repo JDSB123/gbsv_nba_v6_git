@@ -197,7 +197,11 @@ async def test_get_prediction_not_found():
 
     app.dependency_overrides[get_db] = override_db
     try:
-        with patch("src.services.predictions.PredictionService.get_prediction_detail", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "src.services.predictions.PredictionService.get_prediction_detail",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.get("/predictions/99999")
@@ -240,7 +244,9 @@ async def test_model_registry():
         ),
     ]
     mock_db.execute = AsyncMock(
-        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=mock_rows))))
+        return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=mock_rows)))
+        )
     )
 
     async def override_db():
@@ -275,9 +281,7 @@ async def test_model_retrain():
                 mock_gs.return_value = mock_settings
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as client:
-                    resp = await client.post(
-                        "/model/retrain", headers={"X-API-Key": "test-key"}
-                    )
+                    resp = await client.post("/model/retrain", headers={"X-API-Key": "test-key"})
             assert resp.status_code == 200
             data = resp.json()
             assert data["status"] == "complete"
@@ -377,9 +381,9 @@ async def test_slate_html_success():
     try:
         with (
             patch(
-            "src.services.predictions.PredictionService.get_slate_payload",
-            new_callable=AsyncMock,
-            return_value=([("pred_mock", "game_mock")], None),
+                "src.services.predictions.PredictionService.get_slate_payload",
+                new_callable=AsyncMock,
+                return_value=([("pred_mock", "game_mock")], None),
             ),
             patch(
                 "src.notifications.teams.build_html_slate",
@@ -566,10 +570,17 @@ async def test_publish_teams_no_rows():
     try:
         with patch("src.api.routes.predictions.get_settings") as mock_s:
             mock_s.return_value = MagicMock(teams_webhook_url="https://hook.example.com")
-            with patch(
-                "src.services.predictions.PredictionService.get_slate_payload",
-                new_callable=AsyncMock,
-                return_value=([], None),
+            with (
+                patch(
+                    "src.services.predictions.PredictionService.get_slate_payload",
+                    new_callable=AsyncMock,
+                    return_value=([], None),
+                ),
+                patch(
+                    "src.data.scheduler.generate_predictions_and_publish",
+                    new_callable=AsyncMock,
+                    return_value=0,
+                ),
             ):
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -634,14 +645,67 @@ async def test_publish_graph_no_rows():
                 teams_team_id="team-123",
                 teams_channel_id="channel-456",
             )
-            with patch(
-                "src.services.predictions.PredictionService.get_slate_payload",
-                new_callable=AsyncMock,
-                return_value=([], None),
+            with (
+                patch(
+                    "src.services.predictions.PredictionService.get_slate_payload",
+                    new_callable=AsyncMock,
+                    return_value=([], None),
+                ),
+                patch(
+                    "src.data.scheduler.generate_predictions_and_publish",
+                    new_callable=AsyncMock,
+                    return_value=0,
+                ),
             ):
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as client:
                     resp = await client.post("/predictions/publish/graph")
                 assert resp.status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+async def test_publish_graph_refreshes_then_publishes():
+    app.dependency_overrides[get_predictor] = lambda: _ReadyPredictor()
+    mock_db = AsyncMock()
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        with patch("src.api.routes.predictions.get_settings") as mock_s:
+            mock_s.return_value = MagicMock(
+                teams_team_id="team-123",
+                teams_channel_id="channel-456",
+                teams_max_games_per_message=10,
+            )
+            with (
+                patch(
+                    "src.services.predictions.PredictionService.get_slate_payload",
+                    new_callable=AsyncMock,
+                    side_effect=[([], None), ([("pred", "game")], None)],
+                ),
+                patch(
+                    "src.data.scheduler.generate_predictions_and_publish",
+                    new_callable=AsyncMock,
+                    return_value=1,
+                ) as mock_refresh,
+                patch(
+                    "src.notifications.teams.build_html_slate",
+                    return_value="<html>slate</html>",
+                ),
+                patch(
+                    "src.notifications.teams.send_html_via_graph",
+                    new_callable=AsyncMock,
+                ) as mock_send,
+            ):
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    resp = await client.post("/predictions/publish/graph")
+                assert resp.status_code == 200
+                mock_refresh.assert_called_once()
+                mock_send.assert_called_once()
     finally:
         app.dependency_overrides.clear()

@@ -48,6 +48,32 @@ async def get_prediction_service(
     return PredictionService(repo, predictor, settings)
 
 
+async def _get_publish_rows_with_refresh(
+    service: PredictionService,
+) -> tuple[list[tuple[Any, ...]], Any]:
+    """Return publishable rows, auto-refreshing inputs/predictions when empty.
+
+    This keeps publish endpoints resilient to stale-odds filtering by attempting
+    one refresh pass before returning an empty slate.
+    """
+    rows, odds_pulled_at = await service.get_slate_payload()
+    if rows:
+        return rows, odds_pulled_at
+
+    from src.data.scheduler import generate_predictions_and_publish
+
+    # Refresh inputs + regenerate predictions, but do not publish here.
+    refreshed_count = await generate_predictions_and_publish(
+        publish=False,
+        refresh_inputs=True,
+        send_alerts=False,
+    )
+    if refreshed_count <= 0:
+        return rows, odds_pulled_at
+
+    return await service.get_slate_payload()
+
+
 @router.get("")
 @router.get("/")
 @limiter.limit("60/minute")
@@ -76,6 +102,7 @@ async def list_predictions(
         ]
 
     if min_edge is not None:
+
         def _max_edge(p: dict) -> float:
             markets = p.get("markets", {})
             edges = []
@@ -175,7 +202,7 @@ async def publish_slate_to_teams(
     if not settings.teams_webhook_url:
         raise HTTPException(status_code=500, detail="MSTEAMS_WEBHOOK_URL not configured")
 
-    rows, odds_pulled_at = await service.get_slate_payload()
+    rows, odds_pulled_at = await _get_publish_rows_with_refresh(service)
     if not rows:
         raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
 
@@ -218,7 +245,7 @@ async def publish_slate_via_graph(
             detail="TEAMS_TEAM_ID and TEAMS_CHANNEL_ID not configured",
         )
 
-    rows, odds_pulled_at = await service.get_slate_payload()
+    rows, odds_pulled_at = await _get_publish_rows_with_refresh(service)
     if not rows:
         raise HTTPException(status_code=400, detail=_not_ready_detail("No predictions available"))
 
