@@ -9,12 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.models.features import (
-    _as_str,
-    _injury_features,
-    build_feature_vector,
-    reset_elo_cache,
-)
+from src.models.features import _as_str, _injury_features, build_feature_vector, reset_elo_cache
 
 
 def _ts(days_ago: int = 0) -> datetime:
@@ -22,40 +17,93 @@ def _ts(days_ago: int = 0) -> datetime:
 
 
 def _g(
-    game_id=1, home_id=1, away_id=2, commence=None, status="NS",
-    home_fg=None, away_fg=None, home_1h=None, away_1h=None,
+    game_id=1,
+    home_id=1,
+    away_id=2,
+    commence=None,
+    status="NS",
+    home_fg=None,
+    away_fg=None,
+    home_1h=None,
+    away_1h=None,
 ):
     return SimpleNamespace(
-        id=game_id, home_team_id=home_id, away_team_id=away_id,
-        commence_time=commence or _ts(0), status=status, season="2024-2025",
-        home_score_fg=home_fg, away_score_fg=away_fg,
-        home_score_1h=home_1h, away_score_1h=away_1h,
-        home_q1=None, home_q2=None, home_q3=None, home_q4=None,
-        away_q1=None, away_q2=None, away_q3=None, away_q4=None,
+        id=game_id,
+        home_team_id=home_id,
+        away_team_id=away_id,
+        commence_time=commence or _ts(0),
+        status=status,
+        season="2024-2025",
+        home_score_fg=home_fg,
+        away_score_fg=away_fg,
+        home_score_1h=home_1h,
+        away_score_1h=away_1h,
+        home_q1=None,
+        home_q2=None,
+        home_q3=None,
+        home_q4=None,
+        away_q1=None,
+        away_q2=None,
+        away_q3=None,
+        away_q4=None,
         home_team=SimpleNamespace(name="Boston Celtics"),
         away_team=SimpleNamespace(name="Los Angeles Lakers"),
         odds_api_id=None,
     )
 
 
-def _stats(ppg=112.0, oppg=108.0, wins=30, losses=15, pace=100.0, off_rating=115.0, def_rating=109.0, games_played=45):
-    return SimpleNamespace(ppg=ppg, oppg=oppg, wins=wins, losses=losses, pace=pace, off_rating=off_rating, def_rating=def_rating, games_played=games_played)
+def _stats(
+    ppg=112.0,
+    oppg=108.0,
+    wins=30,
+    losses=15,
+    pace=100.0,
+    off_rating=115.0,
+    def_rating=109.0,
+    games_played=45,
+):
+    return SimpleNamespace(
+        ppg=ppg,
+        oppg=oppg,
+        wins=wins,
+        losses=losses,
+        pace=pace,
+        off_rating=off_rating,
+        def_rating=def_rating,
+        games_played=games_played,
+    )
 
 
 def _snap(market, outcome, point=None, price=-110, bookmaker="pinnacle", captured=None, desc=""):
     return SimpleNamespace(
-        id=1, game_id=1, bookmaker=bookmaker, market=market, outcome_name=outcome,
-        price=price, point=point, captured_at=captured or _ts(0), description=desc,
+        id=1,
+        game_id=1,
+        bookmaker=bookmaker,
+        market=market,
+        outcome_name=outcome,
+        price=price,
+        point=point,
+        captured_at=captured or _ts(0),
+        description=desc,
     )
 
 
 def _recent(team_id, days, home=True, fg=110, opp_fg=105):
     return SimpleNamespace(
-        id=100 + days, home_team_id=team_id if home else 99, away_team_id=99 if home else team_id,
-        commence_time=_ts(days), status="FT",
-        home_score_fg=fg if home else opp_fg, away_score_fg=opp_fg if home else fg,
-        home_score_1h=55, away_score_1h=50,
-        home_q1=28, home_q3=27, away_q1=25, away_q3=24, season="2024-2025",
+        id=100 + days,
+        home_team_id=team_id if home else 99,
+        away_team_id=99 if home else team_id,
+        commence_time=_ts(days),
+        status="FT",
+        home_score_fg=fg if home else opp_fg,
+        away_score_fg=opp_fg if home else fg,
+        home_score_1h=55,
+        away_score_1h=50,
+        home_q1=28,
+        home_q3=27,
+        away_q1=25,
+        away_q3=24,
+        season="2024-2025",
     )
 
 
@@ -65,8 +113,18 @@ def _injury(pid, tid, status="out"):
 
 def _pgs(pid, gid, tid, pts=15, ast=4, reb=5, minutes=25):
     return SimpleNamespace(
-        id=1, player_id=pid, game_id=gid, team_id=tid, points=pts, assists=ast,
-        rebounds=reb, turnovers=2, plus_minus=3, fg_pct=0.45, three_pct=0.35, minutes=minutes,
+        id=1,
+        player_id=pid,
+        game_id=gid,
+        team_id=tid,
+        points=pts,
+        assists=ast,
+        rebounds=reb,
+        turnovers=2,
+        plus_minus=3,
+        fg_pct=0.45,
+        three_pct=0.35,
+        minutes=minutes,
     )
 
 
@@ -117,7 +175,9 @@ class TestBuildFeatureVectorProps:
             _snap("h2h", "Boston Celtics", price=-200),
         ] + props
 
-        recents = [_recent(1, d) for d in range(1, 11)] + [_recent(2, d, home=False) for d in range(1, 11)]
+        recents = [_recent(1, d) for d in range(1, 11)] + [
+            _recent(2, d, home=False) for d in range(1, 11)
+        ]
         pgs = [_pgs(p, recents[0].id, 1) for p in range(10, 20)]
 
         db = AsyncMock()
@@ -129,6 +189,7 @@ class TestBuildFeatureVectorProps:
                 r.scalar_one_or_none.return_value = st
                 return r
             if "avg" in sql and "player_game_stats" in sql:
+                r.all.return_value = [(10, 15.0, 28.0)]
                 r.one_or_none.return_value = (15.0, 28.0)
                 return r
             if "count" in sql:
@@ -250,7 +311,9 @@ class TestBuildFeatureVectorProps:
         game = _g()
         home_st = _stats(pace=100.0)
         away_st = _stats(pace=105.0)
-        recents = [_recent(1, d) for d in range(1, 6)] + [_recent(2, d, home=False) for d in range(1, 6)]
+        recents = [_recent(1, d) for d in range(1, 6)] + [
+            _recent(2, d, home=False) for d in range(1, 6)
+        ]
 
         db = AsyncMock()
         call_idx = {"n": 0}
@@ -295,6 +358,8 @@ class TestBuildFeatureVectorProps:
 
         assert features is not None
         # With both team paces available, expected_pace should be calculated
-        if math.isfinite(features.get("home_pace", float("nan"))) and math.isfinite(features.get("away_pace", float("nan"))):
+        if math.isfinite(features.get("home_pace", float("nan"))) and math.isfinite(
+            features.get("away_pace", float("nan"))
+        ):
             assert math.isfinite(features["expected_pace"])
             assert math.isfinite(features["pace_diff"])

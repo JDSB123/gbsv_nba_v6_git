@@ -57,6 +57,7 @@ src/db/migrations/versions/__pycache__/
 
 # Temp scripts & root-level debug files
 _*.py
+!src/notifications/_*.py
 _*.json
 _*.txt
 *.tmp

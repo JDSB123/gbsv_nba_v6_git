@@ -4,6 +4,12 @@ from typing import Any, cast
 from src.config import Settings
 from src.db.models import Game, Prediction
 from src.db.repositories.predictions import PredictionRepository
+from src.models.odds_utils import (
+    american_to_prob,
+    consensus_line,
+    consensus_price,
+    prob_to_american,
+)
 from src.models.predictor import Predictor
 from src.services.prediction_integrity import prediction_has_valid_payload
 
@@ -12,36 +18,11 @@ def _as_float(value: Any, default: float = 0.0) -> float:
     return float(value) if value is not None else default
 
 
-def _consensus(books: dict, key: str) -> float | None:
-    """Average a numeric field across all books."""
-    vals = [b[key] for b in books.values() if key in b and b[key] is not None]
-    return round(sum(vals) / len(vals), 1) if vals else None
-
-
-def _consensus_price(books: dict, key: str) -> str:
-    """Average a price field across all books, return American odds string."""
-    vals = [b[key] for b in books.values() if key in b and b[key] is not None]
-    return f"{int(round(sum(vals) / len(vals))):+d}" if vals else ""
-
-
-def _prob_to_american(prob: float) -> str:
-    if prob <= 0.01 or prob >= 0.99:
-        return ""
-    if prob >= 0.5:
-        return f"{int(round(-(prob / (1 - prob)) * 100)):+d}"
-    return f"+{int(round(((1 - prob) / prob) * 100))}"
-
-
-def _american_to_prob(odds_str: str) -> float | None:
-    if not odds_str:
-        return None
-    try:
-        odds = float(odds_str.replace("+", ""))
-        if odds == 0:
-            return 0.5
-        return 100 / (odds + 100) if odds > 0 else -odds / (-odds + 100)
-    except ValueError:
-        return None
+# Backward-compat aliases used internally
+_consensus = consensus_line
+_consensus_price = consensus_price
+_prob_to_american = prob_to_american
+_american_to_prob = american_to_prob
 
 
 def _parse_iso_utc(ts: Any) -> datetime | None:

@@ -372,7 +372,7 @@ async def test_send_card_via_graph_posts_correct_format():
     mock_credential.get_token.return_value = mock_token
 
     with (
-        patch("src.notifications.teams.httpx.AsyncClient", return_value=mock_client),
+        patch("src.notifications._delivery.httpx.AsyncClient", return_value=mock_client),
         patch("azure.identity.DefaultAzureCredential", return_value=mock_credential),
     ):
         result = await send_card_via_graph("team-id", "channel-id", payload)

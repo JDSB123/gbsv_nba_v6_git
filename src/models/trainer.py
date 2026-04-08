@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import numpy as np
 import optuna
+from optuna.samplers import TPESampler
 import pandas as pd
 import xgboost as xgb
 from sklearn.linear_model import LogisticRegression
@@ -18,11 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from src.config import get_settings
 from src.db.models import Game, GameOddsArchive, ModelRegistry
-from src.models.features import (
-    build_feature_vector,
-    get_feature_columns,
-    reset_elo_cache,
-)
+from src.models.features import build_feature_vector, get_feature_columns, reset_elo_cache
 from src.models.versioning import MODEL_VERSION
 
 logger = logging.getLogger(__name__)
@@ -31,6 +28,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 ARTIFACTS_DIR = Path(__file__).parent / "artifacts"
 ARTIFACTS_DIR.mkdir(exist_ok=True)
 MAX_TRAIN_FEATURE_NAN_RATIO = 0.5
+GLOBAL_SEED = 42
 
 # Target columns: what each model predicts
 TARGETS = ["home_score_fg", "away_score_fg", "home_score_1h", "away_score_1h"]
@@ -128,7 +126,7 @@ def _calibrate_probabilities(
     Enforces a positive coefficient to ensure win probability aligns
     with predicted score margin (positive margin = favored to win).
     """
-    lr = LogisticRegression()
+    lr = LogisticRegression(random_state=GLOBAL_SEED)
     lr.fit(margins.reshape(-1, 1), actuals)
     coef = float(np.ravel(lr.coef_)[0])
     intercept = float(np.ravel(lr.intercept_)[0])
@@ -284,7 +282,8 @@ class ModelTrainer:
             # feature values instead of NaN without an extra query per row.
             archive_snaps = archive_by_game_id.get(int(cast(Any, game.id)))
             features = await build_feature_vector(
-                game, db,
+                game,
+                db,
                 odds_snapshots=list(archive_snaps) if archive_snaps else None,
             )
             if features is None:
@@ -306,6 +305,9 @@ class ModelTrainer:
 
     async def train(self, db: AsyncSession) -> dict[str, float]:
         """Train all 4 models with optional Optuna tuning. Returns metrics."""
+        # Pin every source of randomness so training is fully reproducible.
+        np.random.seed(GLOBAL_SEED)
+
         df = await self._build_dataset(db)
         if df.empty or len(df) < 50:
             logger.warning("Not enough data to train (%d rows)", len(df))
@@ -388,7 +390,10 @@ class ModelTrainer:
             # ── Optuna hyperparameter search ────────────────────
             if self.run_optuna and len(y) >= 200:
                 logger.info("Running Optuna for %s (%d trials)...", model_name, OPTUNA_N_TRIALS)
-                study = optuna.create_study(direction="minimize")
+                study = optuna.create_study(
+                    direction="minimize",
+                    sampler=TPESampler(seed=GLOBAL_SEED),
+                )
                 study.optimize(
                     lambda trial, _X=X, _y=y: _optuna_objective(trial, _X, _y),  # type: ignore
                     n_trials=OPTUNA_N_TRIALS,
@@ -420,16 +425,26 @@ class ModelTrainer:
                 maes.append(mean_absolute_error(y_val, preds))
                 rmses.append(np.sqrt(mean_squared_error(y_val, preds)))
 
-            # ── Final fit on all data (with 80/20 holdout for early stopping)
-            split_idx = int(len(X) * 0.85)
-            X_fit, X_hold = X[:split_idx], X[split_idx:]
-            y_fit, y_hold = y[:split_idx], y[split_idx:]
+            # ── Final fit on all data (with 80/10/10 split: train/early-stop/calibration)
+            # Use a 3-way split to avoid leaking early-stopping holdout into calibration.
+            split_train = int(len(X) * 0.80)
+            split_estop = int(len(X) * 0.90)
+            X_fit, X_estop, X_cal_portion = (
+                X[:split_train],
+                X[split_train:split_estop],
+                X[split_estop:],
+            )
+            y_fit, y_estop, _y_cal_portion = (
+                y[:split_train],
+                y[split_train:split_estop],
+                y[split_estop:],
+            )
             final_params = dict(best)
             model = xgb.XGBRegressor(**final_params)
             model.fit(
                 X_fit,
                 y_fit,
-                eval_set=[(X_hold, y_hold)],
+                eval_set=[(X_estop, y_estop)],
                 verbose=False,
             )
             self.models[model_name] = model
@@ -445,21 +460,23 @@ class ModelTrainer:
             logger.info("%s — MAE: %.2f, RMSE: %.2f", model_name, avg_mae, avg_rmse)
 
         # ── Calibrated probability coefficients (Platt scaling) ──
+        # Uses the held-out calibration portion (last 10%), which was NOT
+        # seen during training or early-stopping — prevents data leakage.
         if "model_home_fg" in self.models and "model_away_fg" in self.models:
             fg_mask = target_pair_masks["fg"]
             X_fg = X_all[fg_mask]
-            split_idx_fg = int(len(X_fg) * 0.85)
-            X_cal_fg = X_fg[split_idx_fg:]
-            if len(X_cal_fg) > 0:
+            cal_start_fg = int(len(X_fg) * 0.90)
+            X_cal_fg = X_fg[cal_start_fg:]
+            if len(X_cal_fg) > 20:
                 home_preds = self.models["model_home_fg"].predict(X_cal_fg)
                 away_preds = self.models["model_away_fg"].predict(X_cal_fg)
                 fg_margins = home_preds - away_preds
-                fg_home = pd.to_numeric(
-                    df.loc[fg_mask, "home_score_fg"], errors="coerce"
-                ).to_numpy(dtype=float)[split_idx_fg:]
-                fg_away = pd.to_numeric(
-                    df.loc[fg_mask, "away_score_fg"], errors="coerce"
-                ).to_numpy(dtype=float)[split_idx_fg:]
+                fg_home = pd.to_numeric(df.loc[fg_mask, "home_score_fg"], errors="coerce").to_numpy(
+                    dtype=float
+                )[cal_start_fg:]
+                fg_away = pd.to_numeric(df.loc[fg_mask, "away_score_fg"], errors="coerce").to_numpy(
+                    dtype=float
+                )[cal_start_fg:]
                 fg_actuals = (fg_home > fg_away).astype(float)
                 fg_coef, fg_intercept = _calibrate_probabilities(fg_margins, fg_actuals)
                 metrics["calibration_fg_coef"] = fg_coef
@@ -468,18 +485,18 @@ class ModelTrainer:
         if "model_home_1h" in self.models and "model_away_1h" in self.models:
             h1_mask = target_pair_masks["1h"]
             X_h1 = X_all[h1_mask]
-            split_idx_h1 = int(len(X_h1) * 0.85)
-            X_cal_h1 = X_h1[split_idx_h1:]
-            if len(X_cal_h1) > 0:
+            cal_start_h1 = int(len(X_h1) * 0.90)
+            X_cal_h1 = X_h1[cal_start_h1:]
+            if len(X_cal_h1) > 20:
                 h1_home = self.models["model_home_1h"].predict(X_cal_h1)
                 h1_away = self.models["model_away_1h"].predict(X_cal_h1)
                 h1_margins = h1_home - h1_away
                 h1_home_actual = pd.to_numeric(
                     df.loc[h1_mask, "home_score_1h"], errors="coerce"
-                ).to_numpy(dtype=float)[split_idx_h1:]
+                ).to_numpy(dtype=float)[cal_start_h1:]
                 h1_away_actual = pd.to_numeric(
                     df.loc[h1_mask, "away_score_1h"], errors="coerce"
-                ).to_numpy(dtype=float)[split_idx_h1:]
+                ).to_numpy(dtype=float)[cal_start_h1:]
                 h1_actuals = (h1_home_actual > h1_away_actual).astype(float)
                 h1_coef, h1_intercept = _calibrate_probabilities(h1_margins, h1_actuals)
                 metrics["calibration_1h_coef"] = h1_coef
@@ -495,7 +512,7 @@ class ModelTrainer:
             )
             if len(y_q) < 100:
                 continue
-            split_q = int(len(X_q) * 0.85)
+            split_q = int(len(X_q) * 0.90)
             for alpha, label in [(0.1, "q10"), (0.9, "q90")]:
                 qparams = {
                     "objective": "reg:quantileerror",

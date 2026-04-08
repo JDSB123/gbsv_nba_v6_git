@@ -25,7 +25,7 @@ def test_margin_to_prob_negative():
 def test_feature_columns_count():
     cols = get_feature_columns()
     # Current engineered feature set excludes sparse live-only markets.
-    assert len(cols) == 129
+    assert len(cols) == 143
 
 
 def test_feature_columns_no_duplicates():
