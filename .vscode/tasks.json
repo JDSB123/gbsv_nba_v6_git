@@ -20,6 +20,9 @@
         "-ExecutionPolicy", "Bypass",
         "-File", "${workspaceFolder}/scripts/bootstrap-host.ps1"
       ],
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
