@@ -2,7 +2,6 @@ import json
 import logging
 import math
 import os
-from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from src.config import get_settings
 from src.db.models import Game, ModelRegistry, OddsSnapshot, Prediction
 from src.models.features import build_feature_vector, get_feature_columns
+from src.models.odds_utils import build_odds_detail, latest_snapshots
 from src.models.versioning import MODEL_VERSION
 from src.services.prediction_integrity import prediction_has_valid_score_payload
 
@@ -219,7 +219,9 @@ class Predictor:
                         ),
                         name="model_compat_alert",
                     )
-                    task.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+                    task.add_done_callback(
+                        lambda t: t.result() if not t.cancelled() and not t.exception() else None
+                    )
             except Exception:
                 pass  # alerting is best-effort
             return
@@ -510,25 +512,8 @@ class Predictor:
     def _latest_snapshots(
         snapshots: list[OddsSnapshot],
     ) -> tuple[list[OddsSnapshot], datetime | None]:
-        """Keep only the most-recent capture per bookmaker+market+outcome.
-
-        Returns the deduplicated list and the newest ``captured_at``.
-        """
-        best: dict[tuple[str, str, str], OddsSnapshot] = {}
-        newest: datetime | None = None
-        for s in snapshots:
-            key = (
-                cast(Any, s.bookmaker),
-                cast(Any, s.market),
-                cast(Any, s.outcome_name),
-            )
-            existing = best.get(key)
-            s_ts = cast(Any, s.captured_at)
-            if existing is None or s_ts > cast(Any, existing.captured_at):
-                best[key] = s
-            if newest is None or s_ts > newest:
-                newest = s_ts
-        return list(best.values()), newest
+        """Keep only the most-recent capture per bookmaker+market+outcome."""
+        return latest_snapshots(snapshots)
 
     @staticmethod
     def _build_odds_detail(
@@ -538,42 +523,7 @@ class Predictor:
         odds_ts: datetime | None,
     ) -> dict:
         """Build per-book odds breakdown for transparency."""
-        books: dict[str, dict[str, Any]] = defaultdict(dict)
-        for s in snapshots:
-            bk = cast(Any, s.bookmaker)
-            mkt = cast(Any, s.market)
-            outcome = cast(Any, s.outcome_name)
-            price = cast(Any, s.price)
-            point = cast(Any, s.point)
-            if mkt == "spreads" and outcome == home_name and point is not None:
-                books[bk]["spread"] = float(point)
-                books[bk]["spread_price"] = int(price) if price else None
-            elif mkt == "totals" and point is not None:
-                if outcome in ("Over", home_name):
-                    books[bk]["total"] = float(point)
-                    books[bk]["total_price"] = int(price) if price else None
-            elif mkt == "h2h":
-                if outcome == home_name:
-                    books[bk]["home_ml"] = int(price) if price else None
-                elif outcome == away_name:
-                    books[bk]["away_ml"] = int(price) if price else None
-            # ── 1H markets ──
-            elif mkt == "spreads_h1" and outcome == home_name and point is not None:
-                books[bk]["spread_h1"] = float(point)
-                books[bk]["spread_h1_price"] = int(price) if price else None
-            elif mkt == "totals_h1" and point is not None:
-                if outcome in ("Over", home_name):
-                    books[bk]["total_h1"] = float(point)
-                    books[bk]["total_h1_price"] = int(price) if price else None
-            elif mkt == "h2h_h1":
-                if outcome == home_name:
-                    books[bk]["home_ml_h1"] = int(price) if price else None
-                elif outcome == away_name:
-                    books[bk]["away_ml_h1"] = int(price) if price else None
-        return {
-            "captured_at": odds_ts.isoformat() + "Z" if odds_ts else None,
-            "books": dict(books),
-        }
+        return build_odds_detail(snapshots, home_name, away_name, odds_ts)
 
     async def _load_prediction_snapshots(
         self,
@@ -682,8 +632,7 @@ class Predictor:
             allowed_imputed = self._allowed_imputed_feature_count()
             if not self._can_tolerate_imputation(imputed_count):
                 logger.error(
-                    "Prediction skipped for game %s: %d/%d features required imputation "
-                    "(limit=%d)",
+                    "Prediction skipped for game %s: %d/%d features required imputation (limit=%d)",
                     game.id,
                     imputed_count,
                     len(self._inference_feature_cols),

@@ -67,18 +67,18 @@ class TestGetModelModifiedAt:
         model_file = tmp_path / "model_home_fg.json"
         model_file.write_text("{}")
 
-        with patch("src.notifications.teams._ARTIFACTS_DIR", tmp_path):
+        with patch("src.notifications._helpers._ARTIFACTS_DIR", tmp_path):
             result = _get_model_modified_at()
         assert "UTC" in result
         assert result != "unknown"
 
     def test_returns_unknown_when_no_files(self, tmp_path):
-        with patch("src.notifications.teams._ARTIFACTS_DIR", tmp_path):
+        with patch("src.notifications._helpers._ARTIFACTS_DIR", tmp_path):
             result = _get_model_modified_at()
         assert result == "unknown"
 
     def test_returns_unknown_on_exception(self):
-        with patch("src.notifications.teams._ARTIFACTS_DIR") as mock_dir:
+        with patch("src.notifications._helpers._ARTIFACTS_DIR") as mock_dir:
             mock_dir.glob.side_effect = PermissionError("denied")
             result = _get_model_modified_at()
         assert result == "unknown"

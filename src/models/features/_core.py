@@ -265,8 +265,17 @@ async def _recent_form(
                 features[f"{prefix}_{label}_pts_allowed_avg"] = float(np.mean(pts_allowed))
                 features[f"{prefix}_{label}_1h_pts_avg"] = float(np.mean(h1_scored))
                 features[f"{prefix}_{label}_1h_allowed_avg"] = float(np.mean(h1_allowed))
+
+                # Recency-weighted averages (exponential decay, λ=0.15)
+                # Most recent game index=0 gets highest weight
+                decay = 0.15
+                weights = np.array([math.exp(-decay * i) for i in range(len(recent))])
+                weights /= weights.sum()
+                features[f"{prefix}_{label}_pts_wavg"] = float(np.dot(weights, pts_scored))
+                features[f"{prefix}_{label}_pts_allowed_wavg"] = float(np.dot(weights, pts_allowed))
             else:
-                for k in ["pts_avg", "pts_allowed_avg", "1h_pts_avg", "1h_allowed_avg"]:
+                for k in ["pts_avg", "pts_allowed_avg", "1h_pts_avg", "1h_allowed_avg",
+                           "pts_wavg", "pts_allowed_wavg"]:
                     features[f"{prefix}_{label}_{k}"] = NaN
     return features
 
@@ -329,20 +338,29 @@ async def _injury_features(
             )
         )
         injuries = inj_result.scalars().all()
+
+        # Batch-fetch player averages for all injured players at once
+        player_ids = [inj.player_id for inj in injuries]
+        player_avg: dict[int, tuple[float, float]] = {}
+        if player_ids:
+            avg_result = await db.execute(
+                select(
+                    PlayerGameStats.player_id,
+                    func.avg(PlayerGameStats.points),
+                    func.avg(PlayerGameStats.minutes),
+                )
+                .where(PlayerGameStats.player_id.in_(player_ids))
+                .group_by(PlayerGameStats.player_id)
+            )
+            for row in avg_result.all():
+                player_avg[int(row[0])] = (float(row[1] or 0), float(row[2] or 0))
+
         injury_impact = 0.0
         injured_count = 0
         for inj in injuries:
             weight = INJURY_WEIGHTS.get(_as_str(cast(Any, inj.status)).lower(), 0.0)
             if weight > 0:
-                p_stats_result = await db.execute(
-                    select(
-                        func.avg(PlayerGameStats.points),
-                        func.avg(PlayerGameStats.minutes),
-                    ).where(PlayerGameStats.player_id == inj.player_id)
-                )
-                row = p_stats_result.one_or_none()
-                avg_pts = float(row[0] or 0) if row else 0.0
-                avg_min = float(row[1] or 0) if row else 0.0
+                avg_pts, avg_min = player_avg.get(inj.player_id, (0.0, 0.0))
                 injury_impact += weight * avg_pts * (avg_min / 30.0)
                 injured_count += 1
         features[f"{prefix}_injury_impact"] = injury_impact
@@ -418,9 +436,14 @@ async def _player_and_quarter_features(
             features[f"{prefix}_bench_pts_avg"] = (
                 float(np.mean(bench_pts_list)) if bench_pts_list else NaN
             )
-            features[f"{prefix}_bench_ratio"] = features[f"{prefix}_bench_pts_avg"] / max(
-                features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"],
-                1.0,
+            features[f"{prefix}_bench_ratio"] = (
+                features[f"{prefix}_bench_pts_avg"] / max(
+                    features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"],
+                    1.0,
+                )
+                if (math.isfinite(features[f"{prefix}_bench_pts_avg"])
+                    and math.isfinite(features[f"{prefix}_starter_pts_avg"]))
+                else NaN
             )
             features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else NaN
         else:
@@ -753,50 +776,68 @@ async def _elo_h2h_referee_features(
     away_tz = TEAM_TZ.get(away_name, -5)
     features["tz_diff"] = float(abs(home_tz - away_tz))
 
-    # Referee History
+    # Referee History — single batch query replaces per-ref N+1 loops
     ref_names = _assigned_referee_names(game)
     if ref_names:
-        ref_metrics = []
-        for name in ref_names:
-            ref_games_res = await db.execute(
-                select(Game)
-                .join(GameReferee)
-                .where(
-                    GameReferee.referee_name == name,
-                    Game.status == "FT",
-                    Game.commence_time < game.commence_time,
-                    Game.home_score_fg.is_not(None),
-                    Game.away_score_fg.is_not(None),
-                )
+        # Fetch all games officiated by any assigned referee in one query
+        ref_games_res = await db.execute(
+            select(Game, GameReferee.referee_name)
+            .join(GameReferee)
+            .where(
+                GameReferee.referee_name.in_(ref_names),
+                Game.status == "FT",
+                Game.commence_time < game.commence_time,
+                Game.home_score_fg.is_not(None),
+                Game.away_score_fg.is_not(None),
             )
-            ref_games = ref_games_res.scalars().all()
-            if ref_games:
-                pts = []
-                hw_pct = []
-                over_pct = []
-                for rg in ref_games:
-                    h_pts = _as_float(cast(Any, rg.home_score_fg))
-                    a_pts = _as_float(cast(Any, rg.away_score_fg))
-                    pts.append(h_pts + a_pts)
-                    hw_pct.append(1.0 if h_pts > a_pts else 0.0)
-                    total_res = await db.execute(
-                        select(OddsSnapshot.point)
-                        .where(
-                            OddsSnapshot.game_id == rg.id,
-                            OddsSnapshot.market == "totals",
-                        )
-                        .limit(1)
-                    )
-                    line = total_res.scalar()
-                    if line:
-                        over_pct.append(1.0 if (h_pts + a_pts) > _as_float(line) else 0.0)
-                ref_metrics.append(
-                    {
-                        "pts": float(np.mean(pts)),
-                        "hw": float(np.mean(hw_pct)),
-                        "over": float(np.mean(over_pct)) if over_pct else NaN,
-                    }
+        )
+        ref_rows = ref_games_res.all()
+
+        # Batch-fetch totals lines for all referee games in one query
+        ref_game_ids = list({int(cast(Any, row[0].id)) for row in ref_rows})
+        totals_by_game: dict[int, float] = {}
+        if ref_game_ids:
+            # Use a ranked subquery to get one totals line per game
+            totals_res = await db.execute(
+                select(OddsSnapshot.game_id, OddsSnapshot.point)
+                .where(
+                    OddsSnapshot.game_id.in_(ref_game_ids),
+                    OddsSnapshot.market == "totals",
+                    OddsSnapshot.point.is_not(None),
                 )
+                .distinct(OddsSnapshot.game_id)
+            )
+            for t_row in totals_res.all():
+                totals_by_game[int(t_row[0])] = _as_float(t_row[1])
+
+        # Group results by referee name
+        by_ref: dict[str, list[Game]] = {}
+        for rg, rname in ref_rows:
+            by_ref.setdefault(rname, []).append(rg)
+
+        ref_metrics = []
+        for _ref_name in ref_names:
+            ref_games = by_ref.get(_ref_name, [])
+            if not ref_games:
+                continue
+            pts = []
+            hw_pct = []
+            over_pct = []
+            for rg in ref_games:
+                h_pts = _as_float(cast(Any, rg.home_score_fg))
+                a_pts = _as_float(cast(Any, rg.away_score_fg))
+                pts.append(h_pts + a_pts)
+                hw_pct.append(1.0 if h_pts > a_pts else 0.0)
+                line = totals_by_game.get(int(cast(Any, rg.id)))
+                if line is not None:
+                    over_pct.append(1.0 if (h_pts + a_pts) > line else 0.0)
+            ref_metrics.append(
+                {
+                    "pts": float(np.mean(pts)),
+                    "hw": float(np.mean(hw_pct)),
+                    "over": float(np.mean(over_pct)) if over_pct else NaN,
+                }
+            )
         if ref_metrics:
             features["ref_avg_pts"] = float(np.mean([m["pts"] for m in ref_metrics]))
             features["ref_home_win_pct_bias"] = float(np.mean([m["hw"] for m in ref_metrics]))
@@ -1114,6 +1155,47 @@ def _interaction_features(
         "away_win_streak", NaN
     )
 
+    # ── Additional interaction features for accuracy ────────────
+    # Pace × total market line — captures tempo-adjusted total expectation
+    _mkt_total = features.get("mkt_total_avg", NaN)
+    out["pace_x_mkt_total"] = _exp_pace * _mkt_total if (
+        math.isfinite(_exp_pace) and math.isfinite(_mkt_total)
+    ) else NaN
+
+    # Recency momentum: weighted recent form differential
+    _h_l5w = features.get("home_l5_pts_wavg", NaN)
+    _a_l5w = features.get("away_l5_pts_wavg", NaN)
+    out["recent_form_diff"] = _h_l5w - _a_l5w
+
+    # Defensive matchup: home defense vs away offense
+    _h_def = features.get("home_def_rating", NaN)
+    _a_off = features.get("away_off_rating", NaN)
+    _a_def = features.get("away_def_rating", NaN)
+    _h_off = features.get("home_off_rating", NaN)
+    out["def_matchup_diff"] = (_h_def - _a_off) - (_a_def - _h_off)
+
+    # Market-model agreement signal: does market spread align with Elo?
+    _mkt_spread = features.get("mkt_spread_avg", NaN)
+    if math.isfinite(_elo_d) and math.isfinite(_mkt_spread):
+        # Elo diff in spread units: ~25 Elo = 1 point
+        elo_implied_spread = -_elo_d / 25.0
+        out["market_elo_disagreement"] = _mkt_spread - elo_implied_spread
+    else:
+        out["market_elo_disagreement"] = NaN
+
+    # Fatigue-scoring interaction: games in 7 days × scoring average
+    _h_g7d = features.get("home_games_7d", NaN)
+    _h_ppg = features.get("home_ppg", NaN)
+    out["home_fatigue_scoring"] = _h_g7d * _h_ppg if (
+        math.isfinite(_h_g7d) and math.isfinite(_h_ppg)
+    ) else NaN
+
+    _a_g7d = features.get("away_games_7d", NaN)
+    _a_ppg = features.get("away_ppg", NaN)
+    out["away_fatigue_scoring"] = _a_g7d * _a_ppg if (
+        math.isfinite(_a_g7d) and math.isfinite(_a_ppg)
+    ) else NaN
+
     # NaN prevalence check
     all_features = {**features, **out}
     total_feats = len(all_features)
@@ -1254,14 +1336,6 @@ def get_feature_columns() -> list[str]:
             "rest_diff",
         ]
     )
-    # ── Referee history ─────────────────────────────────────────
-    cols.extend(
-        [
-            "ref_avg_pts",
-            "ref_home_win_pct_bias",
-            "ref_over_pct",
-        ]
-    )
     # ── Market signals ──────────────────────────────────────────
     cols.extend(
         [
@@ -1322,6 +1396,36 @@ def get_feature_columns() -> list[str]:
             "venue_scoring_edge",
             "off_def_mismatch",
             "streak_diff",
+        ]
+    )
+    # ── NEW features (v6.6.0) ───────────────────────────────────
+    # Appended AFTER the 126 features the v6.5.0 models were trained
+    # on so compatibility-mode (first-N slice) stays aligned.
+    # These will be ignored until the next retrain.
+    for prefix in ["home", "away"]:
+        for label in ["l5", "l10"]:
+            cols.extend(
+                [
+                    f"{prefix}_{label}_pts_wavg",
+                    f"{prefix}_{label}_pts_allowed_wavg",
+                ]
+            )
+    cols.extend(
+        [
+            "pace_x_mkt_total",
+            "recent_form_diff",
+            "def_matchup_diff",
+            "market_elo_disagreement",
+            "home_fatigue_scoring",
+            "away_fatigue_scoring",
+        ]
+    )
+    # ── Referee history ─────────────────────────────────────────
+    cols.extend(
+        [
+            "ref_avg_pts",
+            "ref_home_win_pct_bias",
+            "ref_over_pct",
         ]
     )
     return cols

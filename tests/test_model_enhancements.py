@@ -268,7 +268,9 @@ class TestEnsembleStack:
         model = xgb.XGBRegressor(n_estimators=5, random_state=42)
         model.fit(X, y)
 
-        y_dict = {name: y for name in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]}
+        y_dict = {
+            name: y for name in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
         xgb_models = {name: model for name in y_dict}
         masks = {"fg": np.ones(30, dtype=bool), "1h": np.ones(30, dtype=bool)}
 
@@ -319,7 +321,7 @@ class TestFeatureColumnsV65:
         from src.models.features import get_feature_columns
 
         cols = get_feature_columns()
-        assert len(cols) == 129
+        assert len(cols) == 143
 
     def test_no_duplicates(self):
         from src.models.features import get_feature_columns
@@ -335,7 +337,7 @@ class TestVersioning:
     def test_version_bumped(self):
         from src.models.versioning import MODEL_VERSION
 
-        assert MODEL_VERSION == "v6.5.0"
+        assert MODEL_VERSION == "v6.6.0"
 
 
 # ── Predictor runtime status includes new components ─────────────

@@ -4,6 +4,7 @@
   "python.createEnvironment.trigger": "off",
   "python.createEnvironment.contentButton": "hide",
   "python.terminal.activateEnvironment": true,
+  "python.terminal.useEnvFile": true,
   "ruff.importStrategy": "useBundled",
   "ruff.nativeServer": "on",
   "ruff.configuration": "${workspaceFolder}/pyproject.toml",

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-_MOD = "src.notifications.teams"
+_MOD = "src.notifications._delivery"
 
 
 class TestAppBuildStamp:

@@ -153,21 +153,30 @@ if ($venvVersion -lt $MINIMUM_PYTHON_VERSION_OBJECT) {
 }
 
 if (-not $SkipDependencyInstall) {
-  Write-Host "Upgrading pip in .venv" -ForegroundColor Cyan
-  Invoke-CheckedCommand `
-    -Executable $VENV_PYTHON `
-    -Arguments @("-m", "pip", "install", "--upgrade", "pip") `
-    -FailureMessage "Failed to upgrade pip in .venv."
-
-  Write-Host "Installing repo dev dependencies into .venv" -ForegroundColor Cyan
-  Push-Location $ROOT
+  # Fast-path: skip install when the editable package is already importable (idempotent on folder-open).
+  $installedVersion = $null
   try {
+    $installedVersion = (& $VENV_PYTHON -c "import importlib.metadata; print(importlib.metadata.version('nba-gbsv-v6'))" 2>$null)
+  } catch {}
+  if ($LASTEXITCODE -eq 0 -and $installedVersion) {
+    Write-Host "Dependencies already installed (nba-gbsv-v6==$installedVersion). Skipping pip install." -ForegroundColor DarkGray
+  } else {
+    Write-Host "Upgrading pip in .venv" -ForegroundColor Cyan
     Invoke-CheckedCommand `
       -Executable $VENV_PYTHON `
-      -Arguments @("-m", "pip", "install", "-e", ".[dev]") `
-      -FailureMessage "Failed to install repo dependencies into .venv."
-  } finally {
-    Pop-Location
+      -Arguments @("-m", "pip", "install", "--upgrade", "pip") `
+      -FailureMessage "Failed to upgrade pip in .venv."
+
+    Write-Host "Installing repo dev dependencies into .venv" -ForegroundColor Cyan
+    Push-Location $ROOT
+    try {
+      Invoke-CheckedCommand `
+        -Executable $VENV_PYTHON `
+        -Arguments @("-m", "pip", "install", "-e", ".[dev]") `
+        -FailureMessage "Failed to install repo dependencies into .venv."
+    } finally {
+      Pop-Location
+    }
   }
 }
 
