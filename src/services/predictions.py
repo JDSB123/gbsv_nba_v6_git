@@ -56,7 +56,7 @@ class PredictionService:
         h1_total = _as_float(pred.h1_total)
 
         # ── Consensus lines from stored book data ───────────────
-        odds_sourced = pred.odds_sourced if isinstance(pred.odds_sourced, dict) else {}
+        odds_sourced: dict[str, Any] = pred.odds_sourced if isinstance(pred.odds_sourced, dict) else {}
         books = odds_sourced.get("books", {})
         captured_at = odds_sourced.get("captured_at")
 
@@ -216,7 +216,7 @@ class PredictionService:
         status = "actionable" if edges else "monitoring"
 
         # ── Consensus odds summary (replaces raw book dump) ─────
-        consensus = {}
+        consensus: dict[str, Any] = {}
         if books:
             for k in ("spread", "total", "spread_h1", "total_h1"):
                 v = _consensus(books, k)
@@ -224,9 +224,9 @@ class PredictionService:
                     consensus[k] = v
             for k in ("spread_price", "total_price", "home_ml", "away_ml",
                        "spread_h1_price", "total_h1_price", "home_ml_h1", "away_ml_h1"):
-                v = _consensus_price(books, k)
-                if v:
-                    consensus[k] = v
+                p = _consensus_price(books, k)
+                if p:
+                    consensus[k] = p
 
         return {
             "game_id": game.id,

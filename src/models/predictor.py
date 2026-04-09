@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import math
@@ -5,7 +7,12 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from src.models.ensemble import EnsembleStack
+    from src.models.explainability import Explainer
+    from src.models.ood import OODDetector
 
 import numpy as np
 import xgboost as xgb
@@ -70,9 +77,9 @@ def _margin_to_prob(
 class Predictor:
     # Class-level defaults for optional components so __new__ instances
     # (used in tests) don't raise AttributeError.
-    _ensemble: object | None = None
-    _ood: object | None = None
-    _explainer: object | None = None
+    _ensemble: EnsembleStack | None = None
+    _ood: OODDetector | None = None
+    _explainer: Explainer | None = None
     _quantile_models: dict = {}  # noqa: RUF012
 
     def __init__(self) -> None:
@@ -585,7 +592,7 @@ class Predictor:
             return None
 
         # ── Use stored odds from DB (refreshed by polling jobs) ──
-        core_snapshots, prop_snapshots = await self._load_prediction_snapshots(db, game.id)
+        core_snapshots, prop_snapshots = await self._load_prediction_snapshots(db, int(game.id))
         if not core_snapshots:
             logger.error(
                 "Prediction skipped for game %s: no stored odds snapshots available",
