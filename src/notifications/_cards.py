@@ -7,9 +7,9 @@ from typing import Any
 
 from src.models.versioning import MODEL_VERSION
 from src.notifications._helpers import (
+    _CST,
     MIN_EDGE,
     Pick,
-    _CST,
     _edge_color,
     _fire_emojis,
 )

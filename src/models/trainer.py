@@ -7,9 +7,9 @@ from typing import Any, cast
 
 import numpy as np
 import optuna
-from optuna.samplers import TPESampler
 import pandas as pd
 import xgboost as xgb
+from optuna.samplers import TPESampler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
@@ -429,7 +429,7 @@ class ModelTrainer:
             # Use a 3-way split to avoid leaking early-stopping holdout into calibration.
             split_train = int(len(X) * 0.80)
             split_estop = int(len(X) * 0.90)
-            X_fit, X_estop, X_cal_portion = (
+            X_fit, X_estop, _X_cal_portion = (
                 X[:split_train],
                 X[split_train:split_estop],
                 X[split_estop:],

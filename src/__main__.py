@@ -159,13 +159,13 @@ async def _summarize_upcoming_coverage(db: Any) -> dict[str, Any]:
 
 async def _run_predict() -> None:
     from src.data.scheduler import (
-        purge_invalid_upcoming_predictions,
         poll_1h_odds,
         poll_fg_odds,
         poll_injuries,
         poll_player_props,
         poll_scores_and_box,
         poll_stats,
+        purge_invalid_upcoming_predictions,
         sync_events_to_games,
     )
     from src.db.session import async_session_factory

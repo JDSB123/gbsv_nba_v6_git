@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import html as html_mod
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from src.models.versioning import MODEL_VERSION
-from src.notifications._helpers import MIN_EDGE, Pick, _CST
+from src.notifications._helpers import _CST, MIN_EDGE, Pick
 from src.notifications._picks import extract_picks
-
 
 # ── Small CSS/HTML helpers ─────────────────────────────────────────
 

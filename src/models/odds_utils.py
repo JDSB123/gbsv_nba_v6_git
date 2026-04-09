@@ -6,7 +6,6 @@ from typing import Any, cast
 
 from src.db.models import OddsSnapshot
 
-
 # ── Probability / American-odds conversions ────────────────────────
 
 

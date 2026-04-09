@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 from src.config import get_nba_avg_total
 from src.config import get_settings as _get_settings
-from src.models.versioning import MODEL_VERSION
 
 _ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "models" / "artifacts"
 
