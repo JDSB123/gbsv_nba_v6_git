@@ -360,7 +360,7 @@ async def _injury_features(
         for inj in injuries:
             weight = INJURY_WEIGHTS.get(_as_str(cast(Any, inj.status)).lower(), 0.0)
             if weight > 0:
-                avg_pts, avg_min = player_avg.get(inj.player_id, (0.0, 0.0))
+                avg_pts, avg_min = player_avg.get(int(inj.player_id), (0.0, 0.0))
                 injury_impact += weight * avg_pts * (avg_min / 30.0)
                 injured_count += 1
         features[f"{prefix}_injury_impact"] = injury_impact
