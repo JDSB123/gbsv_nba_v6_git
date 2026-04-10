@@ -56,7 +56,9 @@ class PredictionService:
         h1_total = _as_float(pred.h1_total)
 
         # ── Consensus lines from stored book data ───────────────
-        odds_sourced: dict[str, Any] = pred.odds_sourced if isinstance(pred.odds_sourced, dict) else {}
+        odds_sourced: dict[str, Any] = (
+            pred.odds_sourced if isinstance(pred.odds_sourced, dict) else {}
+        )
         books = odds_sourced.get("books", {})
         captured_at = odds_sourced.get("captured_at")
 
@@ -112,12 +114,18 @@ class PredictionService:
 
         # ── Spread pick builder ─────────────────────────────────
         def _spread_market(
-            model_val: float, edge_val: float | None, mkt_line: float | None, seg: str,
+            model_val: float,
+            edge_val: float | None,
+            mkt_line: float | None,
+            seg: str,
         ) -> dict:
             base: dict[str, Any] = {
                 "prediction": model_val,
                 "consensus_line": round(mkt_line, 1) if mkt_line is not None else None,
-                "pick": None, "edge": 0.0, "side": None, "actionable": False,
+                "pick": None,
+                "edge": 0.0,
+                "side": None,
+                "actionable": False,
                 "rationale": None,
             }
             if edge_val is None or mkt_line is None:
@@ -126,42 +134,52 @@ class PredictionService:
             side = home_name if pick_home else away_name
             e = round(abs(edge_val), 1)
             line = mkt_line if pick_home else -mkt_line
-            base.update({
-                "pick": f"{side} {line:+.1f}",
-                "edge": e,
-                "side": side,
-                "actionable": e >= min_edge,
-                "rationale": (
-                    f"Model: {home_name} by {model_val:+.1f} vs line {mkt_line:+.1f} "
-                    f"→ {e:.1f}pt edge on {side}"
-                ),
-            })
+            base.update(
+                {
+                    "pick": f"{side} {line:+.1f}",
+                    "edge": e,
+                    "side": side,
+                    "actionable": e >= min_edge,
+                    "rationale": (
+                        f"Model: {home_name} by {model_val:+.1f} vs line {mkt_line:+.1f} "
+                        f"→ {e:.1f}pt edge on {side}"
+                    ),
+                }
+            )
             return base
 
         # ── Total pick builder ──────────────────────────────────
         def _total_market(
-            model_val: float, edge_val: float | None, mkt_line: float | None, seg: str,
+            model_val: float,
+            edge_val: float | None,
+            mkt_line: float | None,
+            seg: str,
         ) -> dict:
             base: dict[str, Any] = {
                 "prediction": model_val,
                 "consensus_line": round(mkt_line, 1) if mkt_line is not None else None,
-                "pick": None, "edge": 0.0, "direction": None, "actionable": False,
+                "pick": None,
+                "edge": 0.0,
+                "direction": None,
+                "actionable": False,
                 "rationale": None,
             }
             if edge_val is None or mkt_line is None:
                 return base
             direction = "OVER" if edge_val > 0 else "UNDER"
             e = round(abs(edge_val), 1)
-            base.update({
-                "pick": f"{direction} {mkt_line:.1f}",
-                "edge": e,
-                "direction": direction,
-                "actionable": e >= min_edge,
-                "rationale": (
-                    f"Model total {model_val:.1f} vs line {mkt_line:.1f} "
-                    f"→ {e:.1f}pt {direction.lower()}"
-                ),
-            })
+            base.update(
+                {
+                    "pick": f"{direction} {mkt_line:.1f}",
+                    "edge": e,
+                    "direction": direction,
+                    "actionable": e >= min_edge,
+                    "rationale": (
+                        f"Model total {model_val:.1f} vs line {mkt_line:.1f} "
+                        f"→ {e:.1f}pt {direction.lower()}"
+                    ),
+                }
+            )
             return base
 
         # ── ML pick builder ─────────────────────────────────────
@@ -178,22 +196,28 @@ class PredictionService:
             base: dict[str, Any] = {
                 "home_prob": round(home_prob, 3),
                 "away_prob": round(1 - home_prob, 3),
-                "pick": None, "edge": 0.0, "win_prob": round(model_prob, 3),
+                "pick": None,
+                "edge": 0.0,
+                "win_prob": round(model_prob, 3),
                 "implied_prob": round(market_prob, 3) if market_prob is not None else None,
-                "odds": odds_str or None, "actionable": False, "rationale": None,
+                "odds": odds_str or None,
+                "actionable": False,
+                "rationale": None,
             }
             if prob_edge is not None and prob_edge > 0.02:
                 ml_pts = round(prob_edge * 33.3, 1)
                 m_str = f"{market_prob:.0%}" if market_prob is not None else "N/A"
-                base.update({
-                    "pick": f"{side} ML",
-                    "edge": ml_pts,
-                    "actionable": ml_pts >= min_edge,
-                    "rationale": (
-                        f"Model projects {side} by {abs(model_spread):.1f}pts. "
-                        f"Edge: {model_prob:.0%} win prob vs {m_str} implied ({odds_str or 'n/a'})"
-                    ),
-                })
+                base.update(
+                    {
+                        "pick": f"{side} ML",
+                        "edge": ml_pts,
+                        "actionable": ml_pts >= min_edge,
+                        "rationale": (
+                            f"Model projects {side} by {abs(model_spread):.1f}pts. "
+                            f"Edge: {model_prob:.0%} win prob vs {m_str} implied ({odds_str or 'n/a'})"
+                        ),
+                    }
+                )
             return base
 
         fg_sp = _spread_market(fg_spread, fg_spread_edge, mkt_spread, "FG")
@@ -201,12 +225,22 @@ class PredictionService:
         fg_tp = _total_market(fg_total, fg_total_edge, mkt_total, "FG")
         h1_tp = _total_market(h1_total, h1_total_edge, h1_mkt_total, "1H")
         fg_ml = _ml_market(
-            fg_home_ml_prob, fg_ml_pick_home, fg_ml_prob,
-            fg_mkt_prob, fg_ml_prob_edge, fg_ml_odds_str, fg_spread,
+            fg_home_ml_prob,
+            fg_ml_pick_home,
+            fg_ml_prob,
+            fg_mkt_prob,
+            fg_ml_prob_edge,
+            fg_ml_odds_str,
+            fg_spread,
         )
         h1_ml = _ml_market(
-            h1_home_ml_prob, h1_ml_pick_home, h1_ml_prob,
-            h1_mkt_prob, h1_ml_prob_edge, h1_ml_odds_str, h1_spread,
+            h1_home_ml_prob,
+            h1_ml_pick_home,
+            h1_ml_prob,
+            h1_mkt_prob,
+            h1_ml_prob_edge,
+            h1_ml_odds_str,
+            h1_spread,
         )
 
         # Collect actionable edges for status
@@ -222,8 +256,16 @@ class PredictionService:
                 v = _consensus(books, k)
                 if v is not None:
                     consensus[k] = v
-            for k in ("spread_price", "total_price", "home_ml", "away_ml",
-                       "spread_h1_price", "total_h1_price", "home_ml_h1", "away_ml_h1"):
+            for k in (
+                "spread_price",
+                "total_price",
+                "home_ml",
+                "away_ml",
+                "spread_h1_price",
+                "total_h1_price",
+                "home_ml_h1",
+                "away_ml_h1",
+            ):
                 p = _consensus_price(books, k)
                 if p:
                     consensus[k] = p
@@ -368,7 +410,11 @@ class PredictionService:
             return None
 
         pred = await self.repo.get_latest_prediction_for_game(game_id)
-        if not pred or not prediction_has_valid_payload(pred) or not self._prediction_has_fresh_odds(pred):
+        if (
+            not pred
+            or not prediction_has_valid_payload(pred)
+            or not self._prediction_has_fresh_odds(pred)
+        ):
             return {"game": game, "pred": None}
 
         result = self.format_prediction(pred, game)

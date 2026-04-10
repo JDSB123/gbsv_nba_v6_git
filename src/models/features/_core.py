@@ -195,7 +195,10 @@ def reset_elo_cache() -> None:
 
 
 async def _team_season_stats(
-    db: AsyncSession, home_id: int, away_id: int, season: str,
+    db: AsyncSession,
+    home_id: int,
+    away_id: int,
+    season: str,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -221,15 +224,24 @@ async def _team_season_stats(
             features[f"{prefix}_win_pct"] = win_pct
         else:
             for key in [
-                "ppg", "oppg", "wins", "losses", "pace",
-                "off_rating", "def_rating", "win_pct",
+                "ppg",
+                "oppg",
+                "wins",
+                "losses",
+                "pace",
+                "off_rating",
+                "def_rating",
+                "win_pct",
             ]:
                 features[f"{prefix}_{key}"] = NaN
     return features
 
 
 async def _recent_form(
-    db: AsyncSession, home_id: int, away_id: int, game: Any,
+    db: AsyncSession,
+    home_id: int,
+    away_id: int,
+    game: Any,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -274,14 +286,23 @@ async def _recent_form(
                 features[f"{prefix}_{label}_pts_wavg"] = float(np.dot(weights, pts_scored))
                 features[f"{prefix}_{label}_pts_allowed_wavg"] = float(np.dot(weights, pts_allowed))
             else:
-                for k in ["pts_avg", "pts_allowed_avg", "1h_pts_avg", "1h_allowed_avg",
-                           "pts_wavg", "pts_allowed_wavg"]:
+                for k in [
+                    "pts_avg",
+                    "pts_allowed_avg",
+                    "1h_pts_avg",
+                    "1h_allowed_avg",
+                    "pts_wavg",
+                    "pts_allowed_wavg",
+                ]:
                     features[f"{prefix}_{label}_{k}"] = NaN
     return features
 
 
 async def _schedule_features(
-    db: AsyncSession, home_id: int, away_id: int, game: Any,
+    db: AsyncSession,
+    home_id: int,
+    away_id: int,
+    game: Any,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     for prefix, team_id in [("home", home_id), ("away", away_id)]:
@@ -317,7 +338,10 @@ async def _schedule_features(
 
 
 async def _injury_features(
-    db: AsyncSession, home_id: int, away_id: int, game: Any,
+    db: AsyncSession,
+    home_id: int,
+    away_id: int,
+    game: Any,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     game_time = cast(Any, game.commence_time)
@@ -369,7 +393,10 @@ async def _injury_features(
 
 
 async def _player_and_quarter_features(
-    db: AsyncSession, home_id: int, away_id: int, game: Any,
+    db: AsyncSession,
+    home_id: int,
+    away_id: int,
+    game: Any,
 ) -> dict[str, float]:
     from collections import defaultdict
 
@@ -437,20 +464,29 @@ async def _player_and_quarter_features(
                 float(np.mean(bench_pts_list)) if bench_pts_list else NaN
             )
             features[f"{prefix}_bench_ratio"] = (
-                features[f"{prefix}_bench_pts_avg"] / max(
+                features[f"{prefix}_bench_pts_avg"]
+                / max(
                     features[f"{prefix}_starter_pts_avg"] + features[f"{prefix}_bench_pts_avg"],
                     1.0,
                 )
-                if (math.isfinite(features[f"{prefix}_bench_pts_avg"])
-                    and math.isfinite(features[f"{prefix}_starter_pts_avg"]))
+                if (
+                    math.isfinite(features[f"{prefix}_bench_pts_avg"])
+                    and math.isfinite(features[f"{prefix}_starter_pts_avg"])
+                )
                 else NaN
             )
             features[f"{prefix}_min_std"] = float(np.std(all_min)) if len(all_min) > 1 else NaN
         else:
             for k in [
-                "player_pts_avg", "player_ast_avg", "player_reb_avg",
-                "player_fg_pct", "player_3pt_pct", "starter_pts_avg",
-                "bench_pts_avg", "bench_ratio", "min_std",
+                "player_pts_avg",
+                "player_ast_avg",
+                "player_reb_avg",
+                "player_fg_pct",
+                "player_3pt_pct",
+                "starter_pts_avg",
+                "bench_pts_avg",
+                "bench_ratio",
+                "min_std",
             ]:
                 features[f"{prefix}_{k}"] = NaN
 
@@ -487,15 +523,24 @@ async def _player_and_quarter_features(
 
 
 async def _prop_consensus_features(
-    db: AsyncSession, game: Any, odds_snapshots: list | None,
+    db: AsyncSession,
+    game: Any,
+    odds_snapshots: list | None,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     prop_markets = [
-        "player_points", "player_rebounds", "player_assists",
-        "player_threes", "player_blocks", "player_steals",
-        "player_turnovers", "player_points_rebounds_assists",
-        "player_points_rebounds", "player_points_assists",
-        "player_rebounds_assists", "player_double_double",
+        "player_points",
+        "player_rebounds",
+        "player_assists",
+        "player_threes",
+        "player_blocks",
+        "player_steals",
+        "player_turnovers",
+        "player_points_rebounds_assists",
+        "player_points_rebounds",
+        "player_points_assists",
+        "player_rebounds_assists",
+        "player_double_double",
         "player_triple_double",
     ]
     if odds_snapshots is None:
@@ -578,13 +623,15 @@ async def _prop_consensus_features(
         features["prop_pra_avg_line"] = float(np.mean(pra_over)) if pra_over else NaN
 
         dd_yes = [
-            s for s in deduped_props
+            s
+            for s in deduped_props
             if _as_str(s.market) == "player_double_double" and _as_str(s.outcome_name) == "Yes"
         ]
         features["prop_dd_count"] = float(len(dd_yes))
 
         td_yes = [
-            s for s in deduped_props
+            s
+            for s in deduped_props
             if _as_str(s.market) == "player_triple_double" and _as_str(s.outcome_name) == "Yes"
         ]
         features["prop_td_count"] = float(len(td_yes))
@@ -625,7 +672,10 @@ async def _prop_consensus_features(
 
 
 async def _venue_and_streak_features(
-    db: AsyncSession, home_id: int, away_id: int, game: Any,
+    db: AsyncSession,
+    home_id: int,
+    away_id: int,
+    game: Any,
     prior: dict[str, float],
 ) -> dict[str, float]:
     features: dict[str, float] = {}
@@ -725,7 +775,10 @@ async def _venue_and_streak_features(
 
 
 async def _elo_h2h_referee_features(
-    db: AsyncSession, game: Any, home_id: int, away_id: int,
+    db: AsyncSession,
+    game: Any,
+    home_id: int,
+    away_id: int,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
 
@@ -855,7 +908,8 @@ async def _elo_h2h_referee_features(
 
 
 def _derived_features(
-    features: dict[str, float], game: Any,
+    features: dict[str, float],
+    game: Any,
 ) -> dict[str, float]:
     out: dict[str, float] = {}
 
@@ -876,9 +930,7 @@ def _derived_features(
     _h_def = features.get("home_def_rating", NaN)
     out["home_adj_off"] = _h_off - _a_def
     out["home_adj_def"] = _a_off - _h_def
-    out["rest_diff"] = features.get("home_rest_days", NaN) - features.get(
-        "away_rest_days", NaN
-    )
+    out["rest_diff"] = features.get("home_rest_days", NaN) - features.get("away_rest_days", NaN)
 
     # Matchup & Situational Styles
     _h_3pt = features.get("home_player_3pt_pct", NaN)
@@ -903,7 +955,10 @@ def _derived_features(
 
 
 async def _market_features(
-    db: AsyncSession, game: Any, odds_snapshots: list | None, home_name: str,
+    db: AsyncSession,
+    game: Any,
+    odds_snapshots: list | None,
+    home_name: str,
 ) -> dict[str, float]:
     features: dict[str, float] = {}
     if odds_snapshots is None:
@@ -1050,20 +1105,26 @@ async def _market_features(
         # Line movement: opening = first capture day, current = most recent capture day.
         # Comparing per capture_date prevents stale multi-week comparisons when the
         # archive holds many days of data.
-        spread_dates = sorted({
-            cast(Any, s.captured_at).date() if hasattr(cast(Any, s.captured_at), "date")
-            else cast(Any, s.captured_at)
-            for s in snapshots
-            if _as_str(s.market) == "spreads"
-            and s.point is not None
-            and _as_str(s.outcome_name) == home_name
-        })
-        total_dates = sorted({
-            cast(Any, s.captured_at).date() if hasattr(cast(Any, s.captured_at), "date")
-            else cast(Any, s.captured_at)
-            for s in snapshots
-            if _as_str(s.market) == "totals" and s.point is not None
-        })
+        spread_dates = sorted(
+            {
+                cast(Any, s.captured_at).date()
+                if hasattr(cast(Any, s.captured_at), "date")
+                else cast(Any, s.captured_at)
+                for s in snapshots
+                if _as_str(s.market) == "spreads"
+                and s.point is not None
+                and _as_str(s.outcome_name) == home_name
+            }
+        )
+        total_dates = sorted(
+            {
+                cast(Any, s.captured_at).date()
+                if hasattr(cast(Any, s.captured_at), "date")
+                else cast(Any, s.captured_at)
+                for s in snapshots
+                if _as_str(s.market) == "totals" and s.point is not None
+            }
+        )
         oldest_spread_date = spread_dates[0] if spread_dates else None
         latest_spread_date = spread_dates[-1] if spread_dates else None
         oldest_total_date = total_dates[0] if total_dates else None
@@ -1118,19 +1179,34 @@ async def _market_features(
         features["rlm_flag"] = 1.0 if spread_moved_toward_sharp else 0.0
     else:
         for k in [
-            "mkt_spread_avg", "mkt_spread_std", "mkt_total_avg", "mkt_total_std",
-            "mkt_1h_spread_avg", "mkt_1h_total_avg", "mkt_1h_home_ml_prob",
-            "mkt_home_ml_prob", "sharp_spread", "square_spread",
-            "sharp_square_spread_diff", "sharp_total", "square_total",
-            "sharp_square_total_diff", "sharp_ml_prob", "square_ml_prob",
-            "sharp_square_ml_diff", "spread_move", "total_move", "rlm_flag",
+            "mkt_spread_avg",
+            "mkt_spread_std",
+            "mkt_total_avg",
+            "mkt_total_std",
+            "mkt_1h_spread_avg",
+            "mkt_1h_total_avg",
+            "mkt_1h_home_ml_prob",
+            "mkt_home_ml_prob",
+            "sharp_spread",
+            "square_spread",
+            "sharp_square_spread_diff",
+            "sharp_total",
+            "square_total",
+            "sharp_square_total_diff",
+            "sharp_ml_prob",
+            "square_ml_prob",
+            "sharp_square_ml_diff",
+            "spread_move",
+            "total_move",
+            "rlm_flag",
         ]:
             features[k] = NaN
     return features
 
 
 def _interaction_features(
-    features: dict[str, float], game: Any,
+    features: dict[str, float],
+    game: Any,
 ) -> dict[str, float]:
     out: dict[str, float] = {}
 
@@ -1148,19 +1224,15 @@ def _interaction_features(
     out["venue_scoring_edge"] = features.get("home_venue_ppg", NaN) - features.get(
         "away_venue_ppg", NaN
     )
-    out["off_def_mismatch"] = features.get("home_adj_off", NaN) - features.get(
-        "home_adj_def", NaN
-    )
-    out["streak_diff"] = features.get("home_win_streak", NaN) - features.get(
-        "away_win_streak", NaN
-    )
+    out["off_def_mismatch"] = features.get("home_adj_off", NaN) - features.get("home_adj_def", NaN)
+    out["streak_diff"] = features.get("home_win_streak", NaN) - features.get("away_win_streak", NaN)
 
     # ── Additional interaction features for accuracy ────────────
     # Pace × total market line — captures tempo-adjusted total expectation
     _mkt_total = features.get("mkt_total_avg", NaN)
-    out["pace_x_mkt_total"] = _exp_pace * _mkt_total if (
-        math.isfinite(_exp_pace) and math.isfinite(_mkt_total)
-    ) else NaN
+    out["pace_x_mkt_total"] = (
+        _exp_pace * _mkt_total if (math.isfinite(_exp_pace) and math.isfinite(_mkt_total)) else NaN
+    )
 
     # Recency momentum: weighted recent form differential
     _h_l5w = features.get("home_l5_pts_wavg", NaN)
@@ -1186,15 +1258,15 @@ def _interaction_features(
     # Fatigue-scoring interaction: games in 7 days × scoring average
     _h_g7d = features.get("home_games_7d", NaN)
     _h_ppg = features.get("home_ppg", NaN)
-    out["home_fatigue_scoring"] = _h_g7d * _h_ppg if (
-        math.isfinite(_h_g7d) and math.isfinite(_h_ppg)
-    ) else NaN
+    out["home_fatigue_scoring"] = (
+        _h_g7d * _h_ppg if (math.isfinite(_h_g7d) and math.isfinite(_h_ppg)) else NaN
+    )
 
     _a_g7d = features.get("away_games_7d", NaN)
     _a_ppg = features.get("away_ppg", NaN)
-    out["away_fatigue_scoring"] = _a_g7d * _a_ppg if (
-        math.isfinite(_a_g7d) and math.isfinite(_a_ppg)
-    ) else NaN
+    out["away_fatigue_scoring"] = (
+        _a_g7d * _a_ppg if (math.isfinite(_a_g7d) and math.isfinite(_a_ppg)) else NaN
+    )
 
     # NaN prevalence check
     all_features = {**features, **out}
