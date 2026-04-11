@@ -84,11 +84,23 @@ class PredictionService:
         )
 
         min_edge = self.settings.min_edge
+        min_edge_spread = self.settings.min_edge_spread
+        min_edge_total = self.settings.min_edge_total
+        min_edge_ml = self.settings.min_edge_ml
+        blend_alpha = self.settings.market_blend_alpha
 
         # ── Edge calculations ───────────────────────────────────
         # Spread: edge = market_line + model_spread (+ = HOME better than market)
-        fg_spread_edge = round(mkt_spread + fg_spread, 1) if mkt_spread is not None else None
-        h1_spread_edge = round(h1_mkt_spread + h1_spread, 1) if h1_mkt_spread is not None else None
+        # Apply market-blend shrinkage so the model doesn't always
+        # pick dogs due to regression-to-mean without market features.
+        def _blended_spread_edge(model_spr: float, mkt_spr: float | None) -> float | None:
+            if mkt_spr is None:
+                return None
+            raw = mkt_spr + model_spr  # standard edge
+            return round(raw * blend_alpha, 1)
+
+        fg_spread_edge = _blended_spread_edge(fg_spread, mkt_spread)
+        h1_spread_edge = _blended_spread_edge(h1_spread, h1_mkt_spread)
         fg_total_edge = round(fg_total - mkt_total, 1) if mkt_total is not None else None
         h1_total_edge = round(h1_total - h1_mkt_total, 1) if h1_mkt_total is not None else None
 
@@ -139,7 +151,7 @@ class PredictionService:
                     "pick": f"{side} {line:+.1f}",
                     "edge": e,
                     "side": side,
-                    "actionable": e >= min_edge,
+                    "actionable": e >= min_edge_spread,
                     "rationale": (
                         f"Model: {home_name} by {model_val:+.1f} vs line {mkt_line:+.1f} "
                         f"→ {e:.1f}pt edge on {side}"
@@ -173,7 +185,7 @@ class PredictionService:
                     "pick": f"{direction} {mkt_line:.1f}",
                     "edge": e,
                     "direction": direction,
-                    "actionable": e >= min_edge,
+                    "actionable": e >= min_edge_total,
                     "rationale": (
                         f"Model total {model_val:.1f} vs line {mkt_line:.1f} "
                         f"→ {e:.1f}pt {direction.lower()}"
@@ -204,20 +216,37 @@ class PredictionService:
                 "actionable": False,
                 "rationale": None,
             }
-            if prob_edge is not None and prob_edge > 0.02:
-                ml_pts = round(prob_edge * 33.3, 1)
+            # EV-based edge: treats favourites and dogs symmetrically.
+            # decimal_payout = how much $1 returns (including stake).
+            # EV = model_prob * payout - 1  (positive = +EV bet)
+            # Scale to "edge points" as EV * 100 for threshold comparison.
+            if odds_str and prob_edge is not None:
+                try:
+                    odds_num = float(odds_str.replace("+", ""))
+                    if odds_num > 0:
+                        decimal_payout = 1 + odds_num / 100
+                    elif odds_num < 0:
+                        decimal_payout = 1 + 100 / abs(odds_num)
+                    else:
+                        decimal_payout = 2.0  # even money
+                    ev = model_prob * decimal_payout - 1
+                    ml_pts = round(ev * 100, 1)  # percentage EV → "points"
+                except (ValueError, ZeroDivisionError):
+                    ml_pts = 0.0
                 m_str = f"{market_prob:.0%}" if market_prob is not None else "N/A"
-                base.update(
-                    {
-                        "pick": f"{side} ML",
-                        "edge": ml_pts,
-                        "actionable": ml_pts >= min_edge,
-                        "rationale": (
-                            f"Model projects {side} by {abs(model_spread):.1f}pts. "
-                            f"Edge: {model_prob:.0%} win prob vs {m_str} implied ({odds_str or 'n/a'})"
-                        ),
-                    }
-                )
+                if ml_pts > 0:
+                    base.update(
+                        {
+                            "pick": f"{side} ML",
+                            "edge": ml_pts,
+                            "actionable": ml_pts >= min_edge_ml,
+                            "rationale": (
+                                f"Model projects {side} by {abs(model_spread):.1f}pts. "
+                                f"EV {ml_pts:.1f}%: {model_prob:.0%} win prob vs "
+                                f"{m_str} implied ({odds_str or 'n/a'})"
+                            ),
+                        }
+                    )
             return base
 
         fg_sp = _spread_market(fg_spread, fg_spread_edge, mkt_spread, "FG")

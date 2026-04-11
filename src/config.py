@@ -85,9 +85,13 @@ class Settings(BaseSettings):
 
     # ── NBA constants ─────────────────────────────────────────────
     nba_avg_total: float = 230.0  # league-average total for edge calcs
-    min_edge: float = 6.0  # minimum edge (pts) for a pick to qualify
+    min_edge: float = 6.0  # minimum edge (pts) for a pick to qualify (legacy fallback)
+    min_edge_spread: float = 4.0  # spread market threshold (pts)
+    min_edge_total: float = 3.0  # total market threshold (pts)
+    min_edge_ml: float = 3.0  # moneyline market threshold (EV pts)
     edge_thresholds: list[float] = [6.0, 7.0, 8.5, 10.0, 12.0]
     american_vig: int = 110  # standard -110 vig
+    market_blend_alpha: float = 0.55  # spread blend: 55% model, 45% market
     server_port: int = 8000
 
     # ── Model governance / promotion gates ─────────────────────

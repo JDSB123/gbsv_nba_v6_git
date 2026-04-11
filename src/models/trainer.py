@@ -594,6 +594,12 @@ class ModelTrainer:
         except Exception:
             logger.warning("OOD detector fitting failed; continuing without", exc_info=True)
 
+        # Save the actual feature columns used for training (may differ from
+        # get_feature_columns() when all-NaN columns were pruned).
+        (ARTIFACTS_DIR / "trained_feature_cols.json").write_text(
+            json.dumps(self.feature_cols, indent=2)
+        )
+
         # Save metrics
         metrics_path = ARTIFACTS_DIR / "metrics.json"
         metrics_path.write_text(json.dumps(metrics, indent=2))

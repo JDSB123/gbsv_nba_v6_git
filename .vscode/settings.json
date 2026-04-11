@@ -4,7 +4,20 @@
   "python.createEnvironment.trigger": "off",
   "python.createEnvironment.contentButton": "hide",
   "python.terminal.activateEnvironment": true,
+  "python.terminal.activateEnvInCurrentTerminal": true,
   "python.terminal.useEnvFile": true,
+
+  "terminal.integrated.defaultProfile.windows": "PowerShell (venv)",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell (venv)": {
+      "source": "PowerShell",
+      "args": ["-NoExit", "-Command", "& '${workspaceFolder}/.venv/Scripts/Activate.ps1'"]
+    },
+    "PowerShell": {
+      "source": "PowerShell"
+    }
+  },
+
   "ruff.importStrategy": "useBundled",
   "ruff.nativeServer": "on",
   "ruff.configuration": "${workspaceFolder}/pyproject.toml",
