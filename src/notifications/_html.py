@@ -467,7 +467,7 @@ def _build_data_source_status(
             "Injuries",
             ds.get(
                 "injury_detail",
-                "NBA API v2 endpoint unavailable &middot; features imputed as neutral",
+                "No API source available &middot; features imputed as neutral",
             ),
         ),
         (
@@ -475,7 +475,7 @@ def _build_data_source_status(
             "Referees",
             ds.get(
                 "referee_detail",
-                "NBA API v2 rate-limited (free tier) &middot; features excluded from model",
+                "No API source available &middot; features imputed as neutral",
             ),
         ),
         (

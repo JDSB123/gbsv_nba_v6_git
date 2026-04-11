@@ -10,7 +10,6 @@ from src.data.scheduler import (
     daily_retrain,
     db_maintenance,
     generate_predictions_and_publish,
-    poll_injuries,
     pregame_check,
     prune_old_odds,
 )
@@ -52,33 +51,6 @@ class TestDailyRetrain:
                 ):
                     await daily_retrain()
                     mock_rec.assert_called_once()
-
-
-# -- poll_injuries --
-
-
-class TestPollInjuries:
-    @pytest.mark.anyio
-    async def test_injuries_success(self):
-        with patch("src.data.basketball_client.BasketballClient") as mock_cls:
-            mock_client = MagicMock()
-            mock_client.fetch_injuries = AsyncMock(return_value=[{"player": "test"}])
-            mock_client.persist_injuries = AsyncMock(return_value=5)
-            mock_cls.return_value = mock_client
-            with patch(f"{_POLL}.async_session_factory") as mock_sf:
-                mock_db = AsyncMock()
-                mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-                mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-                await poll_injuries()
-                mock_client.fetch_injuries.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_injuries_none(self):
-        with patch("src.data.basketball_client.BasketballClient") as mock_cls:
-            mock_client = MagicMock()
-            mock_client.fetch_injuries = AsyncMock(return_value=None)
-            mock_cls.return_value = mock_client
-            await poll_injuries()
 
 
 # -- pregame_check --
@@ -125,7 +97,6 @@ class TestGeneratePredictionsAndPublish:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),

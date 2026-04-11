@@ -18,7 +18,6 @@ from src.data.scheduler import (
     fill_clv,
     poll_1h_odds,
     poll_fg_odds,
-    poll_injuries,
     poll_player_props,
     poll_scores_and_box,
     poll_stats,
@@ -212,38 +211,6 @@ class TestPollScoresAndBox:
         mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
 
         await poll_scores_and_box()
-
-
-# -- poll_injuries --
-
-
-class TestPollInjuries:
-    @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF_POLL)
-    async def test_persists_injuries(self, mock_sf, mock_cls):
-        mock_client = mock_cls.return_value
-        mock_client.fetch_injuries = AsyncMock(return_value=[{"player": {"id": 1}}])
-        mock_client.persist_injuries = AsyncMock(return_value=5)
-
-        mock_db = AsyncMock()
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        await poll_injuries()
-
-        mock_client.persist_injuries.assert_awaited_once()
-
-    @patch("src.data.basketball_client.BasketballClient")
-    @patch(_SF_POLL)
-    async def test_handles_no_injuries(self, mock_sf, mock_cls):
-        mock_client = mock_cls.return_value
-        mock_client.fetch_injuries = AsyncMock(return_value=[])
-
-        mock_db = AsyncMock()
-        mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        await poll_injuries()
 
 
 # -- sync_events_to_games --

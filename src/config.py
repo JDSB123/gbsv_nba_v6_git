@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     # ── API base URLs ─────────────────────────────────────────────
     odds_api_base: str = "https://api.the-odds-api.com/v4"
     basketball_api_base: str = "https://v1.basketball.api-sports.io"
-    nba_api_base: str = "https://v2.nba.api-sports.io"
 
     # ── NBA constants ─────────────────────────────────────────────
     odds_api_sport_key: str = "basketball_nba"
@@ -52,7 +51,6 @@ class Settings(BaseSettings):
     odds_fg_interval: int = 15
     odds_1h_interval: int = 30
     stats_interval: int = 120
-    injuries_interval: int = 120
     retrain_hour: int = 6  # 6am ET daily retrain
     morning_slate_hour: int = 10  # 10am ET = 9am CST daily publish
     pregame_lead_minutes: int = 60  # publish this many min before first tip
@@ -75,9 +73,6 @@ class Settings(BaseSettings):
     odds_api_markets_fg: str = "h2h,spreads,totals"
     odds_api_markets_1h: str = "h2h_h1,spreads_h1,totals_h1"
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
-
-    # ── NBA API v2 (injuries/referees) ────────────────────────────
-    nba_api_v2_enabled: bool = False  # disabled: free tier exhausted, /players/injuries dead
 
     # ── Database pool ──────────────────────────────────────────────
     db_pool_size: int = 5

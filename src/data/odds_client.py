@@ -6,12 +6,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.config import get_settings
 from src.db.models import Game, GameOddsArchive, OddsSnapshot
@@ -228,7 +223,7 @@ class OddsClient:
                             continue
                         try:
                             price = float(price)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             logger.debug("Skipping outcome with invalid price: %s", price)
                             continue
 
@@ -236,7 +231,7 @@ class OddsClient:
                         if point is not None:
                             try:
                                 point = float(point)
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 point = None
 
                         name = outcome.get("name")
@@ -257,18 +252,20 @@ class OddsClient:
                         db.add(snapshot)
                         count += 1
                         # Collect for permanent archive (first-seen per day)
-                        archive_rows.append({
-                            "game_id": game_id,
-                            "source": "odds_api",
-                            "bookmaker": bk_name,
-                            "market": market_key,
-                            "outcome_name": name[:128],
-                            "description": outcome.get("description"),
-                            "price": price,
-                            "point": point,
-                            "capture_date": capture_date,
-                            "captured_at": now,
-                        })
+                        archive_rows.append(
+                            {
+                                "game_id": game_id,
+                                "source": "odds_api",
+                                "bookmaker": bk_name,
+                                "market": market_key,
+                                "outcome_name": name[:128],
+                                "description": outcome.get("description"),
+                                "price": price,
+                                "point": point,
+                                "capture_date": capture_date,
+                                "captured_at": now,
+                            }
+                        )
         # Batch-insert into permanent archive using ON CONFLICT DO NOTHING so we
         # keep the FIRST snapshot of each day for every game/bookmaker/market/outcome.
         if archive_rows:
@@ -277,7 +274,11 @@ class OddsClient:
                 .values(archive_rows)
                 .on_conflict_do_nothing(
                     index_elements=[
-                        "game_id", "bookmaker", "market", "outcome_name", "capture_date",
+                        "game_id",
+                        "bookmaker",
+                        "market",
+                        "outcome_name",
+                        "capture_date",
                     ]
                 )
             )
@@ -303,4 +304,3 @@ class OddsClient:
         else:
             logger.info("Persisted %d odds snapshots (all events matched)", count)
         return count
-

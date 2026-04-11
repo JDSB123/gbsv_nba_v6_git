@@ -89,20 +89,6 @@ class TestPollStatsException:
             mock_record.assert_awaited_once()
 
 
-class TestPollInjuriesException:
-    @pytest.mark.anyio
-    async def test_poll_injuries_exception_logged(self):
-        with patch("src.data.basketball_client.BasketballClient") as MockClient:
-            client = AsyncMock()
-            client.fetch_injuries = AsyncMock(side_effect=Exception("injuries error"))
-            MockClient.return_value = client
-
-            from src.data.scheduler import poll_injuries
-
-            await poll_injuries()
-            # Should not raise -- just log error
-
-
 class TestPregameCheckException:
     @pytest.mark.anyio
     async def test_pregame_check_exception_logged(self):
@@ -149,7 +135,6 @@ class TestGeneratePredictionsException:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),

@@ -25,7 +25,6 @@ from src.data.jobs.polling import (  # noqa: F401
     daily_retrain,
     poll_1h_odds,
     poll_fg_odds,
-    poll_injuries,
     poll_player_props,
     poll_scores_and_box,
     poll_stats,
@@ -85,12 +84,6 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(fill_clv, "interval", minutes=90, id="fill_clv")
     scheduler.add_job(
         daily_retrain, "cron", hour=settings.retrain_hour, minute=0, id="daily_retrain"
-    )
-    scheduler.add_job(
-        poll_injuries,
-        "interval",
-        minutes=settings.injuries_interval,
-        id="poll_injuries",
     )
     scheduler.add_job(
         check_prediction_drift,

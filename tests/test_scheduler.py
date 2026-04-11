@@ -25,7 +25,6 @@ def test_create_scheduler_registers_all_jobs():
         "pregame_check",
         "fill_clv",
         "daily_retrain",
-        "poll_injuries",
         "check_prediction_drift",
         "prune_old_odds",
         "db_maintenance",
@@ -37,7 +36,7 @@ def test_create_scheduler_registers_all_jobs():
 
 def test_create_scheduler_job_count():
     scheduler = create_scheduler()
-    assert len(scheduler.get_jobs()) == 17
+    assert len(scheduler.get_jobs()) == 16
 
 
 def test_create_scheduler_timezone():

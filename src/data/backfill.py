@@ -139,16 +139,7 @@ async def run_backfill(season: str | None = None, days_back: int = 90) -> None:
         except Exception:
             logger.exception("Odds fetch failed during backfill; continuing without odds snapshots")
 
-        # ── 7. Injury report ──────────────────────────────────────
-        logger.info("Step 7/7: Fetching injury report ...")
-        try:
-            injuries = await bball.fetch_injuries(season=resolved_season)
-            if injuries:
-                count = await bball.persist_injuries(injuries, db)
-                logger.info("  Loaded %d injuries", count)
-            else:
-                logger.info("  No injury data available")
-        except Exception:
-            logger.exception("Injury fetch failed during backfill; continuing without injury data")
+        # ── 7. Injury report (no API source available) ─────────
+        logger.info("Step 7/7: Injury data — no API source available; skipping")
 
     logger.info("Backfill complete.")

@@ -85,7 +85,6 @@ def _resolve_job(job_name: str):
     from src.data.jobs.polling import (
         poll_1h_odds,
         poll_fg_odds,
-        poll_injuries,
         poll_player_props,
         poll_scores_and_box,
         poll_stats,
@@ -97,6 +96,5 @@ def _resolve_job(job_name: str):
         "poll_player_props": poll_player_props,
         "poll_stats": poll_stats,
         "poll_scores_and_box": poll_scores_and_box,
-        "poll_injuries": poll_injuries,
     }
     return registry.get(job_name)

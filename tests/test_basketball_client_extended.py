@@ -1,14 +1,13 @@
 """Tests for BasketballClient — _get, _headers, _resolve_season,
 normalize_team_stats, _compute_advanced_stats, _pct_to_decimal,
 persist_teams, persist_games, persist_team_season_stats,
-persist_player_game_stats, persist_injuries, INJURY_STATUS_MAP.
+persist_player_game_stats.
 """
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.data.basketball_client import (
-    INJURY_STATUS_MAP,
     BasketballClient,
     _as_float,
     _as_int,
@@ -110,16 +109,6 @@ class TestComputeAdvancedStats:
         assert def_r is None
 
 
-class TestInjuryStatusMap:
-    def test_known_statuses(self):
-        assert INJURY_STATUS_MAP["out"] == "out"
-        assert INJURY_STATUS_MAP["out for season"] == "out"
-        assert INJURY_STATUS_MAP["doubtful"] == "doubtful"
-        assert INJURY_STATUS_MAP["day-to-day"] == "questionable"
-        assert INJURY_STATUS_MAP["questionable"] == "questionable"
-        assert INJURY_STATUS_MAP["probable"] == "probable"
-
-
 # ── Client construction ──────────────────────────────────────────
 
 
@@ -130,7 +119,6 @@ class TestClientConstruction:
                 basketball_api_base="https://api.example.com",
                 basketball_api_key="test-key-123",
                 basketball_api_league_id=12,
-                nba_api_base="https://nba.example.com",
             )
             client = BasketballClient()
             headers = client._headers()
@@ -142,7 +130,6 @@ class TestClientConstruction:
                 basketball_api_base="https://api.example.com",
                 basketball_api_key="key",
                 basketball_api_league_id=12,
-                nba_api_base="https://nba.example.com",
             )
             client = BasketballClient()
             assert client._resolve_season("2024-2025") == "2024-2025"
@@ -153,7 +140,6 @@ class TestClientConstruction:
                 basketball_api_base="https://api.example.com",
                 basketball_api_key="key",
                 basketball_api_league_id=12,
-                nba_api_base="https://nba.example.com",
             )
             client = BasketballClient()
             result = client._resolve_season(None)
@@ -181,7 +167,6 @@ class TestGet:
                 basketball_api_base="https://api.example.com",
                 basketball_api_key="key",
                 basketball_api_league_id=12,
-                nba_api_base="https://nba.example.com",
             )
             client = BasketballClient()
             result = await client._get("games", {"date": "2025-01-15"})

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
 from src.config import get_settings
-from src.db.models import Game, Injury, OddsSnapshot, Prediction, TeamSeasonStats
+from src.db.models import Game, OddsSnapshot, Prediction, TeamSeasonStats
 from src.db.session import get_db
 from src.models.predictor import Predictor
 
@@ -100,18 +100,6 @@ async def health_freshness(db: AsyncSession = Depends(get_db)):
     else:
         sources["odds"] = {"status": "missing"}
 
-    # Injuries
-    latest_injury = (await db.execute(select(sa_func.max(Injury.reported_at)))).scalar_one_or_none()
-    if latest_injury:
-        age = (datetime.now(UTC) - latest_injury.replace(tzinfo=UTC)).total_seconds() / 60
-        sources["injuries"] = {
-            "latest": latest_injury.isoformat(),
-            "age_minutes": round(age, 1),
-            "status": "fresh" if age < 180 else "stale",
-        }
-    else:
-        sources["injuries"] = {"status": "missing"}
-
     # Latest prediction
     latest_pred = (
         await db.execute(select(sa_func.max(Prediction.predicted_at)))
@@ -151,8 +139,7 @@ async def health_data_sources(db: AsyncSession = Depends(get_db)):
     # Re-run checks if never run (API-only mode, no worker) or stale (>5 min)
     cached, checked_at = get_last_check()
     if not cached or (
-        checked_at
-        and (datetime.now(UTC).replace(tzinfo=None) - checked_at).total_seconds() > 300
+        checked_at and (datetime.now(UTC).replace(tzinfo=None) - checked_at).total_seconds() > 300
     ):
         cached = await run_startup_health_check()
         checked_at = datetime.now(UTC).replace(tzinfo=None)
@@ -172,8 +159,7 @@ async def health_data_sources(db: AsyncSession = Depends(get_db)):
 
     bk_result = await db.execute(
         select(distinct(OddsSnapshot.bookmaker)).where(
-            OddsSnapshot.captured_at
-            >= datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=24)
+            OddsSnapshot.captured_at >= datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=24)
         )
     )
     active_bookmakers = sorted([row[0] for row in bk_result.fetchall()])
@@ -185,18 +171,19 @@ async def health_data_sources(db: AsyncSession = Depends(get_db)):
             "regions": settings.odds_api_regions,
             "markets_fg": settings.odds_api_markets_fg,
             "markets_1h": settings.odds_api_markets_1h,
-            "nba_api_v2_enabled": settings.nba_api_v2_enabled,
             "odds_fg_interval_min": settings.odds_fg_interval,
             "odds_1h_interval_min": settings.odds_1h_interval,
-            "injuries_interval_min": settings.injuries_interval,
         },
         "freshness": {
             "odds_latest": latest_odds.isoformat() if latest_odds else None,
             "odds_age_minutes": odds_age,
             "odds_status": (
-                "fresh" if odds_age and odds_age < 30
-                else "stale" if odds_age and odds_age < 120
-                else "very_stale" if odds_age
+                "fresh"
+                if odds_age and odds_age < 30
+                else "stale"
+                if odds_age and odds_age < 120
+                else "very_stale"
+                if odds_age
                 else "missing"
             ),
         },

@@ -55,7 +55,7 @@ def pick_rows(p):
         act = m.get("actionable", False)
         rat = m.get("rationale") or ""
         rows.append(f"""
-        <tr class="{'actionable' if act else 'monitoring'}">
+        <tr class="{"actionable" if act else "monitoring"}">
             <td>{label}</td>
             <td><strong>{pick}</strong></td>
             <td class="{edge_class(edge)}">{edge:.1f}</td>
@@ -120,10 +120,7 @@ actionable_count = sum(
 games_with_1h = sum(
     1
     for p in preds
-    if any(
-        p["markets"].get(k, {}).get("pick")
-        for k in ("h1_spread", "h1_total", "h1_moneyline")
-    )
+    if any(p["markets"].get(k, {}).get("pick") for k in ("h1_spread", "h1_total", "h1_moneyline"))
 )
 
 # ── Per-game odds detail rows ────────────────────────────────────
@@ -163,10 +160,18 @@ data_sources = [
     ("✅", "Elo / H2H", "Rolling Elo ratings + head-to-head history"),
     ("✅", "Schedule / Rest", "Days-rest, B2B, travel distance"),
     ("✅", "Venue / Streak", "Home/away splits, win/loss streaks"),
-    ("❌", "Injuries", "NBA API v2 endpoint does not exist — features imputed as neutral"),
-    ("❌", "Referees", "NBA API v2 rate-limited (free tier exhausted) — features excluded from model"),
+    ("❌", "Injuries", "No API source available — features imputed as neutral"),
+    (
+        "❌",
+        "Referees",
+        "No API source available — features imputed as neutral",
+    ),
     ("⚠️", "Player Props", "3 of 13 prop features active (pts_count, DD_count, TD_count)"),
-    ("❌", "Sharp/Square Market", "All market-microstructure features pruned during training (insufficient data)"),
+    (
+        "❌",
+        "Sharp/Square Market",
+        "All market-microstructure features pruned during training (insufficient data)",
+    ),
 ]
 
 ds_rows = "\n".join(

@@ -224,15 +224,12 @@ async def test_health_freshness_all_data():
             # max(OddsSnapshot.captured_at) - fresh
             return _scalar_result(now - timedelta(minutes=5))
         elif call_count == 2:
-            # max(Injury.reported_at)
-            return _scalar_result(now - timedelta(hours=1))
-        elif call_count == 3:
             # max(Prediction.predicted_at)
             return _scalar_result(now - timedelta(minutes=30))
-        elif call_count == 4:
+        elif call_count == 3:
             # count NS
             return _scalar_result(8)
-        elif call_count == 5:
+        elif call_count == 4:
             # count FT
             return _scalar_result(100)
         return _scalar_result(None)
@@ -250,7 +247,6 @@ async def test_health_freshness_all_data():
         assert resp.status_code == 200
         data = resp.json()
         assert data["odds"]["status"] == "fresh"
-        assert data["injuries"]["status"] == "fresh"
         assert "predictions" in data
         assert data["games"]["upcoming"] == 8
         assert data["games"]["completed"] == 100
@@ -266,9 +262,9 @@ async def test_health_freshness_missing_data():
     async def mock_execute(query):
         nonlocal call_count
         call_count += 1
-        if call_count in (1, 2, 3):
+        if call_count in (1, 2):
             return _scalar_result(None)
-        elif call_count == 4 or call_count == 5:
+        elif call_count == 3 or call_count == 4:
             return _scalar_result(0)
         return _scalar_result(None)
 
@@ -284,7 +280,6 @@ async def test_health_freshness_missing_data():
             resp = await client.get("/health/freshness")
         data = resp.json()
         assert data["odds"]["status"] == "missing"
-        assert data["injuries"]["status"] == "missing"
         assert data["predictions"]["status"] == "missing"
     finally:
         app.dependency_overrides.clear()

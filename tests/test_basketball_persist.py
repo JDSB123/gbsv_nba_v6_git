@@ -23,7 +23,6 @@ def client():
         s.basketball_api_base = "https://api.example.com"
         s.basketball_api_key = "test-key"
         s.basketball_api_league_id = 12
-        s.nba_api_base = "https://nba.example.com"
         mock_settings.return_value = s
         yield BasketballClient()
 
@@ -188,20 +187,6 @@ class TestFetchMethods:
             mock_get.return_value = [{"id": 10}]
             result = await client.fetch_players(team_id=5)
             assert result == [{"id": 10}]
-
-    @pytest.mark.anyio
-    async def test_fetch_injuries(self, client):
-        with patch("httpx.AsyncClient") as mock_cls:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"response": [{"player": {"id": 1}}]}
-            mock_resp.raise_for_status = MagicMock()
-            ctx = AsyncMock()
-            ctx.__aenter__.return_value = MagicMock(
-                get=AsyncMock(return_value=mock_resp)
-            )
-            mock_cls.return_value = ctx
-            result = await client.fetch_injuries(season="2024-2025")
-            assert len(result) == 1
 
 
 # ── persist_teams ───────────────────────────────────────────────
@@ -501,23 +486,3 @@ class TestPersistPlayerGameStats:
         count = await client.persist_player_game_stats(4003, stats_data, mock_db)
         assert count == 1
         mock_db.commit.assert_awaited_once()
-
-    @pytest.mark.anyio
-    async def test_persist_injuries_empty_name_skipped(self, client, mock_db):
-        """Injuries with empty team/player names are skipped."""
-        mock_db.begin_nested = MagicMock(return_value=AsyncMock())
-        mock_db.execute = AsyncMock()  # delete only
-        injuries_data = [
-            {
-                "player": {"firstname": "", "lastname": ""},
-                "team": {"name": "Lakers"},
-                "status": {"type": "Out"},
-            },
-            {
-                "player": {"firstname": "John", "lastname": "Doe"},
-                "team": {"name": ""},
-                "status": {"type": "Out"},
-            },
-        ]
-        await client.persist_injuries(injuries_data, mock_db)
-        mock_db.add.assert_not_called()

@@ -32,7 +32,6 @@ All external data sources are configured centrally in `src/config.py`:
 | `ODDS_API_REGIONS` | `us,us2,eu` | Regions to poll — captures retail, offshore, AND sharp books (Pinnacle, bet365) |
 | `ODDS_API_MARKETS_FG` | `h2h,spreads,totals` | Full-game market types |
 | `ODDS_API_MARKETS_1H` | `h2h_h1,spreads_h1,totals_h1` | First-half market types |
-| `NBA_API_V2_ENABLED` | `false` | NBA API v2 disabled (free tier exhausted, injuries/refs endpoint dead) |
 | `ODDS_API_QUOTA_MIN` | `50` | Skip fetches when remaining quota drops below this |
 
 ### Data Sources
@@ -41,7 +40,6 @@ All external data sources are configured centrally in `src/config.py`:
 | --- | --- | --- |
 | The Odds API v4 | ✅ Active (24M+ quota) | FG odds, 1H odds, player props across all `us,us2,eu` books |
 | Basketball API v1 | ✅ Active (Mega plan, 150K/day) | Games, scores, box scores, team stats, player stats |
-| NBA API v2 | 🚫 Disabled | Injuries and referees — free tier exhausted, endpoint defunct |
 
 ### Reliability
 

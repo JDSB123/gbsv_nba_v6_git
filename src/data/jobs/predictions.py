@@ -94,7 +94,6 @@ async def generate_predictions_and_publish(
         from src.data.jobs.polling import (
             poll_1h_odds,
             poll_fg_odds,
-            poll_injuries,
             poll_player_props,
             poll_scores_and_box,
             poll_stats,
@@ -113,7 +112,6 @@ async def generate_predictions_and_publish(
         if refresh_inputs:
             await poll_stats()
             await poll_scores_and_box()
-            await poll_injuries()
             await sync_events_to_games()
             await poll_fg_odds()
             await poll_1h_odds()
@@ -261,7 +259,9 @@ async def generate_predictions_and_publish(
                     # Upload HTML to channel Files tab (OneDrive) for download
                     html_dl_url: str | None = None
                     try:
-                        html_filename = f"GBSV_NBA_Slate_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.html"
+                        html_filename = (
+                            f"GBSV_NBA_Slate_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.html"
+                        )
                         html_dl_url = await upload_html_to_channel(
                             _s.teams_team_id,
                             _s.teams_channel_id,
@@ -300,6 +300,7 @@ async def generate_predictions_and_publish(
                 elif _s.teams_webhook_url:
                     try:
                         from src.notifications.teams import build_html_slate
+
                         html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
                         with open("nba_picks_slate_livesync.html", "w", encoding="utf-8") as f:
                             f.write(html)

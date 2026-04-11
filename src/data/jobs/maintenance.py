@@ -42,19 +42,10 @@ async def fill_clv() -> None:
                 game_start = getattr(game_obj, "commence_time", None)
 
                 # Fetch last pre-game snapshots (true closing line)
-                snap_query = (
-                    select(OddsSnapshot)
-                    .where(OddsSnapshot.game_id == pred.game_id)
-                )
+                snap_query = select(OddsSnapshot).where(OddsSnapshot.game_id == pred.game_id)
                 if game_start is not None:
-                    snap_query = snap_query.where(
-                        OddsSnapshot.captured_at <= game_start
-                    )
-                snap_query = (
-                    snap_query
-                    .order_by(OddsSnapshot.captured_at.desc())
-                    .limit(100)
-                )
+                    snap_query = snap_query.where(OddsSnapshot.captured_at <= game_start)
+                snap_query = snap_query.order_by(OddsSnapshot.captured_at.desc()).limit(100)
                 odds_q = await db.execute(snap_query)
                 snapshots = odds_q.scalars().all()
                 if not snapshots:
@@ -64,12 +55,18 @@ async def fill_clv() -> None:
                 last_spread: float | None = None
                 last_total: float | None = None
                 for s in snapshots:
-                    if last_spread is None and cast(Any, s.market) == "spreads" \
-                            and s.point is not None \
-                            and cast(Any, s.outcome_name) == home_name:
+                    if (
+                        last_spread is None
+                        and cast(Any, s.market) == "spreads"
+                        and s.point is not None
+                        and cast(Any, s.outcome_name) == home_name
+                    ):
                         last_spread = float(cast(Any, s.point))
-                    if last_total is None and cast(Any, s.market) == "totals" \
-                            and s.point is not None:
+                    if (
+                        last_total is None
+                        and cast(Any, s.market) == "totals"
+                        and s.point is not None
+                    ):
                         last_total = float(cast(Any, s.point))
                     if last_spread is not None and last_total is not None:
                         break
@@ -126,8 +123,11 @@ async def db_maintenance() -> None:
         from sqlalchemy import text
 
         tables = [
-            "games", "odds_snapshots", "game_odds_archive",
-            "predictions", "player_game_stats",
+            "games",
+            "odds_snapshots",
+            "game_odds_archive",
+            "predictions",
+            "player_game_stats",
         ]
         async with async_session_factory() as db:
             for table in tables:

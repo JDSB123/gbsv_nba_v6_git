@@ -175,7 +175,6 @@ class TestRunPredict:
         with (
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
             patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
@@ -201,7 +200,6 @@ class TestRunPredict:
         with (
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock) as mock_stats,
             patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock) as mock_box,
-            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock) as mock_inj,
             patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock) as mock_sync,
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock) as mock_fg,
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock) as mock_h1,
@@ -230,7 +228,6 @@ class TestRunPredict:
             assert "waiting on odds coverage" in output.lower()
         mock_stats.assert_awaited_once()
         mock_box.assert_awaited_once()
-        mock_inj.assert_awaited_once()
         mock_sync.assert_awaited_once()
         mock_fg.assert_awaited_once()
         mock_h1.assert_awaited_once()

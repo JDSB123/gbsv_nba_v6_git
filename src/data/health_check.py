@@ -70,39 +70,6 @@ async def check_basketball_api() -> dict[str, Any]:
         return {"source": "basketball_api_v1", "status": "error", "detail": str(exc)}
 
 
-async def check_nba_api_v2() -> dict[str, Any]:
-    """Ping NBA API v2 /status — always reports disabled when config says so."""
-    settings = get_settings()
-    if not settings.nba_api_v2_enabled:
-        return {
-            "source": "nba_api_v2",
-            "status": "disabled",
-            "detail": "NBA_API_V2_ENABLED=false — free tier exhausted, injuries/refs unavailable",
-        }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{settings.nba_api_base}/status",
-                headers={"x-apisports-key": settings.basketball_api_key},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            requests_info = data.get("response", {}).get("requests", {})
-            current = requests_info.get("current", 0)
-            limit_day = requests_info.get("limit_day", 0)
-            exhausted = limit_day > 0 and current >= limit_day
-            return {
-                "source": "nba_api_v2",
-                "status": "warning" if exhausted else "ok",
-                "requests_today": current,
-                "daily_limit": limit_day,
-                "exhausted": exhausted,
-            }
-    except Exception as exc:
-        return {"source": "nba_api_v2", "status": "error", "detail": str(exc)}
-
-
 async def check_database() -> dict[str, Any]:
     """Verify database connectivity."""
     try:
@@ -127,15 +94,13 @@ async def run_startup_health_check() -> list[dict[str, Any]]:
     logger.info("=" * 60)
 
     results = []
-    for check_fn in (check_database, check_odds_api, check_basketball_api, check_nba_api_v2):
+    for check_fn in (check_database, check_odds_api, check_basketball_api):
         result = await check_fn()
         results.append(result)
 
     # Log status table
     for r in results:
-        icon = {"ok": "✅", "warning": "⚠️", "error": "❌", "disabled": "🚫"}.get(
-            r["status"], "?"
-        )
+        icon = {"ok": "✅", "warning": "⚠️", "error": "❌", "disabled": "🚫"}.get(r["status"], "?")
         source = r["source"]
         detail_parts: list[str] = []
         if "quota_remaining" in r:
