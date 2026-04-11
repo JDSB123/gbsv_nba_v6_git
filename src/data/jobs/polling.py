@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
 from src.data.reconciliation import _GAME_MATCH_WINDOW, _find_matching_game
 from src.data.seasons import current_nba_season, parse_api_datetime
