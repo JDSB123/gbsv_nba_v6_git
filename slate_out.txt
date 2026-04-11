@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Users\JDSB\repos\gbsv_nba_v6_git\build_slate.py", line 283, in <module>
+    print(f"\u2705 Consolidated slate \u2192 {OUT.name}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>

@@ -300,7 +300,7 @@ class Predictor:
             value = payload.get(col)
             try:
                 self._imputation_values[col] = float(value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 self._imputation_values[col] = 0.0
 
         logger.info("Loaded imputation values for %d features", len(self._imputation_values))
@@ -529,7 +529,7 @@ class Predictor:
             raw_value = features[col]
             try:
                 value = float(raw_value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 value = fill_value
                 imputed_count += 1
             else:
