@@ -174,12 +174,11 @@ class TestRunBackfill:
         )
         mock_odds.fetch_odds = AsyncMock(return_value=[{"id": "evt1"}])
         mock_odds.persist_odds = AsyncMock(return_value=5)
-        mock_odds.fetch_event_odds = AsyncMock(
-            return_value={"bookmakers": [{"key": "bk"}]}
-        )
+        mock_odds.fetch_event_odds = AsyncMock(return_value={"bookmakers": [{"key": "bk"}]})
 
         # Build a mock game with odds_api_id = None so backfill maps it
         from types import SimpleNamespace
+
         mock_game = SimpleNamespace(odds_api_id=None)
 
         call_count = {"n": 0}

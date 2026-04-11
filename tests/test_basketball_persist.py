@@ -56,7 +56,9 @@ class TestBoxScorePercentage:
         assert _box_score_percentage({"percentage": "38.5", "total": 4, "attempts": 11}) == 38.5
 
     def test_derives_percentage_from_totals_when_missing(self):
-        assert _box_score_percentage({"total": 4, "attempts": 11, "percentage": None}) == pytest.approx(
+        assert _box_score_percentage(
+            {"total": 4, "attempts": 11, "percentage": None}
+        ) == pytest.approx(
             36.36,
             abs=0.01,
         )
@@ -404,9 +406,7 @@ class TestPersistPlayerGameStats:
 
     @pytest.mark.anyio
     async def test_skips_entry_without_player_id(self, client, mock_db):
-        stats_data = [
-            {"player": {}, "team": {"id": 1}, "points": 10}
-        ]
+        stats_data = [{"player": {}, "team": {"id": 1}, "points": 10}]
         count = await client.persist_player_game_stats(3001, stats_data, mock_db)
         assert count == 0
 

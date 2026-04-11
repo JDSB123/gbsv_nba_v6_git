@@ -30,7 +30,11 @@ class TestPollFgOddsException:
 
         with (
             patch(f"{_CB_MOD}.odds_api_breaker", mock_breaker),
-            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
+            patch(
+                f"{_POLL}.sync_events_to_games",
+                new_callable=AsyncMock,
+                side_effect=Exception("boom"),
+            ),
             patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             from src.data.scheduler import poll_fg_odds
@@ -48,7 +52,11 @@ class TestPoll1hOddsException:
 
         with (
             patch(f"{_CB_MOD}.odds_api_breaker", mock_breaker),
-            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
+            patch(
+                f"{_POLL}.sync_events_to_games",
+                new_callable=AsyncMock,
+                side_effect=Exception("boom"),
+            ),
             patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             from src.data.scheduler import poll_1h_odds
@@ -140,7 +148,11 @@ class TestGeneratePredictionsException:
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.async_session_factory") as mock_sf,
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch(f"{_PRED}.get_settings"),
             patch("src.models.features.reset_elo_cache"),
             patch("src.models.predictor.Predictor", side_effect=RuntimeError("model load boom")),

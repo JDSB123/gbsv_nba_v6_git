@@ -135,9 +135,7 @@ async def promote_model(
     _auth: None = Depends(_require_api_key),
 ) -> dict[str, Any]:
     """Promote a specific model version to active, with audit trail."""
-    result = await db.execute(
-        select(ModelRegistry).where(ModelRegistry.model_version == version)
-    )
+    result = await db.execute(select(ModelRegistry).where(ModelRegistry.model_version == version))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=404, detail=f"Model version {version!r} not found")
@@ -194,9 +192,7 @@ async def rollback_model(
 ) -> dict[str, Any]:
     """Roll back to a previous model version."""
     # Delegate to promote with rollback action logged
-    result = await db.execute(
-        select(ModelRegistry).where(ModelRegistry.model_version == version)
-    )
+    result = await db.execute(select(ModelRegistry).where(ModelRegistry.model_version == version))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=404, detail=f"Model version {version!r} not found")
@@ -247,9 +243,7 @@ async def model_audit_log(
 ) -> dict[str, Any]:
     """Return model promotion/rollback audit trail."""
     result = await db.execute(
-        select(ModelAuditLog)
-        .order_by(ModelAuditLog.performed_at.desc())
-        .limit(limit)
+        select(ModelAuditLog).order_by(ModelAuditLog.performed_at.desc()).limit(limit)
     )
     rows = result.scalars().all()
     return {

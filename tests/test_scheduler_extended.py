@@ -39,9 +39,7 @@ class TestDailyRetrain:
     @pytest.mark.anyio
     async def test_retrain_failure_records(self):
         with patch(f"{_POLL}.async_session_factory") as mock_sf:
-            mock_sf.return_value.__aenter__ = AsyncMock(
-                side_effect=RuntimeError("db error")
-            )
+            mock_sf.return_value.__aenter__ = AsyncMock(side_effect=RuntimeError("db error"))
             mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
             with patch("src.models.trainer.ModelTrainer") as mock_cls:
                 mock_cls.side_effect = RuntimeError("boom")
@@ -102,7 +100,11 @@ class TestGeneratePredictionsAndPublish:
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.async_session_factory") as mock_sf,
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor") as mock_cls,
             patch("src.models.features.reset_elo_cache"),
             patch(f"{_PRED}.get_settings") as mock_s,
@@ -158,7 +160,7 @@ class TestCheckPredictionDrift:
     @pytest.mark.anyio
     async def test_drift_detected(self):
         rows_30d = [(110.0, 108.0)] * 30  # total ~218
-        rows_7d = [(120.0, 115.0)] * 10   # total ~235, drift > 5
+        rows_7d = [(120.0, 115.0)] * 10  # total ~235, drift > 5
 
         with patch(f"{_PRED}.async_session_factory") as mock_sf:
             mock_db = AsyncMock()

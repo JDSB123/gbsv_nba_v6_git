@@ -45,9 +45,6 @@ def normalize_team_stats(stats: Any) -> dict[str, Any] | None:
     return None
 
 
-
-
-
 def _pct_to_decimal(value: Any) -> float | None:
     """Convert a percentage value from the API to a 0-1 decimal.
 

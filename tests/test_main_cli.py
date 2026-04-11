@@ -58,9 +58,10 @@ class TestMainArgParsing:
     @patch("src.__main__.get_settings")
     def test_serve_command(self, mock_settings, mock_log):
         mock_settings.return_value = MagicMock(app_env="development")
-        with patch("sys.argv", ["src", "serve", "--port", "9000"]), patch(
-            "uvicorn.run"
-        ) as mock_uvicorn:
+        with (
+            patch("sys.argv", ["src", "serve", "--port", "9000"]),
+            patch("uvicorn.run") as mock_uvicorn,
+        ):
             main()
             mock_uvicorn.assert_called_once()
             call_kwargs = mock_uvicorn.call_args
@@ -80,17 +81,19 @@ class TestMainArgParsing:
 
     @patch("src.__main__._setup_logging")
     def test_backfill_command_with_season(self, mock_log):
-        with patch(
-            "sys.argv", ["src", "backfill", "--season", "2024-2025", "--days", "30"]
-        ), patch("asyncio.run") as mock_run:
+        with (
+            patch("sys.argv", ["src", "backfill", "--season", "2024-2025", "--days", "30"]),
+            patch("asyncio.run") as mock_run,
+        ):
             main()
             mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_migrate_command(self, mock_log):
-        with patch("sys.argv", ["src", "migrate"]), patch(
-            "alembic.command.upgrade"
-        ) as mock_upgrade:
+        with (
+            patch("sys.argv", ["src", "migrate"]),
+            patch("alembic.command.upgrade") as mock_upgrade,
+        ):
             main()
             mock_upgrade.assert_called_once()
 
@@ -179,7 +182,11 @@ class TestRunPredict:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
-            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                "src.data.scheduler.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.db.session.async_session_factory") as mock_sf,
         ):
@@ -204,7 +211,11 @@ class TestRunPredict:
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock) as mock_fg,
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock) as mock_h1,
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock) as mock_props,
-            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                "src.data.scheduler.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.db.session.async_session_factory") as mock_sf,
             patch(
@@ -213,9 +224,7 @@ class TestRunPredict:
                 return_value={
                     "ns_game_count": 5,
                     "linked_ns_game_count": 3,
-                    "awaiting_odds_games": [
-                        "Phoenix Suns @ Orlando Magic (2026-03-31T23:00:00)"
-                    ],
+                    "awaiting_odds_games": ["Phoenix Suns @ Orlando Magic (2026-03-31T23:00:00)"],
                 },
             ),
         ):
@@ -391,9 +400,7 @@ class TestRunAudit:
             # Even if it appears in "recent predictions" loop, its opening_spread
             # and other attrs are MagicMock. To avoid format string issues,
             # make sure it behaves like a prediction too.
-            result.scalars.return_value = MagicMock(
-                all=MagicMock(return_value=[mock_pred])
-            )
+            result.scalars.return_value = MagicMock(all=MagicMock(return_value=[mock_pred]))
             return result
 
         with patch("src.db.session.async_session_factory") as mock_sf:
@@ -420,17 +427,19 @@ class TestNewCLICommands:
 
     @patch("src.__main__._setup_logging")
     def test_retrain_with_season(self, mock_log):
-        with patch("sys.argv", ["src", "retrain", "--season", "2024-2025"]), patch(
-            "asyncio.run"
-        ) as mock_run:
+        with (
+            patch("sys.argv", ["src", "retrain", "--season", "2024-2025"]),
+            patch("asyncio.run") as mock_run,
+        ):
             main()
             mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_train_with_season(self, mock_log):
-        with patch("sys.argv", ["src", "train", "--season", "2024-2025"]), patch(
-            "asyncio.run"
-        ) as mock_run:
+        with (
+            patch("sys.argv", ["src", "train", "--season", "2024-2025"]),
+            patch("asyncio.run") as mock_run,
+        ):
             main()
             mock_run.assert_called_once()
 
@@ -442,16 +451,18 @@ class TestNewCLICommands:
 
     @patch("src.__main__._setup_logging")
     def test_backtest_with_csv_format(self, mock_log):
-        with patch(
-            "sys.argv", ["src", "backtest", "--format", "csv", "--output", "report.csv"]
-        ), patch("asyncio.run") as mock_run:
+        with (
+            patch("sys.argv", ["src", "backtest", "--format", "csv", "--output", "report.csv"]),
+            patch("asyncio.run") as mock_run,
+        ):
             main()
             mock_run.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_perf_with_model_version(self, mock_log):
-        with patch(
-            "sys.argv", ["src", "perf", "--model-version", "v6.5.0"]
-        ), patch("asyncio.run") as mock_run:
+        with (
+            patch("sys.argv", ["src", "perf", "--model-version", "v6.5.0"]),
+            patch("asyncio.run") as mock_run,
+        ):
             main()
             mock_run.assert_called_once()
