@@ -32,6 +32,7 @@ from src.notifications._delivery import (  # noqa: F401
     send_html_via_graph,
     send_text_to_teams,
     upload_csv_to_channel,
+    upload_html_to_channel,
 )
 
 # ── helpers ────────────────────────────────────────────────────────
@@ -109,4 +110,5 @@ __all__ = [
     "send_html_via_graph",
     "send_text_to_teams",
     "upload_csv_to_channel",
+    "upload_html_to_channel",
 ]

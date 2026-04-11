@@ -215,7 +215,7 @@ class EnsembleStack:
 
         try:
             meta_data = json.loads(meta_path.read_text())
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError, OSError:
             return False
 
         loaded = 0

@@ -73,7 +73,11 @@ def cmd_work(args: argparse.Namespace) -> None:
     async def _run() -> None:
         import signal
 
+        from src.data.health_check import run_startup_health_check
         from src.data.scheduler import create_scheduler
+
+        # ── Validate all data sources before starting jobs ──
+        await run_startup_health_check()
 
         scheduler = create_scheduler()
         scheduler.start()

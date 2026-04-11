@@ -29,6 +29,7 @@ def test_create_scheduler_registers_all_jobs():
         "check_prediction_drift",
         "prune_old_odds",
         "db_maintenance",
+        "check_data_freshness",
         "process_dead_letter_queue",
     }
     assert expected == job_ids, f"Missing: {expected - job_ids}, Extra: {job_ids - expected}"
@@ -36,7 +37,7 @@ def test_create_scheduler_registers_all_jobs():
 
 def test_create_scheduler_job_count():
     scheduler = create_scheduler()
-    assert len(scheduler.get_jobs()) == 16
+    assert len(scheduler.get_jobs()) == 17
 
 
 def test_create_scheduler_timezone():

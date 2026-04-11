@@ -6,23 +6,11 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
-from src.db.models import (
-    Game,
-    Injury,
-    Player,
-    PlayerGameStats,
-    Team,
-    TeamSeasonStats,
-)
+from src.db.models import Game, Injury, Player, PlayerGameStats, Team, TeamSeasonStats
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +82,7 @@ def _box_score_percentage(stats: Any) -> float | None:
 
     try:
         pct = _as_float(stats.get("percentage"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pct = None
     if pct is not None:
         return pct
@@ -102,7 +90,7 @@ def _box_score_percentage(stats: Any) -> float | None:
     try:
         made = _as_float(stats.get("total"))
         attempts = _as_float(stats.get("attempts"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if made is None or attempts in (None, 0):
         return None
@@ -276,7 +264,14 @@ class BasketballClient:
 
     @_RETRY
     async def fetch_nba_officials(self, game_id: int) -> list[str]:
-        """Fetch officials from NBA API v2 for a specific game."""
+        """Fetch officials from NBA API v2 for a specific game.
+
+        Note: NBA API v2 uses its own game IDs which differ from
+        Basketball API v1 IDs stored in our ``games`` table.  A
+        date-based lookup is used to find the matching v2 game.
+        Returns an empty list if the v2 API is rate-limited or the
+        game is not found.
+        """
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self._nba_api_base}/games",
@@ -286,18 +281,57 @@ class BasketballClient:
             )
             resp.raise_for_status()
             data = resp.json()
+            errors = data.get("errors", {})
+            if errors:
+                logger.warning(
+                    "NBA API v2 officials error for game %s: %s",
+                    game_id,
+                    errors,
+                )
+                return []
             games = data.get("response", [])
             if games and "officials" in games[0]:
                 return games[0]["officials"] or []
             return []
+
+    async def fetch_nba_officials_by_date(self, game_date: str) -> dict[str, list[str]]:
+        """Fetch officials for all games on a given date (YYYY-MM-DD).
+
+        Returns a dict mapping ``"HomeTeam vs AwayTeam"`` → list of
+        official names, so the caller can match by team names.
+        """
+        result: dict[str, list[str]] = {}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self._nba_api_base}/games",
+                headers=self._headers(),
+                params={"date": game_date},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            errors = data.get("errors", {})
+            if errors:
+                logger.warning("NBA API v2 date lookup error for %s: %s", game_date, errors)
+                return result
+            for g in data.get("response", []):
+                teams = g.get("teams", {})
+                home = teams.get("home", {}).get("name", "")
+                visitors = teams.get("visitors", {}).get("name", "")
+                officials = g.get("officials", []) or []
+                if home and visitors and officials:
+                    result[f"{home} vs {visitors}"] = officials
+        return result
 
     @_RETRY
     async def fetch_injuries(self, season: str | None = None) -> list[dict]:
         """Fetch current injury report from the NBA API.
 
         Uses ``v2.nba.api-sports.io`` which shares the same api-sports
-        API key and provides a dedicated ``/players/injuries`` endpoint
-        not available in the Basketball API v1.
+        API key and provides a dedicated ``/players/injuries`` endpoint.
+
+        Returns an empty list if the endpoint is unavailable or the
+        API returns an error (e.g., rate-limited or endpoint removed).
         """
         resolved = self._resolve_season(season)
         # NBA API uses just the start year, e.g. "2024" not "2024-2025"
@@ -311,6 +345,14 @@ class BasketballClient:
             )
             resp.raise_for_status()
             data = resp.json()
+            errors = data.get("errors", {})
+            if errors:
+                logger.warning(
+                    "NBA API v2 injuries endpoint error: %s — "
+                    "injury features will be imputed as neutral",
+                    errors,
+                )
+                return []
             return data.get("response", [])
 
     async def persist_injuries(self, injuries_data: list[dict], db: AsyncSession) -> int:
@@ -578,7 +620,7 @@ class BasketballClient:
                     return None
                 try:
                     return float(str(val).replace("%", ""))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
 
             def _safe_int(val: Any) -> int | None:
@@ -586,7 +628,7 @@ class BasketballClient:
                     return None
                 try:
                     return int(str(val).split(":")[0]) if ":" in str(val) else int(val)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
 
             # Parse minutes from "MM:SS" format
@@ -631,9 +673,7 @@ class BasketballClient:
                         "fg_pct": fg_pct,
                         "three_pct": three_pct,
                         "ft_pct": ft_pct,
-                        "plus_minus": _safe_float(
-                            _player_box_stat(p, "plusMinus", "plus_minus")
-                        ),
+                        "plus_minus": _safe_float(_player_box_stat(p, "plusMinus", "plus_minus")),
                     },
                 )
             )

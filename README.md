@@ -17,10 +17,48 @@ This repo now has one primary source of truth per concern:
 | Local env sync | `scripts/sync_env.py` | Cross-platform `.env` sync and optional azd overlay |
 | Windows env wrapper | `scripts/setup-env.ps1` | PowerShell wrapper around the same env contract |
 | App entry points | `src/__main__.py` | Canonical `python -m src ...` command family |
+| Data source config | `src/config.py` | Single source of truth for regions, markets, intervals, enable/disable flags |
 | Azure stack metadata | `infra/stack-config.json` | Shared logical names for ACA, ACR, Key Vault, PostgreSQL, resource group |
 | Azure provisioning | `azure.yaml`, `infra/main.parameters.json`, `infra/main.bicep` | azd + Bicep deployment contract |
 | GitHub CI/CD stack export | `scripts/export_stack_env.py` | Exports shared Azure stack values to Actions |
 | Local deploy helper | `scripts/deploy.ps1` | Uses the same stack contract and deploys the shared ACA image |
+
+## Data Pipeline
+
+All external data sources are configured centrally in `src/config.py`:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `ODDS_API_REGIONS` | `us,us2,eu` | Regions to poll — captures retail, offshore, AND sharp books (Pinnacle, bet365) |
+| `ODDS_API_MARKETS_FG` | `h2h,spreads,totals` | Full-game market types |
+| `ODDS_API_MARKETS_1H` | `h2h_h1,spreads_h1,totals_h1` | First-half market types |
+| `NBA_API_V2_ENABLED` | `false` | NBA API v2 disabled (free tier exhausted, injuries/refs endpoint dead) |
+| `ODDS_API_QUOTA_MIN` | `50` | Skip fetches when remaining quota drops below this |
+
+### Data Sources
+
+| Source | Status | What it provides |
+| --- | --- | --- |
+| The Odds API v4 | ✅ Active (24M+ quota) | FG odds, 1H odds, player props across all `us,us2,eu` books |
+| Basketball API v1 | ✅ Active (Mega plan, 150K/day) | Games, scores, box scores, team stats, player stats |
+| NBA API v2 | 🚫 Disabled | Injuries and referees — free tier exhausted, endpoint defunct |
+
+### Reliability
+
+- **Startup health check**: Worker validates all APIs + DB on boot, logs a status table
+- **Data freshness monitoring**: `check_data_freshness` job runs every 30 min, sends Teams alerts when polls go stale
+- **Circuit breakers**: Per-service failure tracking (threshold=5, cooldown=10 min)
+- **Dead-letter queue**: Failed ingestion jobs logged and retried automatically
+- **Live dashboard**: `GET /health/data-sources` returns API status, active config, odds freshness, and all bookmakers seen in last 24h
+
+### Health Endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Basic liveness |
+| `GET /health/deep` | DB + models + odds freshness |
+| `GET /health/freshness` | Latest timestamps per data source |
+| `GET /health/data-sources` | Full pipeline dashboard — API checks, config, bookmaker list |
 
 ## Default Development Workflow
 

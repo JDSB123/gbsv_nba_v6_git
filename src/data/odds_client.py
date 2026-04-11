@@ -43,6 +43,10 @@ class OddsClient:
         self.sport = _settings.odds_api_sport_key
         self._quota_min = _settings.odds_api_quota_min
         self._remaining_quota: int | None = None
+        # Centralised from Settings — single source of truth
+        self._regions = _settings.odds_api_regions
+        self._markets_fg = _settings.odds_api_markets_fg
+        self._markets_1h = _settings.odds_api_markets_1h
 
     def _track_quota(self, response: httpx.Response) -> None:
         remaining = response.headers.get("x-requests-remaining")
@@ -76,15 +80,14 @@ class OddsClient:
     @_RETRY
     async def fetch_odds(
         self,
-        markets: str = "h2h,spreads,totals",
-        regions: str = "us,us2",
+        markets: str | None = None,
+        regions: str | None = None,
         odds_format: str = "american",
     ) -> list[dict[str, Any]]:
         """Fetch full-game odds for all upcoming NBA games.
 
-        Uses us+us2 regions to capture both retail (square) and
-        offshore/professional (sharp, e.g. Pinnacle) book lines.
-        Cost: ~6 credits (3 per region).
+        Regions and markets default to the centralized Settings values
+        (us,us2,eu) to capture retail, offshore, AND sharp (Pinnacle) books.
         """
         if self._should_skip():
             return []
@@ -93,8 +96,8 @@ class OddsClient:
                 f"{self.base_url}/sports/{self.sport}/odds",
                 params={
                     "apiKey": self.api_key,
-                    "regions": regions,
-                    "markets": markets,
+                    "regions": regions or self._regions,
+                    "markets": markets or self._markets_fg,
                     "oddsFormat": odds_format,
                 },
                 timeout=30,
@@ -107,13 +110,14 @@ class OddsClient:
     async def fetch_event_odds(
         self,
         event_id: str,
-        markets: str = "h2h_h1,spreads_h1,totals_h1",
-        regions: str = "us,us2",
+        markets: str | None = None,
+        regions: str | None = None,
         odds_format: str = "american",
     ) -> dict[str, Any]:
         """Fetch 1st-half odds for a specific event.
 
-        Uses the per-event endpoint required for game-period markets.
+        Regions default to the centralized Settings value so all
+        configured books are always polled.
         Cost: ~6 credits per event.
         """
         if self._should_skip():
@@ -123,8 +127,8 @@ class OddsClient:
                 f"{self.base_url}/sports/{self.sport}/events/{event_id}/odds",
                 params={
                     "apiKey": self.api_key,
-                    "regions": regions,
-                    "markets": markets,
+                    "regions": regions or self._regions,
+                    "markets": markets or self._markets_1h,
                     "oddsFormat": odds_format,
                 },
                 timeout=30,
@@ -163,12 +167,12 @@ class OddsClient:
         self,
         event_id: str,
         markets: str | None = None,
-        regions: str = "us,us2",
+        regions: str | None = None,
         odds_format: str = "american",
     ) -> dict[str, Any]:
         """Fetch player prop odds for a specific event.
 
-        Uses the per-event endpoint (required for non-featured markets).
+        Regions default to the centralized Settings value.
         Cost: ~6 credits per event per region.
         """
         if self._should_skip():
@@ -178,7 +182,7 @@ class OddsClient:
                 f"{self.base_url}/sports/{self.sport}/events/{event_id}/odds",
                 params={
                     "apiKey": self.api_key,
-                    "regions": regions,
+                    "regions": regions or self._regions,
                     "markets": markets or self.PLAYER_PROP_MARKETS,
                     "oddsFormat": odds_format,
                 },

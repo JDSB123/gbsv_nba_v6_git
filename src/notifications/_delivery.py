@@ -299,3 +299,55 @@ async def upload_csv_to_channel(
         web_url: str = upload_data.get("webUrl", "")
         logger.info("Uploaded %s → %s", filename, web_url)
         return web_url
+
+
+async def upload_html_to_channel(
+    team_id: str,
+    channel_id: str,
+    filename: str,
+    html_content: str,
+) -> str:
+    """Upload an HTML file to the Teams channel's Files tab and return the web URL.
+
+    Uses the Graph API to:
+    1. Get the channel's filesFolder (SharePoint drive)
+    2. PUT the HTML content to that folder
+    3. Return the webUrl for the uploaded file (usable as a direct download/OneDrive link)
+    """
+    from azure.identity import DefaultAzureCredential
+
+    credential = DefaultAzureCredential()
+    token = credential.get_token("https://graph.microsoft.com/.default")
+    headers = {
+        "Authorization": f"Bearer {token.token}",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        folder_url = (
+            f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/filesFolder"
+        )
+        folder_resp = await client.get(folder_url, headers=headers)
+        folder_resp.raise_for_status()
+        folder_data = folder_resp.json()
+
+        drive_id = folder_data["parentReference"]["driveId"]
+        folder_id = folder_data["id"]
+
+        upload_url = (
+            f"https://graph.microsoft.com/v1.0/drives/{drive_id}"
+            f"/items/{folder_id}:/{filename}:/content"
+        )
+        upload_resp = await client.put(
+            upload_url,
+            content=html_content.encode("utf-8"),
+            headers={
+                **headers,
+                "Content-Type": "text/html",
+            },
+        )
+        upload_resp.raise_for_status()
+        upload_data = upload_resp.json()
+
+        web_url: str = upload_data.get("webUrl", "")
+        logger.info("Uploaded HTML %s → %s", filename, web_url)
+        return web_url

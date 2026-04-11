@@ -171,7 +171,9 @@ async def poll_stats() -> None:
                 tomorrow,
             )
             if reconciled:
-                logger.warning("poll_stats: reconciled %d synthetic/official duplicates", reconciled)
+                logger.warning(
+                    "poll_stats: reconciled %d synthetic/official duplicates", reconciled
+                )
 
             result = await db.execute(select(Team.id))
             team_ids = [row[0] for row in result.fetchall()]
@@ -210,44 +212,67 @@ async def poll_scores_and_box() -> None:
 
         client = BasketballClient()
         async with async_session_factory() as db:
-            # 1. Fetch Referees for ANY game that doesn't have them yet
-            ref_subq = select(GameReferee.game_id).distinct().scalar_subquery()
-            now = datetime.now(UTC).replace(tzinfo=None)
-            ref_game_result = await db.execute(
-                select(Game.id)
-                .where(
-                    and_(
-                        Game.id.notin_(ref_subq),
-                        Game.commence_time.between(now - timedelta(days=1), now + timedelta(days=2)),
+            # 1. Fetch Referees — ONLY when NBA API v2 is enabled
+            from src.config import get_settings
+
+            if get_settings().nba_api_v2_enabled:
+                ref_subq = select(GameReferee.game_id).distinct().scalar_subquery()
+                now = datetime.now(UTC).replace(tzinfo=None)
+                ref_game_result = await db.execute(
+                    select(Game.id)
+                    .where(
+                        and_(
+                            Game.id.notin_(ref_subq),
+                            Game.commence_time.between(
+                                now - timedelta(days=1), now + timedelta(days=2)
+                            ),
+                        )
                     )
+                    .limit(20)
                 )
-                .limit(20)
-            )
-            missing_ref_ids = [row[0] for row in ref_game_result.fetchall()]
-            if missing_ref_ids:
-                logger.info("Fetching referees for %d games", len(missing_ref_ids))
-                for gid in missing_ref_ids:
-                    refs_result = getattr(client, "fetch_nba_officials", None)
-                    if refs_result is None:
-                        refs: list[str] = []
-                    else:
-                        maybe_refs = refs_result(gid)
-                        if isawaitable(maybe_refs):
-                            refs = await maybe_refs
-                        elif isinstance(maybe_refs, list):
-                            refs = maybe_refs
-                        else:
-                            logger.debug(
-                                "Skipping referee sync for game %s because fetch_nba_officials "
-                                "did not return an awaitable or list",
+                missing_ref_ids = [row[0] for row in ref_game_result.fetchall()]
+                if missing_ref_ids:
+                    logger.info("Fetching referees for %d games", len(missing_ref_ids))
+                    refs_populated = 0
+                    for gid in missing_ref_ids:
+                        try:
+                            refs_result = getattr(client, "fetch_nba_officials", None)
+                            if refs_result is None:
+                                refs: list[str] = []
+                            else:
+                                maybe_refs = refs_result(gid)
+                                if isawaitable(maybe_refs):
+                                    refs = await maybe_refs
+                                elif isinstance(maybe_refs, list):
+                                    refs = maybe_refs
+                                else:
+                                    refs = []
+                            if refs:
+                                await db.execute(delete(GameReferee).where(GameReferee.game_id == gid))
+                                for rname in refs:
+                                    db.add(GameReferee(game_id=gid, referee_name=rname))
+                                refs_populated += 1
+                        except Exception:
+                            logger.warning(
+                                "NBA API v2 referee lookup failed for game %s "
+                                "(likely rate-limited); skipping remaining refs",
                                 gid,
                             )
-                            refs = []
-                    if refs:
-                        await db.execute(delete(GameReferee).where(GameReferee.game_id == gid))
-                        for rname in refs:
-                            db.add(GameReferee(game_id=gid, referee_name=rname))
-                await db.commit()
+                            break
+                    if refs_populated:
+                        await db.commit()
+                        logger.info(
+                            "Populated referees for %d/%d games", refs_populated, len(missing_ref_ids)
+                        )
+                    else:
+                        logger.info(
+                            "No referee data available — NBA API v2 may be "
+                            "rate-limited; ref features excluded from model"
+                        )
+            else:
+                logger.debug(
+                    "Referee fetch skipped — NBA_API_V2_ENABLED=false"
+                )
 
             # 2. Find finished games that have NO player_game_stats rows yet
             subq = select(PlayerGameStats.game_id).distinct().scalar_subquery()
@@ -309,7 +334,20 @@ async def daily_retrain() -> None:
 
 
 async def poll_injuries() -> None:
-    """Fetch current injury report (NBA API) every 2 hours."""
+    """Fetch current injury report (NBA API v2) every 2 hours.
+
+    Skipped entirely when ``nba_api_v2_enabled`` is False (default)
+    because the free-tier daily quota is exhausted and the
+    ``/players/injuries`` endpoint is defunct.
+    """
+    from src.config import get_settings
+
+    if not get_settings().nba_api_v2_enabled:
+        logger.debug(
+            "poll_injuries skipped — NBA_API_V2_ENABLED=false "
+            "(free tier exhausted, injuries/refs unavailable)"
+        )
+        return
     logger.info("Polling injury report...")
     try:
         from src.data.basketball_client import BasketballClient
@@ -321,7 +359,10 @@ async def poll_injuries() -> None:
                 count = await client.persist_injuries(injuries, db)
                 logger.info("Refreshed %d injuries", count)
         else:
-            logger.info("No injury data returned")
+            logger.info(
+                "No injury data returned — NBA API v2 endpoint may be "
+                "unavailable or rate-limited; injury features imputed as neutral"
+            )
     except Exception:
         logger.exception("Error polling injuries")
 
@@ -427,8 +468,7 @@ async def sync_events_to_games() -> None:
                         )
                     else:
                         logger.warning(
-                            "Skipping odds event %s: "
-                            "team lookup failed (home=%r→%s, away=%r→%s)",
+                            "Skipping odds event %s: team lookup failed (home=%r→%s, away=%r→%s)",
                             odds_id,
                             home_team_name,
                             home_id,

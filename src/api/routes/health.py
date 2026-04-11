@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func as sa_func
@@ -6,6 +6,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_predictor
+from src.config import get_settings
 from src.db.models import Game, Injury, OddsSnapshot, Prediction, TeamSeasonStats
 from src.db.session import get_db
 from src.models.predictor import Predictor
@@ -134,3 +135,71 @@ async def health_freshness(db: AsyncSession = Depends(get_db)):
     sources["games"] = {"upcoming": ns_count, "completed": ft_count}
 
     return sources
+
+
+@router.get("/health/data-sources")
+async def health_data_sources(db: AsyncSession = Depends(get_db)):
+    """Live data-source status — single source of truth for pipeline health.
+
+    Returns cached startup-check results plus real-time DB freshness
+    and the active configuration (regions, markets, intervals).
+    """
+    from src.data.health_check import get_last_check, run_startup_health_check
+
+    settings = get_settings()
+
+    # Re-run checks if never run (API-only mode, no worker) or stale (>5 min)
+    cached, checked_at = get_last_check()
+    if not cached or (
+        checked_at
+        and (datetime.now(UTC).replace(tzinfo=None) - checked_at).total_seconds() > 300
+    ):
+        cached = await run_startup_health_check()
+        checked_at = datetime.now(UTC).replace(tzinfo=None)
+
+    # Enrich with DB freshness
+    latest_odds = (
+        await db.execute(select(sa_func.max(OddsSnapshot.captured_at)))
+    ).scalar_one_or_none()
+    odds_age = None
+    if latest_odds:
+        odds_age = round(
+            (datetime.now(UTC) - latest_odds.replace(tzinfo=UTC)).total_seconds() / 60, 1
+        )
+
+    # Distinct bookmakers in last 24h
+    from sqlalchemy import distinct
+
+    bk_result = await db.execute(
+        select(distinct(OddsSnapshot.bookmaker)).where(
+            OddsSnapshot.captured_at
+            >= datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=24)
+        )
+    )
+    active_bookmakers = sorted([row[0] for row in bk_result.fetchall()])
+
+    return {
+        "checked_at": checked_at.isoformat() if checked_at else None,
+        "api_checks": cached,
+        "config": {
+            "regions": settings.odds_api_regions,
+            "markets_fg": settings.odds_api_markets_fg,
+            "markets_1h": settings.odds_api_markets_1h,
+            "nba_api_v2_enabled": settings.nba_api_v2_enabled,
+            "odds_fg_interval_min": settings.odds_fg_interval,
+            "odds_1h_interval_min": settings.odds_1h_interval,
+            "injuries_interval_min": settings.injuries_interval,
+        },
+        "freshness": {
+            "odds_latest": latest_odds.isoformat() if latest_odds else None,
+            "odds_age_minutes": odds_age,
+            "odds_status": (
+                "fresh" if odds_age and odds_age < 30
+                else "stale" if odds_age and odds_age < 120
+                else "very_stale" if odds_age
+                else "missing"
+            ),
+        },
+        "active_bookmakers_24h": active_bookmakers,
+        "active_bookmaker_count": len(active_bookmakers),
+    }

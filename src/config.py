@@ -33,9 +33,7 @@ class Settings(BaseSettings):
     basketball_api_key: str = ""
 
     # ── Database ──────────────────────────────────────────────────
-    database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
-    )
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
 
     # ── App ───────────────────────────────────────────────────────
     app_env: str = "development"
@@ -72,8 +70,14 @@ class Settings(BaseSettings):
     # ── API authentication ────────────────────────────────────────
     api_key: str = ""  # X-API-Key header; empty = no auth enforced
 
-    # ── Quota management ──────────────────────────────────────────
+    # ── Odds API data source config ──────────────────────────────
+    odds_api_regions: str = "us,us2,eu"  # us=retail, us2=offshore, eu=Pinnacle/bet365
+    odds_api_markets_fg: str = "h2h,spreads,totals"
+    odds_api_markets_1h: str = "h2h_h1,spreads_h1,totals_h1"
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
+
+    # ── NBA API v2 (injuries/referees) ────────────────────────────
+    nba_api_v2_enabled: bool = False  # disabled: free tier exhausted, /players/injuries dead
 
     # ── Database pool ──────────────────────────────────────────────
     db_pool_size: int = 5
@@ -130,8 +134,7 @@ class Settings(BaseSettings):
             missing.append("DATABASE_URL")
         if missing:
             raise ValueError(
-                f"Missing required env vars for env={self.app_env}: "
-                + ", ".join(missing)
+                f"Missing required env vars for env={self.app_env}: " + ", ".join(missing)
             )
         return self
 

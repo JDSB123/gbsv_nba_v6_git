@@ -15,6 +15,7 @@ from src.config import get_settings
 
 # -- Re-exports (all existing `from src.data.scheduler import X` keep working) --
 from src.data.jobs.maintenance import (  # noqa: F401
+    check_data_freshness,
     db_maintenance,
     fill_clv,
     prune_old_odds,
@@ -113,6 +114,14 @@ def create_scheduler() -> AsyncIOScheduler:
         hour=4,
         minute=30,
         id="db_maintenance",
+    )
+
+    # Data freshness monitoring — alert if any source goes stale
+    scheduler.add_job(
+        check_data_freshness,
+        "interval",
+        minutes=30,
+        id="check_data_freshness",
     )
 
     # Dead-letter queue retry

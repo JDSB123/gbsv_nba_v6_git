@@ -58,6 +58,9 @@ src/db/migrations/versions/__pycache__/
 # Temp scripts & root-level debug files
 /_*.py
 /_*.json
+predictions_raw.json
+show_slate.py
+nba_picks_slate_livesync.html
 /_*.txt
 *.tmp
 *.log
