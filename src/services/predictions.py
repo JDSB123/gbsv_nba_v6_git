@@ -83,7 +83,6 @@ class PredictionService:
             else _consensus(books, "total_h1")
         )
 
-        min_edge = self.settings.min_edge
         min_edge_spread = self.settings.min_edge_spread
         min_edge_total = self.settings.min_edge_total
         min_edge_ml = self.settings.min_edge_ml
