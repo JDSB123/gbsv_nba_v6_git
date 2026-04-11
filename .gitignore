@@ -90,3 +90,6 @@ infra/main.json
 .env.bak.old
 build_log.txt
 git_status.txt
+
+predict_out.txt
+slate_out.txt
