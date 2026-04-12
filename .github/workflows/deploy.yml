@@ -558,7 +558,13 @@ jobs:
             --resource-group $RESOURCE_GROUP \
             --query "properties.configuration.ingress.fqdn" -o tsv)
 
-          STATUS_JSON=$(curl -fsS "https://${API_FQDN}/model/status")
+          API_KEY=$(az keyvault secret show \
+            --only-show-errors \
+            --vault-name "$KV_NAME" \
+            --name api-key \
+            --query value -o tsv 2>/dev/null || echo "")
+
+          STATUS_JSON=$(curl -fsS -H "X-API-Key: ${API_KEY}" "https://${API_FQDN}/model/status")
           python - "$STATUS_JSON" <<'PY'
           import json
           import sys
