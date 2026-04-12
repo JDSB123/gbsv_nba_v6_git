@@ -98,7 +98,7 @@ def cmd_work(args: argparse.Namespace) -> None:
 
         try:
             await stop_event.wait()
-        except KeyboardInterrupt, SystemExit:
+        except (KeyboardInterrupt, SystemExit):
             pass
         finally:
             scheduler.shutdown(wait=True)

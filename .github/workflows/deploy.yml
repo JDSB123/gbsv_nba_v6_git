@@ -173,6 +173,49 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Ensure Key Vault RBAC for CI principal
+        run: |
+          set -euo pipefail
+
+          CLIENT_ID=$(python - <<'PY'
+          import json
+          import os
+          payload = json.loads(os.environ['AZURE_CREDENTIALS'])
+          print(payload['clientId'])
+          PY
+          )
+
+          PRINCIPAL_OBJECT_ID=$(az ad sp show \
+            --only-show-errors \
+            --id "$CLIENT_ID" \
+            --query id -o tsv)
+
+          KV_SCOPE=$(az keyvault show \
+            --only-show-errors \
+            --name "$KV_NAME" \
+            --query id -o tsv)
+
+          HAS_KV_ACCESS=$(az role assignment list \
+            --only-show-errors \
+            --scope "$KV_SCOPE" \
+            --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+            --query "length([?roleDefinitionName=='Key Vault Secrets User'])" -o tsv)
+
+          if [ "$HAS_KV_ACCESS" = "0" ]; then
+            az role assignment create \
+              --only-show-errors \
+              --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "Key Vault Secrets User" \
+              --scope "$KV_SCOPE" \
+              --output none
+            echo "Granted Key Vault Secrets User role to CI principal."
+          else
+            echo "CI principal already has Key Vault Secrets User role."
+          fi
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+
       - name: Bootstrap models before build
         if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_models
         env:
@@ -372,6 +415,49 @@ jobs:
       - uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Ensure Key Vault RBAC for CI principal
+        run: |
+          set -euo pipefail
+
+          CLIENT_ID=$(python - <<'PY'
+          import json
+          import os
+          payload = json.loads(os.environ['AZURE_CREDENTIALS'])
+          print(payload['clientId'])
+          PY
+          )
+
+          PRINCIPAL_OBJECT_ID=$(az ad sp show \
+            --only-show-errors \
+            --id "$CLIENT_ID" \
+            --query id -o tsv)
+
+          KV_SCOPE=$(az keyvault show \
+            --only-show-errors \
+            --name "$KV_NAME" \
+            --query id -o tsv)
+
+          HAS_KV_ACCESS=$(az role assignment list \
+            --only-show-errors \
+            --scope "$KV_SCOPE" \
+            --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+            --query "length([?roleDefinitionName=='Key Vault Secrets User'])" -o tsv)
+
+          if [ "$HAS_KV_ACCESS" = "0" ]; then
+            az role assignment create \
+              --only-show-errors \
+              --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "Key Vault Secrets User" \
+              --scope "$KV_SCOPE" \
+              --output none
+            echo "Granted Key Vault Secrets User role to CI principal."
+          else
+            echo "CI principal already has Key Vault Secrets User role."
+          fi
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Run database migrations
         run: |

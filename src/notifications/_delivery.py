@@ -92,7 +92,7 @@ def _chunk_card_payload(
     try:
         original_content = payload["attachments"][0]["content"]
         original_body = list(original_content["body"])
-    except KeyError, IndexError, TypeError:
+    except (KeyError, IndexError, TypeError):
         return [payload]
 
     if len(original_body) <= 4:

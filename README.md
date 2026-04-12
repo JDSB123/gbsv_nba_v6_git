@@ -211,7 +211,7 @@ Key behaviors:
 Typical Azure flow:
 
 1. `azd env new <environment>`
-2. `azd env set AZURE_RUNTIME_ENVIRONMENT dev`
+2. `azd env set AZURE_RUNTIME_ENVIRONMENT production`
 3. `azd env set POSTGRES_PASSWORD <password>`
 4. `azd env set ODDS_API_KEY <value>`
 5. `azd env set BASKETBALL_API_KEY <value>`

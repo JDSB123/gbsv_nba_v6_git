@@ -9,8 +9,8 @@ param location string = resourceGroup().location
 param postgresLocation string = 'centralus'
 
 @description('Environment name')
-@allowed(['dev', 'prod'])
-param environment string = 'dev'
+@allowed(['development', 'production'])
+param environment string = 'production'
 
 @secure()
 @description('PostgreSQL administrator password')
@@ -86,6 +86,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
+    publicNetworkAccess: 'Enabled'
   }
 }
 
@@ -113,6 +114,12 @@ resource secretApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   properties: { value: apiKey }
 }
 
+resource secretDbUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'database-url'
+  properties: { value: dbConnectionString }
+}
+
 // ── Storage Account (model artifacts) ────────────────────────────
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
@@ -123,6 +130,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   properties: {
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
     supportsHttpsTrafficOnly: true
   }
 }
@@ -144,7 +152,24 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
   name: registryName
   location: location
   sku: { name: 'Basic' }
-  properties: { adminUserEnabled: true }
+  properties: { adminUserEnabled: false }
+}
+
+// ── User-Assigned Managed Identity (used for ACR pull) ───────────
+
+resource acrPullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${applicationName}-acr-pull'
+  location: location
+}
+
+resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: acr
+  name: guid(acr.id, acrPullIdentity.id, '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  properties: {
+    principalId: acrPullIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d') // AcrPull
+  }
 }
 
 // ── PostgreSQL Flexible Server ───────────────────────────────────
@@ -163,7 +188,7 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     storage: { storageSizeGB: 32 }
     backup: {
       backupRetentionDays: 14
-      geoRedundantBackup: 'Enabled'
+      geoRedundantBackup: 'Disabled'
     }
       highAvailability: { mode: 'Disabled' }
   }
@@ -208,7 +233,13 @@ var managedEnvironmentNameOutput = useExistingManagedEnvironment ? last(split(co
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: apiAppName
   location: location
-  identity: { type: 'SystemAssigned' }
+  dependsOn: [acrPullRole]
+  identity: {
+    type: 'SystemAssigned,UserAssigned'
+    userAssignedIdentities: {
+      '${acrPullIdentity.id}': {}
+    }
+  }
   properties: {
     managedEnvironmentId: managedEnvironmentId
     configuration: {
@@ -216,16 +247,20 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
         external: true
         targetPort: 8000
         transport: 'auto'
+        corsPolicy: {
+          allowedOrigins: ['*']
+          allowedMethods: ['GET', 'POST', 'OPTIONS']
+          allowedHeaders: ['*']
+          maxAge: 3600
+        }
       }
       registries: [
         {
           server: acr.properties.loginServer
-          username: acr.listCredentials().username
-          passwordSecretRef: 'acr-password'
+          identity: acrPullIdentity.id
         }
       ]
       secrets: concat([
-        { name: 'acr-password', value: acr.listCredentials().passwords[0].value }
         { name: 'database-url', value: dbConnectionString }
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }
@@ -265,14 +300,14 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               type: 'Readiness'
               httpGet: { path: '/health/deep', port: 8000 }
-              initialDelaySeconds: 20
+              initialDelaySeconds: 45
               periodSeconds: 60
             }
           ]
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: 1
         maxReplicas: 3
         rules: [
           {
@@ -290,19 +325,23 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
 resource workerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: workerAppName
   location: location
-  identity: { type: 'SystemAssigned' }
+  dependsOn: [acrPullRole]
+  identity: {
+    type: 'SystemAssigned,UserAssigned'
+    userAssignedIdentities: {
+      '${acrPullIdentity.id}': {}
+    }
+  }
   properties: {
     managedEnvironmentId: managedEnvironmentId
     configuration: {
       registries: [
         {
           server: acr.properties.loginServer
-          username: acr.listCredentials().username
-          passwordSecretRef: 'acr-password'
+          identity: acrPullIdentity.id
         }
       ]
       secrets: concat([
-        { name: 'acr-password', value: acr.listCredentials().passwords[0].value }
         { name: 'database-url', value: dbConnectionString }
         { name: 'odds-api-key', value: oddsApiKey }
         { name: 'basketball-api-key', value: basketballApiKey }

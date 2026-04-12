@@ -75,11 +75,30 @@ app.add_middleware(
 
 
 # ── Security headers ─────────────────────────────────────────────
+# Paths that are allowed to be embedded in an iframe (GBSV dashboard / SWA)
+_EMBEDDABLE_PATHS = {
+    "/predictions/slate.html",
+    "/performance/dashboard",
+}
+
+_FRAME_ANCESTORS = (
+    "frame-ancestors 'self'"
+    " https://proud-cliff-008e2e20f.2.azurestaticapps.net"
+    " https://www.greenbiersportventures.com"
+    " https://greenbiersportventures.com"
+    " https://www.greenbiersportsventures.com"
+    " https://greenbiersportsventures.com"
+)
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next) -> Response:
     response: Response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    if request.url.path in _EMBEDDABLE_PATHS:
+        response.headers["Content-Security-Policy"] = _FRAME_ANCESTORS
+    else:
+        response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -91,7 +110,11 @@ _AUTH_EXEMPT = {
     "/health",
     "/health/deep",
     "/health/freshness",
+    "/health/data-sources",
     "/model/status",
+    "/predictions/slate.html",
+    "/predictions/slate.csv",
+    "/performance/dashboard",
     "/docs",
     "/openapi.json",
 }

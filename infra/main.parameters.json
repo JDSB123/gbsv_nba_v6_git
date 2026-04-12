@@ -19,6 +19,15 @@
     },
     "basketballApiKey": {
       "value": "${BASKETBALL_API_KEY}"
+    },
+    "teamsWebhookUrl": {
+      "value": "${TEAMS_WEBHOOK_URL}"
+    },
+    "apiKey": {
+      "value": "${API_KEY}"
+    },
+    "containerAppsEnvironmentResourceId": {
+      "value": "${CONTAINER_APPS_ENVIRONMENT_RESOURCE_ID}"
     }
   }
 }

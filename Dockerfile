@@ -16,7 +16,7 @@ FROM python:3.14-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  libpq5 && rm -rf /var/lib/apt/lists/*
+  libpq5 libgomp1 && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 app && chown -R app:app /app
 

@@ -451,7 +451,7 @@ class BasketballClient:
                     return None
                 try:
                     return float(str(val).replace("%", ""))
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     return None
 
             def _safe_int(val: Any) -> int | None:
@@ -459,7 +459,7 @@ class BasketballClient:
                     return None
                 try:
                     return int(str(val).split(":")[0]) if ":" in str(val) else int(val)
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     return None
 
             # Parse minutes from "MM:SS" format

@@ -223,7 +223,7 @@ class OddsClient:
                             continue
                         try:
                             price = float(price)
-                        except ValueError, TypeError:
+                        except (ValueError, TypeError):
                             logger.debug("Skipping outcome with invalid price: %s", price)
                             continue
 
@@ -231,7 +231,7 @@ class OddsClient:
                         if point is not None:
                             try:
                                 point = float(point)
-                            except ValueError, TypeError:
+                            except (ValueError, TypeError):
                                 point = None
 
                         name = outcome.get("name")

@@ -9,9 +9,9 @@ def test_settings_defaults():
     assert s.basketball_api_league_id == 12
     assert s.odds_fg_interval == 15
     assert s.odds_1h_interval == 30
-    assert s.stats_interval == 120
+    assert s.stats_interval == 360
     assert s.retrain_hour == 6
-    assert s.odds_freshness_max_age_minutes == 30
+    assert s.odds_freshness_max_age_minutes == 365
 
 
 def test_settings_env_override(monkeypatch):

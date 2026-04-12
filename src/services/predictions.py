@@ -230,7 +230,7 @@ class PredictionService:
                         decimal_payout = 2.0  # even money
                     ev = model_prob * decimal_payout - 1
                     ml_pts = round(ev * 100, 1)  # percentage EV → "points"
-                except ValueError, ZeroDivisionError:
+                except (ValueError, ZeroDivisionError):
                     ml_pts = 0.0
                 m_str = f"{market_prob:.0%}" if market_prob is not None else "N/A"
                 if ml_pts > 0:
