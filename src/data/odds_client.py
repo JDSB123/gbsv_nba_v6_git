@@ -6,12 +6,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.config import get_settings
 from src.db.models import Game, GameOddsArchive, OddsSnapshot
@@ -43,6 +38,10 @@ class OddsClient:
         self.sport = _settings.odds_api_sport_key
         self._quota_min = _settings.odds_api_quota_min
         self._remaining_quota: int | None = None
+        # Centralised from Settings — single source of truth
+        self._regions = _settings.odds_api_regions
+        self._markets_fg = _settings.odds_api_markets_fg
+        self._markets_1h = _settings.odds_api_markets_1h
 
     def _track_quota(self, response: httpx.Response) -> None:
         remaining = response.headers.get("x-requests-remaining")
@@ -76,15 +75,14 @@ class OddsClient:
     @_RETRY
     async def fetch_odds(
         self,
-        markets: str = "h2h,spreads,totals",
-        regions: str = "us,us2",
+        markets: str | None = None,
+        regions: str | None = None,
         odds_format: str = "american",
     ) -> list[dict[str, Any]]:
         """Fetch full-game odds for all upcoming NBA games.
 
-        Uses us+us2 regions to capture both retail (square) and
-        offshore/professional (sharp, e.g. Pinnacle) book lines.
-        Cost: ~6 credits (3 per region).
+        Regions and markets default to the centralized Settings values
+        (us,us2,eu) to capture retail, offshore, AND sharp (Pinnacle) books.
         """
         if self._should_skip():
             return []
@@ -93,8 +91,8 @@ class OddsClient:
                 f"{self.base_url}/sports/{self.sport}/odds",
                 params={
                     "apiKey": self.api_key,
-                    "regions": regions,
-                    "markets": markets,
+                    "regions": regions or self._regions,
+                    "markets": markets or self._markets_fg,
                     "oddsFormat": odds_format,
                 },
                 timeout=30,
@@ -107,13 +105,14 @@ class OddsClient:
     async def fetch_event_odds(
         self,
         event_id: str,
-        markets: str = "h2h_h1,spreads_h1,totals_h1",
-        regions: str = "us,us2",
+        markets: str | None = None,
+        regions: str | None = None,
         odds_format: str = "american",
     ) -> dict[str, Any]:
         """Fetch 1st-half odds for a specific event.
 
-        Uses the per-event endpoint required for game-period markets.
+        Regions default to the centralized Settings value so all
+        configured books are always polled.
         Cost: ~6 credits per event.
         """
         if self._should_skip():
@@ -123,8 +122,8 @@ class OddsClient:
                 f"{self.base_url}/sports/{self.sport}/events/{event_id}/odds",
                 params={
                     "apiKey": self.api_key,
-                    "regions": regions,
-                    "markets": markets,
+                    "regions": regions or self._regions,
+                    "markets": markets or self._markets_1h,
                     "oddsFormat": odds_format,
                 },
                 timeout=30,
@@ -163,12 +162,12 @@ class OddsClient:
         self,
         event_id: str,
         markets: str | None = None,
-        regions: str = "us,us2",
+        regions: str | None = None,
         odds_format: str = "american",
     ) -> dict[str, Any]:
         """Fetch player prop odds for a specific event.
 
-        Uses the per-event endpoint (required for non-featured markets).
+        Regions default to the centralized Settings value.
         Cost: ~6 credits per event per region.
         """
         if self._should_skip():
@@ -178,7 +177,7 @@ class OddsClient:
                 f"{self.base_url}/sports/{self.sport}/events/{event_id}/odds",
                 params={
                     "apiKey": self.api_key,
-                    "regions": regions,
+                    "regions": regions or self._regions,
                     "markets": markets or self.PLAYER_PROP_MARKETS,
                     "oddsFormat": odds_format,
                 },
@@ -224,7 +223,7 @@ class OddsClient:
                             continue
                         try:
                             price = float(price)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             logger.debug("Skipping outcome with invalid price: %s", price)
                             continue
 
@@ -232,7 +231,7 @@ class OddsClient:
                         if point is not None:
                             try:
                                 point = float(point)
-                            except (ValueError, TypeError):
+                            except ValueError, TypeError:
                                 point = None
 
                         name = outcome.get("name")
@@ -253,18 +252,20 @@ class OddsClient:
                         db.add(snapshot)
                         count += 1
                         # Collect for permanent archive (first-seen per day)
-                        archive_rows.append({
-                            "game_id": game_id,
-                            "source": "odds_api",
-                            "bookmaker": bk_name,
-                            "market": market_key,
-                            "outcome_name": name[:128],
-                            "description": outcome.get("description"),
-                            "price": price,
-                            "point": point,
-                            "capture_date": capture_date,
-                            "captured_at": now,
-                        })
+                        archive_rows.append(
+                            {
+                                "game_id": game_id,
+                                "source": "odds_api",
+                                "bookmaker": bk_name,
+                                "market": market_key,
+                                "outcome_name": name[:128],
+                                "description": outcome.get("description"),
+                                "price": price,
+                                "point": point,
+                                "capture_date": capture_date,
+                                "captured_at": now,
+                            }
+                        )
         # Batch-insert into permanent archive using ON CONFLICT DO NOTHING so we
         # keep the FIRST snapshot of each day for every game/bookmaker/market/outcome.
         if archive_rows:
@@ -273,7 +274,11 @@ class OddsClient:
                 .values(archive_rows)
                 .on_conflict_do_nothing(
                     index_elements=[
-                        "game_id", "bookmaker", "market", "outcome_name", "capture_date",
+                        "game_id",
+                        "bookmaker",
+                        "market",
+                        "outcome_name",
+                        "capture_date",
                     ]
                 )
             )
@@ -299,4 +304,3 @@ class OddsClient:
         else:
             logger.info("Persisted %d odds snapshots (all events matched)", count)
         return count
-

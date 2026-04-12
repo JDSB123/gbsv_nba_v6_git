@@ -57,7 +57,9 @@ async def process_dead_letter_queue() -> int:
                     # Success — mark resolved (terminal state, won't be selected again)
                     failure.resolved_at = now
                     retried += 1
-                    logger.info("DLQ retry succeeded for id=%s job=%s", failure.id, failure.job_name)
+                    logger.info(
+                        "DLQ retry succeeded for id=%s job=%s", failure.id, failure.job_name
+                    )
 
                 except Exception as exc:
                     failure.retry_count = failure.retry_count + 1
@@ -85,7 +87,6 @@ def _resolve_job(job_name: str):
     from src.data.jobs.polling import (
         poll_1h_odds,
         poll_fg_odds,
-        poll_injuries,
         poll_player_props,
         poll_scores_and_box,
         poll_stats,
@@ -97,6 +98,5 @@ def _resolve_job(job_name: str):
         "poll_player_props": poll_player_props,
         "poll_stats": poll_stats,
         "poll_scores_and_box": poll_scores_and_box,
-        "poll_injuries": poll_injuries,
     }
     return registry.get(job_name)

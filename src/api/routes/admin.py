@@ -71,7 +71,6 @@ def _get_job_registry() -> dict[str, Any]:
         daily_retrain,
         poll_1h_odds,
         poll_fg_odds,
-        poll_injuries,
         poll_player_props,
         poll_scores_and_box,
         poll_stats,
@@ -90,7 +89,6 @@ def _get_job_registry() -> dict[str, Any]:
             "poll_player_props": poll_player_props,
             "poll_stats": poll_stats,
             "poll_scores_and_box": poll_scores_and_box,
-            "poll_injuries": poll_injuries,
             "sync_events_to_games": sync_events_to_games,
             "daily_retrain": daily_retrain,
             "fill_clv": fill_clv,
@@ -137,9 +135,7 @@ async def promote_model(
     _auth: None = Depends(_require_api_key),
 ) -> dict[str, Any]:
     """Promote a specific model version to active, with audit trail."""
-    result = await db.execute(
-        select(ModelRegistry).where(ModelRegistry.model_version == version)
-    )
+    result = await db.execute(select(ModelRegistry).where(ModelRegistry.model_version == version))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=404, detail=f"Model version {version!r} not found")
@@ -196,9 +192,7 @@ async def rollback_model(
 ) -> dict[str, Any]:
     """Roll back to a previous model version."""
     # Delegate to promote with rollback action logged
-    result = await db.execute(
-        select(ModelRegistry).where(ModelRegistry.model_version == version)
-    )
+    result = await db.execute(select(ModelRegistry).where(ModelRegistry.model_version == version))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=404, detail=f"Model version {version!r} not found")
@@ -249,9 +243,7 @@ async def model_audit_log(
 ) -> dict[str, Any]:
     """Return model promotion/rollback audit trail."""
     result = await db.execute(
-        select(ModelAuditLog)
-        .order_by(ModelAuditLog.performed_at.desc())
-        .limit(limit)
+        select(ModelAuditLog).order_by(ModelAuditLog.performed_at.desc()).limit(limit)
     )
     rows = result.scalars().all()
     return {

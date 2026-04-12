@@ -13,6 +13,7 @@ from typing import Any
 
 import lightgbm as lgb
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit
 
@@ -50,6 +51,7 @@ class EnsembleStack:
     def __init__(self) -> None:
         self.lgb_models: dict[str, lgb.LGBMRegressor] = {}
         self.meta_models: dict[str, Ridge] = {}
+        self._feature_cols: list[str] | None = None
         self._ready = False
 
     # ── Training ────────────────────────────────────────────────
@@ -72,6 +74,10 @@ class EnsembleStack:
         Returns:
             Metrics dict with ensemble MAE for each target.
         """
+        # Store feature column names so predict() can wrap X in a DataFrame
+        # and suppress "X does not have valid feature names" warnings.
+        self._feature_cols = [f"f{i}" for i in range(X.shape[1])]
+
         metrics: dict[str, float] = {}
 
         for model_name in MODEL_NAMES:
@@ -94,10 +100,12 @@ class EnsembleStack:
             X_fit, X_hold = X_valid[:split_idx], X_valid[split_idx:]
             y_fit, y_hold = y[:split_idx], y[split_idx:]
 
+            X_fit_df = pd.DataFrame(X_fit, columns=self._feature_cols)
+            X_hold_df = pd.DataFrame(X_hold, columns=self._feature_cols)
             lgb_model.fit(
-                X_fit,
+                X_fit_df,
                 y_fit,
-                eval_set=[(X_hold, y_hold)],
+                eval_set=[(X_hold_df, y_hold)],
                 callbacks=[lgb.early_stopping(30, verbose=False)],
             )
             self.lgb_models[model_name] = lgb_model
@@ -114,13 +122,15 @@ class EnsembleStack:
 
                 # LGB OOF (refit on fold)
                 lgb_fold = lgb.LGBMRegressor(**DEFAULT_LGB_PARAMS)
+                X_train_df = pd.DataFrame(X_valid[train_idx], columns=self._feature_cols)
+                X_val_df = pd.DataFrame(X_valid[val_idx], columns=self._feature_cols)
                 lgb_fold.fit(
-                    X_valid[train_idx],
+                    X_train_df,
                     y[train_idx],
-                    eval_set=[(X_valid[val_idx], y[val_idx])],
+                    eval_set=[(X_val_df, y[val_idx])],
                     callbacks=[lgb.early_stopping(30, verbose=False)],
                 )
-                oof_lgb[val_idx] = lgb_fold.predict(X_valid[val_idx])
+                oof_lgb[val_idx] = lgb_fold.predict(X_val_df)
 
             # Only use rows where both OOF predictions exist
             valid_oof = np.isfinite(oof_xgb) & np.isfinite(oof_lgb)
@@ -171,7 +181,8 @@ class EnsembleStack:
             return None
 
         try:
-            lgb_pred = float(self.lgb_models[model_name].predict(X)[0])
+            X_df = pd.DataFrame(X, columns=self._feature_cols) if self._feature_cols else X
+            lgb_pred = float(self.lgb_models[model_name].predict(X_df)[0])
             meta_X = np.array([[xgb_pred, lgb_pred]])
             return float(self.meta_models[model_name].predict(meta_X)[0])
         except Exception:
@@ -191,6 +202,8 @@ class EnsembleStack:
                 "coef": meta.coef_.tolist(),
                 "intercept": float(meta.intercept_),
             }
+        if self._feature_cols:
+            meta_data["_feature_cols"] = self._feature_cols
         meta_path = ARTIFACTS_DIR / "ensemble_meta.json"
         meta_path.write_text(json.dumps(meta_data, indent=2))
         logger.info("Ensemble artifacts saved to %s", ARTIFACTS_DIR)
@@ -202,10 +215,11 @@ class EnsembleStack:
 
         try:
             meta_data = json.loads(meta_path.read_text())
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError, OSError:
             return False
 
         loaded = 0
+        self._feature_cols = meta_data.pop("_feature_cols", None)
         for name in MODEL_NAMES:
             lgb_path = ARTIFACTS_DIR / f"{name}_lgb.txt"
             if not lgb_path.exists() or name not in meta_data:

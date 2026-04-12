@@ -80,6 +80,15 @@ class OODDetector:
         if self._mean is None or self._inv_cov is None:
             return np.zeros(len(X))
 
+        n_features = X.shape[1] if X.ndim == 2 else X.shape[0]
+        if self._mean.shape[0] != n_features:
+            logger.warning(
+                "OOD detector dimension mismatch: mean has %d features, input has %d — skipping",
+                self._mean.shape[0],
+                n_features,
+            )
+            return np.zeros(len(X))
+
         diff = X - self._mean
         # Mahalanobis: sqrt( (x-μ)ᵀ Σ⁻¹ (x-μ) )
         left = diff @ self._inv_cov
@@ -128,7 +137,7 @@ class OODDetector:
             self._ready = True
             logger.info("OOD detector loaded (threshold=%.2f)", self._threshold)
             return True
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except json.JSONDecodeError, KeyError, ValueError:
             logger.warning("Failed to load OOD detector", exc_info=True)
             return False
 

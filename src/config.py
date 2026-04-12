@@ -33,9 +33,7 @@ class Settings(BaseSettings):
     basketball_api_key: str = ""
 
     # ── Database ──────────────────────────────────────────────────
-    database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
-    )
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv"
 
     # ── App ───────────────────────────────────────────────────────
     app_env: str = "development"
@@ -44,7 +42,6 @@ class Settings(BaseSettings):
     # ── API base URLs ─────────────────────────────────────────────
     odds_api_base: str = "https://api.the-odds-api.com/v4"
     basketball_api_base: str = "https://v1.basketball.api-sports.io"
-    nba_api_base: str = "https://v2.nba.api-sports.io"
 
     # ── NBA constants ─────────────────────────────────────────────
     odds_api_sport_key: str = "basketball_nba"
@@ -54,7 +51,6 @@ class Settings(BaseSettings):
     odds_fg_interval: int = 15
     odds_1h_interval: int = 30
     stats_interval: int = 120
-    injuries_interval: int = 120
     retrain_hour: int = 6  # 6am ET daily retrain
     morning_slate_hour: int = 10  # 10am ET = 9am CST daily publish
     pregame_lead_minutes: int = 60  # publish this many min before first tip
@@ -72,7 +68,10 @@ class Settings(BaseSettings):
     # ── API authentication ────────────────────────────────────────
     api_key: str = ""  # X-API-Key header; empty = no auth enforced
 
-    # ── Quota management ──────────────────────────────────────────
+    # ── Odds API data source config ──────────────────────────────
+    odds_api_regions: str = "us,us2,eu"  # us=retail, us2=offshore, eu=Pinnacle/bet365
+    odds_api_markets_fg: str = "h2h,spreads,totals"
+    odds_api_markets_1h: str = "h2h_h1,spreads_h1,totals_h1"
     odds_api_quota_min: int = 50  # skip fetches if remaining < this
 
     # ── Database pool ──────────────────────────────────────────────
@@ -85,9 +84,13 @@ class Settings(BaseSettings):
 
     # ── NBA constants ─────────────────────────────────────────────
     nba_avg_total: float = 230.0  # league-average total for edge calcs
-    min_edge: float = 6.0  # minimum edge (pts) for a pick to qualify
+    min_edge: float = 6.0  # minimum edge (pts) for a pick to qualify (legacy fallback)
+    min_edge_spread: float = 4.0  # spread market threshold (pts)
+    min_edge_total: float = 3.0  # total market threshold (pts)
+    min_edge_ml: float = 3.0  # moneyline market threshold (EV pts)
     edge_thresholds: list[float] = [6.0, 7.0, 8.5, 10.0, 12.0]
     american_vig: int = 110  # standard -110 vig
+    market_blend_alpha: float = 0.55  # spread blend: 55% model, 45% market
     server_port: int = 8000
 
     # ── Model governance / promotion gates ─────────────────────
@@ -126,8 +129,7 @@ class Settings(BaseSettings):
             missing.append("DATABASE_URL")
         if missing:
             raise ValueError(
-                f"Missing required env vars for env={self.app_env}: "
-                + ", ".join(missing)
+                f"Missing required env vars for env={self.app_env}: " + ", ".join(missing)
             )
         return self
 

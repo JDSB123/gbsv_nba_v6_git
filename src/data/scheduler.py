@@ -15,6 +15,7 @@ from src.config import get_settings
 
 # -- Re-exports (all existing `from src.data.scheduler import X` keep working) --
 from src.data.jobs.maintenance import (  # noqa: F401
+    check_data_freshness,
     db_maintenance,
     fill_clv,
     prune_old_odds,
@@ -24,7 +25,6 @@ from src.data.jobs.polling import (  # noqa: F401
     daily_retrain,
     poll_1h_odds,
     poll_fg_odds,
-    poll_injuries,
     poll_player_props,
     poll_scores_and_box,
     poll_stats,
@@ -86,12 +86,6 @@ def create_scheduler() -> AsyncIOScheduler:
         daily_retrain, "cron", hour=settings.retrain_hour, minute=0, id="daily_retrain"
     )
     scheduler.add_job(
-        poll_injuries,
-        "interval",
-        minutes=settings.injuries_interval,
-        id="poll_injuries",
-    )
-    scheduler.add_job(
         check_prediction_drift,
         "cron",
         hour=7,
@@ -113,6 +107,14 @@ def create_scheduler() -> AsyncIOScheduler:
         hour=4,
         minute=30,
         id="db_maintenance",
+    )
+
+    # Data freshness monitoring — alert if any source goes stale
+    scheduler.add_job(
+        check_data_freshness,
+        "interval",
+        minutes=30,
+        id="check_data_freshness",
     )
 
     # Dead-letter queue retry

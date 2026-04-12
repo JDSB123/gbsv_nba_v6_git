@@ -94,7 +94,6 @@ async def generate_predictions_and_publish(
         from src.data.jobs.polling import (
             poll_1h_odds,
             poll_fg_odds,
-            poll_injuries,
             poll_player_props,
             poll_scores_and_box,
             poll_stats,
@@ -113,7 +112,6 @@ async def generate_predictions_and_publish(
         if refresh_inputs:
             await poll_stats()
             await poll_scores_and_box()
-            await poll_injuries()
             await sync_events_to_games()
             await poll_fg_odds()
             await poll_1h_odds()
@@ -238,6 +236,7 @@ async def generate_predictions_and_publish(
                         build_slate_csv,
                         send_html_via_graph,
                         upload_csv_to_channel,
+                        upload_html_to_channel,
                     )
 
                     csv_url: str | None = None
@@ -254,11 +253,30 @@ async def generate_predictions_and_publish(
                     except Exception:
                         logger.warning("Failed to upload CSV slate", exc_info=True)
 
+                    # Build single consolidated HTML (picks + odds + data sources)
+                    html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
+
+                    # Upload HTML to channel Files tab (OneDrive) for download
+                    html_dl_url: str | None = None
+                    try:
+                        html_filename = (
+                            f"GBSV_NBA_Slate_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.html"
+                        )
+                        html_dl_url = await upload_html_to_channel(
+                            _s.teams_team_id,
+                            _s.teams_channel_id,
+                            html_filename,
+                            html,
+                        )
+                        logger.info("HTML slate uploaded to OneDrive: %s", html_dl_url)
+                    except Exception:
+                        logger.warning("Failed to upload HTML slate to OneDrive", exc_info=True)
+
                     payload = build_teams_card(
                         rows,
                         _s.teams_max_games_per_message,
                         odds_pulled_at=odds_pulled_at,
-                        download_url=download_url,
+                        download_url=html_dl_url or download_url,
                         csv_download_url=csv_url,
                     )
                     await send_card_via_graph(
@@ -268,7 +286,6 @@ async def generate_predictions_and_publish(
                     )
 
                     try:
-                        html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
                         await send_html_via_graph(
                             _s.teams_team_id,
                             _s.teams_channel_id,
@@ -283,6 +300,7 @@ async def generate_predictions_and_publish(
                 elif _s.teams_webhook_url:
                     try:
                         from src.notifications.teams import build_html_slate
+
                         html = build_html_slate(rows, odds_pulled_at=odds_pulled_at)
                         with open("nba_picks_slate_livesync.html", "w", encoding="utf-8") as f:
                             f.write(html)

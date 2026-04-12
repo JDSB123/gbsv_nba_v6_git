@@ -778,7 +778,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -808,7 +807,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -851,7 +849,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -919,7 +916,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -981,7 +977,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -1039,7 +1034,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -1102,7 +1096,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
@@ -1161,7 +1154,6 @@ class TestPublishFlow:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),

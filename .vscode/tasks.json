@@ -18,7 +18,8 @@
       "args": [
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
-        "-File", "${workspaceFolder}/scripts/bootstrap-host.ps1"
+        "-File", "${workspaceFolder}/scripts/bootstrap-host.ps1",
+        "-SkipVSCodeExtensions"
       ],
       "runOptions": {
         "runOn": "folderOpen"

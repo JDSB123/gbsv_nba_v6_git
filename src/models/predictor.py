@@ -201,14 +201,38 @@ class Predictor:
 
         if 0 < model_feature_count < expected_count:
             self._compatibility_mode = True
-            self._inference_feature_cols = expected_features[:model_feature_count]
-            logger.warning(
-                "Compatibility mode enabled: models expect %d features, current vector has %d. "
-                "Using first %d features for inference. Retrain recommended.",
-                model_feature_count,
-                expected_count,
-                model_feature_count,
-            )
+            # Prefer the authoritative feature list saved by the trainer.
+            trained_cols_path = ARTIFACTS_DIR / "trained_feature_cols.json"
+            if trained_cols_path.exists():
+                import json as _json
+
+                saved_cols = _json.loads(trained_cols_path.read_text())
+                if len(saved_cols) == model_feature_count:
+                    self._inference_feature_cols = saved_cols
+                    logger.warning(
+                        "Compatibility mode enabled: models trained on %d/%d features "
+                        "(loaded from trained_feature_cols.json).",
+                        model_feature_count,
+                        expected_count,
+                    )
+                else:
+                    self._inference_feature_cols = expected_features[:model_feature_count]
+                    logger.warning(
+                        "trained_feature_cols.json has %d cols but model expects %d; "
+                        "falling back to first-%d. Retrain recommended.",
+                        len(saved_cols),
+                        model_feature_count,
+                        model_feature_count,
+                    )
+            else:
+                self._inference_feature_cols = expected_features[:model_feature_count]
+                logger.warning(
+                    "Compatibility mode enabled: models expect %d features, current vector has %d. "
+                    "Using first %d features for inference. Retrain recommended.",
+                    model_feature_count,
+                    expected_count,
+                    model_feature_count,
+                )
             # Fire-and-forget alert — import here to avoid circular dependency
             try:
                 import asyncio

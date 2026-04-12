@@ -1,10 +1,9 @@
 from datetime import date, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from src.data.basketball_client import (
-    INJURY_STATUS_MAP,
     BasketballClient,
     _compute_advanced_stats,
     normalize_team_stats,
@@ -147,119 +146,3 @@ def test_compute_advanced_stats_whole_number_percentages():
     pace, off_rtg, def_rtg = _compute_advanced_stats(stats, 82, 118.2, 111.1)
     assert pace is not None and pace > 80
     assert off_rtg is not None and off_rtg > 90
-
-
-# ── Injury pipeline tests ─────────────────────────────────────────
-
-
-def test_injury_status_map_covers_expected_statuses():
-    """All common NBA API injury statuses are mapped."""
-    assert INJURY_STATUS_MAP["out"] == "out"
-    assert INJURY_STATUS_MAP["doubtful"] == "doubtful"
-    assert INJURY_STATUS_MAP["questionable"] == "questionable"
-    assert INJURY_STATUS_MAP["probable"] == "probable"
-    assert INJURY_STATUS_MAP["day-to-day"] == "questionable"
-    assert INJURY_STATUS_MAP["out for season"] == "out"
-    assert INJURY_STATUS_MAP["out indefinitely"] == "out"
-
-
-@pytest.mark.asyncio
-async def test_persist_injuries_clears_and_inserts():
-    """persist_injuries clears existing injuries and inserts new ones."""
-    client = BasketballClient()
-    db = AsyncMock()
-    db.add = MagicMock()
-
-    # begin_nested() must return an async context manager (savepoint)
-    db.begin_nested = MagicMock(return_value=AsyncMock())
-
-    # Simulate: delete returns nothing, team lookup → id=1, player lookup → id=10
-    db.execute = AsyncMock(
-        side_effect=[
-            AsyncMock(scalar_one_or_none=lambda: None),  # delete
-            AsyncMock(scalar_one_or_none=lambda: 1),  # team lookup
-            AsyncMock(scalar_one_or_none=lambda: 10),  # player lookup
-        ]
-    )
-
-    injuries_data = [
-        {
-            "player": {"firstname": "LeBron", "lastname": "James"},
-            "team": {"name": "Los Angeles Lakers"},
-            "status": {"type": "Day-To-Day", "description": "Ankle"},
-        }
-    ]
-
-    await client.persist_injuries(injuries_data, db)
-
-    # Should have called delete, two selects, db.add, and commit
-    assert db.execute.await_count == 3
-    db.add.assert_called_once()
-    db.commit.assert_awaited_once()
-
-    injury_obj = db.add.call_args[0][0]
-    assert injury_obj.player_id == 10
-    assert injury_obj.team_id == 1
-    assert injury_obj.status == "questionable"  # day-to-day → questionable
-    assert injury_obj.description == "Ankle"
-
-
-@pytest.mark.asyncio
-async def test_persist_injuries_skips_unknown_team():
-    """Injuries for teams not in our DB are skipped."""
-    client = BasketballClient()
-    db = AsyncMock()
-    db.add = MagicMock()
-
-    db.begin_nested = MagicMock(return_value=AsyncMock())
-
-    db.execute = AsyncMock(
-        side_effect=[
-            AsyncMock(scalar_one_or_none=lambda: None),  # delete
-            AsyncMock(scalar_one_or_none=lambda: None),  # team not found
-        ]
-    )
-
-    injuries_data = [
-        {
-            "player": {"firstname": "Test", "lastname": "Player"},
-            "team": {"name": "Unknown Team"},
-            "status": {"type": "Out", "description": "Knee"},
-        }
-    ]
-
-    await client.persist_injuries(injuries_data, db)
-
-    db.add.assert_not_called()
-    db.commit.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_persist_injuries_skips_unknown_player():
-    """Injuries for players not in our DB are skipped."""
-    client = BasketballClient()
-    db = AsyncMock()
-    db.add = MagicMock()
-
-    db.begin_nested = MagicMock(return_value=AsyncMock())
-
-    db.execute = AsyncMock(
-        side_effect=[
-            AsyncMock(scalar_one_or_none=lambda: None),  # delete
-            AsyncMock(scalar_one_or_none=lambda: 1),  # team found
-            AsyncMock(scalar_one_or_none=lambda: None),  # player not found
-        ]
-    )
-
-    injuries_data = [
-        {
-            "player": {"firstname": "Unknown", "lastname": "Player"},
-            "team": {"name": "Boston Celtics"},
-            "status": {"type": "Out", "description": "Shoulder"},
-        }
-    ]
-
-    await client.persist_injuries(injuries_data, db)
-
-    db.add.assert_not_called()
-    db.commit.assert_awaited_once()

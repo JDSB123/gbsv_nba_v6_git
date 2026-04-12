@@ -3,26 +3,14 @@ from datetime import date
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.config import get_settings
 from src.data.seasons import current_nba_season, parse_api_datetime
-from src.db.models import (
-    Game,
-    Injury,
-    Player,
-    PlayerGameStats,
-    Team,
-    TeamSeasonStats,
-)
+from src.db.models import Game, Player, PlayerGameStats, Team, TeamSeasonStats
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +43,6 @@ def normalize_team_stats(stats: Any) -> dict[str, Any] | None:
     if isinstance(stats, list) and stats and isinstance(stats[0], dict):
         return stats[0]
     return None
-
-
-# NBA API injury status types → our schema status values
-INJURY_STATUS_MAP: dict[str, str] = {
-    "out": "out",
-    "out for season": "out",
-    "out indefinitely": "out",
-    "doubtful": "doubtful",
-    "day-to-day": "questionable",
-    "questionable": "questionable",
-    "probable": "probable",
-}
 
 
 def _pct_to_decimal(value: Any) -> float | None:
@@ -201,7 +177,6 @@ class BasketballClient:
         self.base_url = _settings.basketball_api_base
         self.api_key = _settings.basketball_api_key
         self.league_id = _settings.basketball_api_league_id
-        self._nba_api_base = _settings.nba_api_base
 
     def _headers(self) -> dict[str, str]:
         return {"x-apisports-key": self.api_key}
@@ -271,107 +246,6 @@ class BasketballClient:
                 "season": self._resolve_season(season),
             },
         )
-
-    # ── NBA API v2 (shares same api-sports key) ─────
-
-    @_RETRY
-    async def fetch_nba_officials(self, game_id: int) -> list[str]:
-        """Fetch officials from NBA API v2 for a specific game."""
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{self._nba_api_base}/games",
-                headers=self._headers(),
-                params={"id": game_id},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            games = data.get("response", [])
-            if games and "officials" in games[0]:
-                return games[0]["officials"] or []
-            return []
-
-    @_RETRY
-    async def fetch_injuries(self, season: str | None = None) -> list[dict]:
-        """Fetch current injury report from the NBA API.
-
-        Uses ``v2.nba.api-sports.io`` which shares the same api-sports
-        API key and provides a dedicated ``/players/injuries`` endpoint
-        not available in the Basketball API v1.
-        """
-        resolved = self._resolve_season(season)
-        # NBA API uses just the start year, e.g. "2024" not "2024-2025"
-        nba_season = resolved.split("-")[0]
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{self._nba_api_base}/players/injuries",
-                headers=self._headers(),
-                params={"league": "standard", "season": nba_season},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("response", [])
-
-    async def persist_injuries(self, injuries_data: list[dict], db: AsyncSession) -> int:
-        """Replace current injury data with a fresh report.
-
-        Clears the entire ``injuries`` table then re-populates from the
-        latest API response.  Uses a savepoint so a mid-loop failure rolls
-        back to the pre-delete state instead of leaving the table empty.
-        Only players already tracked in the ``players`` table are linked;
-        unknown players are skipped so the downstream feature code can
-        look up their ``PlayerGameStats``.
-        """
-        async with db.begin_nested():
-            await db.execute(delete(Injury))
-
-            count = 0
-            for entry in injuries_data:
-                team_info = entry.get("team") or {}
-                player_info = entry.get("player") or {}
-                status_info = entry.get("status") or {}
-
-                team_name = team_info.get("name", "")
-                first = player_info.get("firstname", "")
-                last = player_info.get("lastname", "")
-                full_name = f"{first} {last}".strip()
-                if not team_name or not full_name:
-                    continue
-
-                raw_status = (status_info.get("type") or "").lower()
-                mapped_status = INJURY_STATUS_MAP.get(raw_status, "questionable")
-                description = status_info.get("description", "")
-
-                # Look up team by name
-                team_result = await db.execute(select(Team.id).where(Team.name == team_name))
-                team_id_row = team_result.scalar_one_or_none()
-                if team_id_row is None:
-                    continue
-
-                # Look up player by name (case-insensitive) within team
-                player_result = await db.execute(
-                    select(Player.id).where(
-                        Player.team_id == team_id_row,
-                        func.lower(Player.name) == full_name.lower(),
-                    )
-                )
-                player_id_row = player_result.scalar_one_or_none()
-                if player_id_row is None:
-                    continue
-
-                injury = Injury(
-                    player_id=player_id_row,
-                    team_id=team_id_row,
-                    status=mapped_status,
-                    description=description[:255] if description else None,
-                )
-                db.add(injury)
-                count += 1
-
-        await db.commit()
-        logger.info("Refreshed %d injuries", count)
-        return count
 
     # ── Persistence helpers ────────────────────────────────────────
 
@@ -480,9 +354,8 @@ class BasketballClient:
             )
             await db.execute(stmt)
 
-            # Note: Basketball API v1 does not provide officials (referees).
-            # This is fetched separately via fetch_nba_officials (NBA API v2)
-            # during the poll_scores job or a dedicated referee sync.
+            # Note: Basketball API v1 does not provide officials (referees)
+            # or injuries. These features impute to neutral when tables are empty.
 
             count += 1
         await db.commit()
@@ -578,7 +451,7 @@ class BasketballClient:
                     return None
                 try:
                     return float(str(val).replace("%", ""))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
 
             def _safe_int(val: Any) -> int | None:
@@ -586,7 +459,7 @@ class BasketballClient:
                     return None
                 try:
                     return int(str(val).split(":")[0]) if ":" in str(val) else int(val)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
 
             # Parse minutes from "MM:SS" format
@@ -631,9 +504,7 @@ class BasketballClient:
                         "fg_pct": fg_pct,
                         "three_pct": three_pct,
                         "ft_pct": ft_pct,
-                        "plus_minus": _safe_float(
-                            _player_box_stat(p, "plusMinus", "plus_minus")
-                        ),
+                        "plus_minus": _safe_float(_player_box_stat(p, "plusMinus", "plus_minus")),
                     },
                 )
             )

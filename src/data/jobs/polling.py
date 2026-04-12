@@ -2,14 +2,13 @@
 
 import logging
 from datetime import UTC, datetime, timedelta
-from inspect import isawaitable
 from typing import Any, cast
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
 from src.data.reconciliation import _GAME_MATCH_WINDOW, _find_matching_game
 from src.data.seasons import current_nba_season, parse_api_datetime
-from src.db.models import Game, GameReferee, PlayerGameStats, Team
+from src.db.models import Game, PlayerGameStats, Team
 from src.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
@@ -171,7 +170,9 @@ async def poll_stats() -> None:
                 tomorrow,
             )
             if reconciled:
-                logger.warning("poll_stats: reconciled %d synthetic/official duplicates", reconciled)
+                logger.warning(
+                    "poll_stats: reconciled %d synthetic/official duplicates", reconciled
+                )
 
             result = await db.execute(select(Team.id))
             team_ids = [row[0] for row in result.fetchall()]
@@ -210,46 +211,7 @@ async def poll_scores_and_box() -> None:
 
         client = BasketballClient()
         async with async_session_factory() as db:
-            # 1. Fetch Referees for ANY game that doesn't have them yet
-            ref_subq = select(GameReferee.game_id).distinct().scalar_subquery()
-            now = datetime.now(UTC).replace(tzinfo=None)
-            ref_game_result = await db.execute(
-                select(Game.id)
-                .where(
-                    and_(
-                        Game.id.notin_(ref_subq),
-                        Game.commence_time.between(now - timedelta(days=1), now + timedelta(days=2)),
-                    )
-                )
-                .limit(20)
-            )
-            missing_ref_ids = [row[0] for row in ref_game_result.fetchall()]
-            if missing_ref_ids:
-                logger.info("Fetching referees for %d games", len(missing_ref_ids))
-                for gid in missing_ref_ids:
-                    refs_result = getattr(client, "fetch_nba_officials", None)
-                    if refs_result is None:
-                        refs: list[str] = []
-                    else:
-                        maybe_refs = refs_result(gid)
-                        if isawaitable(maybe_refs):
-                            refs = await maybe_refs
-                        elif isinstance(maybe_refs, list):
-                            refs = maybe_refs
-                        else:
-                            logger.debug(
-                                "Skipping referee sync for game %s because fetch_nba_officials "
-                                "did not return an awaitable or list",
-                                gid,
-                            )
-                            refs = []
-                    if refs:
-                        await db.execute(delete(GameReferee).where(GameReferee.game_id == gid))
-                        for rname in refs:
-                            db.add(GameReferee(game_id=gid, referee_name=rname))
-                await db.commit()
-
-            # 2. Find finished games that have NO player_game_stats rows yet
+            # Find finished games that have NO player_game_stats rows yet
             subq = select(PlayerGameStats.game_id).distinct().scalar_subquery()
             result = await db.execute(
                 select(Game.id)
@@ -306,24 +268,6 @@ async def daily_retrain() -> None:
             "Model retraining raised an exception. Check worker logs.",
             "error",
         )
-
-
-async def poll_injuries() -> None:
-    """Fetch current injury report (NBA API) every 2 hours."""
-    logger.info("Polling injury report...")
-    try:
-        from src.data.basketball_client import BasketballClient
-
-        client = BasketballClient()
-        injuries = await client.fetch_injuries()
-        if injuries:
-            async with async_session_factory() as db:
-                count = await client.persist_injuries(injuries, db)
-                logger.info("Refreshed %d injuries", count)
-        else:
-            logger.info("No injury data returned")
-    except Exception:
-        logger.exception("Error polling injuries")
 
 
 async def sync_events_to_games() -> None:
@@ -427,8 +371,7 @@ async def sync_events_to_games() -> None:
                         )
                     else:
                         logger.warning(
-                            "Skipping odds event %s: "
-                            "team lookup failed (home=%r→%s, away=%r→%s)",
+                            "Skipping odds event %s: team lookup failed (home=%r→%s, away=%r→%s)",
                             odds_id,
                             home_team_name,
                             home_id,

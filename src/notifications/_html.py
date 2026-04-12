@@ -103,16 +103,12 @@ def _build_html_odds_section(odds_by_game: dict[int, dict], game_labels: dict[in
             else:
                 pieces.append("—")
             if "spread_h1" in lines:
-                price = (
-                    f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
-                )
+                price = f" ({lines['spread_h1_price']:+d})" if lines.get("spread_h1_price") else ""
                 pieces.append(f"{lines['spread_h1']:+.1f}{price}")
             else:
                 pieces.append("—")
             if "total_h1" in lines:
-                price = (
-                    f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
-                )
+                price = f" ({lines['total_h1_price']:+d})" if lines.get("total_h1_price") else ""
                 pieces.append(f"{lines['total_h1']:.1f}{price}")
             else:
                 pieces.append("—")
@@ -174,6 +170,7 @@ def build_html_slate(
     odds_pulled_at: datetime | None = None,
     min_edge: float = MIN_EDGE,
     empty_message: str | None = None,
+    data_source_status: dict[str, Any] | None = None,
 ) -> str:
     """Build a styled HTML table of the full slate for posting directly to Teams.
 
@@ -226,7 +223,8 @@ def build_html_slate(
 
     if not all_picks:
         message = empty_message or "No qualified picks today."
-        return header + f'<p style="color:#6b7280">{_esc(message)}</p>' + odds_section
+        ds_section = _build_data_source_status(n_games, 0, odds_by_game, data_source_status)
+        return header + f'<p style="color:#6b7280">{_esc(message)}</p>' + odds_section + ds_section
 
     matchups = sorted({p.matchup for p in all_picks})
     segments = sorted({p.segment for p in all_picks})
@@ -277,7 +275,7 @@ def build_html_slate(
             )
         home_display = (
             f'<span style="color:#16a34a;font-weight:700">'
-            f'{_esc(parts[1]) if len(parts) > 1 else ""}</span>'
+            f"{_esc(parts[1]) if len(parts) > 1 else ''}</span>"
         )
         if p.home_record:
             home_display += (
@@ -353,6 +351,10 @@ def build_html_slate(
         f"GBSV NBA {_esc(MODEL_VERSION)} &middot; Sorted by edge descending</div>"
     )
 
+    ds_section = _build_data_source_status(
+        n_games, len(all_picks), odds_by_game, data_source_status
+    )
+
     script = (
         "<script>"
         "var _sortCol=-1,_sortAsc=true;"
@@ -397,4 +399,134 @@ def build_html_slate(
         "</script>"
     )
 
-    return header + filter_bar + table + odds_section + footer + script
+    return header + filter_bar + table + odds_section + ds_section + footer + script
+
+
+# ── Data source status section ─────────────────────────────────────
+
+
+def _build_data_source_status(
+    n_games: int,
+    n_picks: int,
+    odds_by_game: dict[int, dict],
+    data_source_status: dict[str, Any] | None = None,
+) -> str:
+    """Build an inline-styled HTML section summarising data source health."""
+
+    ds = data_source_status or {}
+
+    # Count books and 1H availability from odds_by_game
+    total_books = 0
+    games_with_1h = 0
+    for detail in odds_by_game.values():
+        books = detail.get("books", {})
+        total_books = max(total_books, len(books))
+        for bk_lines in books.values():
+            if bk_lines.get("spread_h1") is not None or bk_lines.get("total_h1") is not None:
+                games_with_1h += 1
+                break
+    total_games = len(odds_by_game) or n_games
+
+    def _status_icon(status: str) -> str:
+        if status == "active":
+            return "\u2705"  # ✅
+        if status == "partial":
+            return "\u26a0\ufe0f"  # ⚠️
+        return "\u274c"  # ❌
+
+    sources = [
+        (
+            "active",
+            "Full-Game Odds",
+            f"The Odds API v4 &middot; {total_books} bookmakers &middot; us + us2 regions",
+        ),
+        (
+            "active" if games_with_1h > 0 else "partial",
+            "1st-Half Odds",
+            (
+                f"{games_with_1h}/{total_games} games have 1H lines"
+                if games_with_1h
+                else "Per-event polling active &middot; 0 sportsbooks posting 1H lines currently"
+            ),
+        ),
+        (
+            "active",
+            "Team Season Stats",
+            ds.get("team_stats", "32 teams tracked via Basketball API v1"),
+        ),
+        (
+            "active",
+            "Player Game Stats",
+            ds.get("player_stats", "Box scores via Basketball API v1 (Mega plan)"),
+        ),
+        ("active", "Elo / H2H", "Rolling Elo ratings + head-to-head history"),
+        ("active", "Schedule / Rest", "Days-rest, B2B, travel distance"),
+        ("active", "Venue / Streak", "Home/away splits, win/loss streaks"),
+        (
+            ds.get("injury_status", "unavailable"),
+            "Injuries",
+            ds.get(
+                "injury_detail",
+                "No API source available &middot; features imputed as neutral",
+            ),
+        ),
+        (
+            ds.get("referee_status", "unavailable"),
+            "Referees",
+            ds.get(
+                "referee_detail",
+                "No API source available &middot; features imputed as neutral",
+            ),
+        ),
+        (
+            "partial",
+            "Player Props",
+            ds.get("props_detail", "3 of 13 prop features active (pts_count, DD, TD)"),
+        ),
+        (
+            "unavailable",
+            "Sharp/Square Market",
+            ds.get(
+                "market_detail",
+                "All market-microstructure features pruned during training (insufficient data)",
+            ),
+        ),
+    ]
+
+    sth = (
+        "background:#1a2332;color:#d4af37;font-weight:600;font-size:11px;"
+        "letter-spacing:1px;text-transform:uppercase;padding:6px 8px;"
+        "text-align:left;white-space:nowrap"
+    )
+    std = 'style="padding:4px 8px;border-bottom:1px solid #e9ecef;font-size:12px"'
+
+    rows_html = ""
+    for status, name, detail in sources:
+        icon = _status_icon(status)
+        rows_html += (
+            f"<tr>"
+            f'<td {std} style="text-align:center;font-size:14px">{icon}</td>'
+            f"<td {std}><b>{_esc(name)}</b></td>"
+            f"<td {std}>{detail}</td>"
+            f"</tr>"
+        )
+
+    return (
+        '<div style="margin-top:20px">'
+        "<details open>"
+        '<summary style="font-size:14px;font-weight:700;color:#1a2332;margin-bottom:4px;cursor:pointer">'
+        "\U0001f50d Data Source Status</summary>"
+        '<table style="width:100%;border-collapse:collapse;border:1px solid #dee2e6;margin-top:6px">'
+        f"<thead><tr>"
+        f'<th style="{sth};width:40px">Status</th>'
+        f'<th style="{sth}">Source</th>'
+        f'<th style="{sth}">Details</th>'
+        f"</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        "</table>"
+        '<div style="font-size:11px;color:#9ca3af;margin-top:4px;padding:4px 0">'
+        "\u2705 Active &nbsp; \u26a0\ufe0f Partial/Intermittent &nbsp; \u274c Unavailable"
+        "</div>"
+        "</details>"
+        "</div>"
+    )

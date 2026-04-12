@@ -135,12 +135,15 @@ class TestRunPredict:
             patch("src.db.session.async_session_factory", mock_factory),
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
             patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
-            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                "src.data.scheduler.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
         ):
             from src.__main__ import _run_predict
 
@@ -166,21 +169,22 @@ class TestRunPredict:
             patch("src.db.session.async_session_factory", mock_factory),
             patch("src.data.scheduler.poll_stats", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_scores_and_box", new_callable=AsyncMock),
-            patch("src.data.scheduler.poll_injuries", new_callable=AsyncMock),
             patch("src.data.scheduler.sync_events_to_games", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_fg_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_1h_odds", new_callable=AsyncMock),
             patch("src.data.scheduler.poll_player_props", new_callable=AsyncMock),
-            patch("src.data.scheduler.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                "src.data.scheduler.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch(
                 "src.__main__._summarize_upcoming_coverage",
                 new_callable=AsyncMock,
                 return_value={
                     "ns_game_count": 5,
                     "linked_ns_game_count": 3,
-                    "awaiting_odds_games": [
-                        "Phoenix Suns @ Orlando Magic (2026-03-31T23:00:00)"
-                    ],
+                    "awaiting_odds_games": ["Phoenix Suns @ Orlando Magic (2026-03-31T23:00:00)"],
                 },
             ),
         ):
@@ -280,7 +284,9 @@ class TestMainEntrypoint:
     def test_module_main_guard_invokes_main(self):
         mock_func = MagicMock()
 
-        with patch("argparse.ArgumentParser.parse_args", return_value=SimpleNamespace(func=mock_func)):
+        with patch(
+            "argparse.ArgumentParser.parse_args", return_value=SimpleNamespace(func=mock_func)
+        ):
             runpy.run_module("src.__main__", run_name="__main__")
 
         mock_func.assert_called_once()

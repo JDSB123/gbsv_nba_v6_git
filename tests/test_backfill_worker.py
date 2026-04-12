@@ -24,8 +24,6 @@ class TestRunBackfill:
         mock_bball.persist_team_season_stats = AsyncMock()
         mock_bball.fetch_player_stats = AsyncMock(return_value=[])
         mock_bball.persist_player_game_stats = AsyncMock()
-        mock_bball.fetch_injuries = AsyncMock(return_value=[])
-        mock_bball.persist_injuries = AsyncMock(return_value=0)
 
         mock_odds = MagicMock()
         mock_odds.fetch_events = AsyncMock(return_value=[])
@@ -88,8 +86,6 @@ class TestRunBackfill:
         mock_bball.persist_team_season_stats = AsyncMock()
         mock_bball.fetch_player_stats = AsyncMock(return_value=[])
         mock_bball.persist_player_game_stats = AsyncMock()
-        mock_bball.fetch_injuries = AsyncMock(return_value=[])
-        mock_bball.persist_injuries = AsyncMock(return_value=0)
 
         mock_odds = MagicMock()
         mock_odds.fetch_events = AsyncMock(side_effect=RuntimeError("API down"))
@@ -128,8 +124,6 @@ class TestRunBackfill:
         mock_bball.persist_team_season_stats = AsyncMock()
         mock_bball.fetch_player_stats = AsyncMock(return_value=[])
         mock_bball.persist_player_game_stats = AsyncMock()
-        mock_bball.fetch_injuries = AsyncMock(return_value=[])
-        mock_bball.persist_injuries = AsyncMock(return_value=0)
 
         mock_odds = MagicMock()
         mock_odds.fetch_events = AsyncMock(return_value=[])
@@ -156,7 +150,7 @@ class TestRunBackfill:
     @patch("src.data.backfill.async_session_factory")
     @patch("src.data.backfill.resolve_backfill_window")
     async def test_happy_path_all_data(self, mock_window, mock_session):
-        """Covers steps 2-7 happy paths: games, stats, box scores, odds sync, odds persist, injuries."""
+        """Covers steps 2-7 happy paths: games, stats, box scores, odds sync, odds persist."""
         from src.data.backfill import run_backfill
 
         mock_window.return_value = ("2024-2025", date(2024, 10, 1), date(2024, 10, 1))
@@ -170,8 +164,6 @@ class TestRunBackfill:
         mock_bball.persist_team_season_stats = AsyncMock()
         mock_bball.fetch_player_stats = AsyncMock(return_value=[{"player": "A"}])
         mock_bball.persist_player_game_stats = AsyncMock()
-        mock_bball.fetch_injuries = AsyncMock(return_value=[{"player": "X"}])
-        mock_bball.persist_injuries = AsyncMock(return_value=3)
 
         mock_odds = MagicMock()
         mock_odds.fetch_events = AsyncMock(
@@ -182,12 +174,11 @@ class TestRunBackfill:
         )
         mock_odds.fetch_odds = AsyncMock(return_value=[{"id": "evt1"}])
         mock_odds.persist_odds = AsyncMock(return_value=5)
-        mock_odds.fetch_event_odds = AsyncMock(
-            return_value={"bookmakers": [{"key": "bk"}]}
-        )
+        mock_odds.fetch_event_odds = AsyncMock(return_value={"bookmakers": [{"key": "bk"}]})
 
         # Build a mock game with odds_api_id = None so backfill maps it
         from types import SimpleNamespace
+
         mock_game = SimpleNamespace(odds_api_id=None)
 
         call_count = {"n": 0}
@@ -238,46 +229,3 @@ class TestRunBackfill:
         mock_odds.persist_odds.assert_awaited()
         # Step 6: 1H odds fetched
         mock_odds.fetch_event_odds.assert_awaited()
-        # Step 7: injuries persisted
-        mock_bball.persist_injuries.assert_awaited_once()
-
-    @patch("src.data.backfill.async_session_factory")
-    @patch("src.data.backfill.resolve_backfill_window")
-    async def test_injury_fetch_failure(self, mock_window, mock_session):
-        """Backfill continues when injury fetch raises."""
-        from src.data.backfill import run_backfill
-
-        mock_window.return_value = ("2024-2025", date(2024, 10, 1), date(2024, 10, 1))
-
-        mock_bball = MagicMock()
-        mock_bball.fetch_standings = AsyncMock(return_value=[])
-        mock_bball.persist_teams = AsyncMock()
-        mock_bball.fetch_games = AsyncMock(return_value=[])
-        mock_bball.persist_games = AsyncMock(return_value=0)
-        mock_bball.fetch_team_stats = AsyncMock(return_value={})
-        mock_bball.persist_team_season_stats = AsyncMock()
-        mock_bball.fetch_player_stats = AsyncMock(return_value=[])
-        mock_bball.persist_player_game_stats = AsyncMock()
-        mock_bball.fetch_injuries = AsyncMock(side_effect=RuntimeError("API fail"))
-        mock_bball.persist_injuries = AsyncMock()
-
-        mock_odds = MagicMock()
-        mock_odds.fetch_events = AsyncMock(return_value=[])
-        mock_odds.fetch_odds = AsyncMock(return_value=[])
-        mock_odds.persist_odds = AsyncMock(return_value=0)
-        mock_odds.fetch_event_odds = AsyncMock(return_value=None)
-
-        mock_db = AsyncMock()
-        result = MagicMock()
-        result.fetchall.return_value = []
-        result.scalar_one_or_none.return_value = None
-        mock_db.execute = AsyncMock(return_value=result)
-        mock_db.commit = AsyncMock()
-        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with (
-            patch("src.data.backfill.BasketballClient", return_value=mock_bball),
-            patch("src.data.backfill.OddsClient", return_value=mock_odds),
-        ):
-            await run_backfill(season="2024-2025", days_back=1)  # should not raise

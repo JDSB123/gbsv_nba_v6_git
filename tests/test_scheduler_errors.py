@@ -30,7 +30,11 @@ class TestPollFgOddsException:
 
         with (
             patch(f"{_CB_MOD}.odds_api_breaker", mock_breaker),
-            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
+            patch(
+                f"{_POLL}.sync_events_to_games",
+                new_callable=AsyncMock,
+                side_effect=Exception("boom"),
+            ),
             patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             from src.data.scheduler import poll_fg_odds
@@ -48,7 +52,11 @@ class TestPoll1hOddsException:
 
         with (
             patch(f"{_CB_MOD}.odds_api_breaker", mock_breaker),
-            patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock, side_effect=Exception("boom")),
+            patch(
+                f"{_POLL}.sync_events_to_games",
+                new_callable=AsyncMock,
+                side_effect=Exception("boom"),
+            ),
             patch(f"{_POLL}._record_failure", new_callable=AsyncMock) as mock_record,
         ):
             from src.data.scheduler import poll_1h_odds
@@ -87,20 +95,6 @@ class TestPollStatsException:
             await poll_stats()
             mock_breaker.record_failure.assert_called_once()
             mock_record.assert_awaited_once()
-
-
-class TestPollInjuriesException:
-    @pytest.mark.anyio
-    async def test_poll_injuries_exception_logged(self):
-        with patch("src.data.basketball_client.BasketballClient") as MockClient:
-            client = AsyncMock()
-            client.fetch_injuries = AsyncMock(side_effect=Exception("injuries error"))
-            MockClient.return_value = client
-
-            from src.data.scheduler import poll_injuries
-
-            await poll_injuries()
-            # Should not raise -- just log error
 
 
 class TestPregameCheckException:
@@ -149,13 +143,16 @@ class TestGeneratePredictionsException:
         with (
             patch(f"{_POLL}.poll_stats", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_scores_and_box", new_callable=AsyncMock),
-            patch(f"{_POLL}.poll_injuries", new_callable=AsyncMock),
             patch(f"{_POLL}.sync_events_to_games", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_fg_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_1h_odds", new_callable=AsyncMock),
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.async_session_factory") as mock_sf,
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch(f"{_PRED}.get_settings"),
             patch("src.models.features.reset_elo_cache"),
             patch("src.models.predictor.Predictor", side_effect=RuntimeError("model load boom")),

@@ -66,7 +66,9 @@ class TestLoadModelsAllPresent:
             # Path exists returns True for any path
             mock_dir.__truediv__ = lambda self, key: MagicMock(exists=MagicMock(return_value=True))
             mock_xgb.XGBRegressor.return_value.load_model = MagicMock()
-            mock_xgb.XGBRegressor.return_value.get_booster.return_value = _make_mock_booster(expected)
+            mock_xgb.XGBRegressor.return_value.get_booster.return_value = _make_mock_booster(
+                expected
+            )
 
             p = Predictor.__new__(Predictor)
             p.feature_cols = get_feature_columns()
@@ -148,16 +150,23 @@ class TestLoadModelsAllPresent:
 
     def test_compatibility_mode_on_fewer_features(self):
         """Models with fewer features → compatibility mode enabled."""
+        import json as _json
+
         from src.models.features import get_feature_columns
         from src.models.predictor import Predictor
 
-        expected = len(get_feature_columns())
+        all_cols = get_feature_columns()
+        expected = len(all_cols)
         fewer = expected - 10
+        trained_cols = list(all_cols[:fewer])
         mock_model = _make_mock_model(fewer)
         mock_model.load_model = MagicMock()
 
         mock_path = MagicMock()
         mock_path.exists.return_value = True
+        # The compatibility-mode code reads trained_feature_cols.json via
+        # read_text(); provide valid JSON so the loader succeeds.
+        mock_path.read_text.return_value = _json.dumps(trained_cols)
 
         with (
             patch(f"{_MOD}.ARTIFACTS_DIR") as mock_dir,
@@ -286,20 +295,36 @@ class TestPredictGame:
         )
 
         snap1 = SimpleNamespace(
-            bookmaker="fanduel", market="spreads", outcome_name="Lakers",
-            captured_at=datetime.now(UTC), price=-110, point=-3.5,
+            bookmaker="fanduel",
+            market="spreads",
+            outcome_name="Lakers",
+            captured_at=datetime.now(UTC),
+            price=-110,
+            point=-3.5,
         )
         snap2 = SimpleNamespace(
-            bookmaker="fanduel", market="totals", outcome_name="Over",
-            captured_at=datetime.now(UTC), price=-110, point=220.5,
+            bookmaker="fanduel",
+            market="totals",
+            outcome_name="Over",
+            captured_at=datetime.now(UTC),
+            price=-110,
+            point=220.5,
         )
         snap3 = SimpleNamespace(
-            bookmaker="fanduel", market="spreads_h1", outcome_name="Lakers",
-            captured_at=datetime.now(UTC), price=-110, point=-1.5,
+            bookmaker="fanduel",
+            market="spreads_h1",
+            outcome_name="Lakers",
+            captured_at=datetime.now(UTC),
+            price=-110,
+            point=-1.5,
         )
         snap4 = SimpleNamespace(
-            bookmaker="fanduel", market="totals_h1", outcome_name="Over",
-            captured_at=datetime.now(UTC), price=-110, point=110.5,
+            bookmaker="fanduel",
+            market="totals_h1",
+            outcome_name="Over",
+            captured_at=datetime.now(UTC),
+            price=-110,
+            point=110.5,
         )
 
         db = AsyncMock()
@@ -338,7 +363,9 @@ class TestPredictGame:
         }
 
         game = SimpleNamespace(
-            id=1, home_team=SimpleNamespace(name="A"), away_team=SimpleNamespace(name="B"),
+            id=1,
+            home_team=SimpleNamespace(name="A"),
+            away_team=SimpleNamespace(name="B"),
         )
         db = AsyncMock()
         mock_result = MagicMock()
@@ -372,7 +399,9 @@ class TestPredictGame:
         }
 
         game = SimpleNamespace(
-            id=1, home_team=SimpleNamespace(name="A"), away_team=SimpleNamespace(name="B"),
+            id=1,
+            home_team=SimpleNamespace(name="A"),
+            away_team=SimpleNamespace(name="B"),
         )
         db = AsyncMock()
         mock_result = MagicMock()
@@ -502,7 +531,10 @@ class TestPredictGame:
 
         with (
             patch(f"{_MOD}.build_feature_vector", new_callable=AsyncMock) as mock_feat,
-            patch(f"{_MOD}.get_settings", return_value=SimpleNamespace(odds_freshness_max_age_minutes=30)),
+            patch(
+                f"{_MOD}.get_settings",
+                return_value=SimpleNamespace(odds_freshness_max_age_minutes=30),
+            ),
         ):
             mock_feat.return_value = {"f1": 1.0}
             result = await p.predict_game(game, db)

@@ -25,10 +25,10 @@ def test_create_scheduler_registers_all_jobs():
         "pregame_check",
         "fill_clv",
         "daily_retrain",
-        "poll_injuries",
         "check_prediction_drift",
         "prune_old_odds",
         "db_maintenance",
+        "check_data_freshness",
         "process_dead_letter_queue",
     }
     assert expected == job_ids, f"Missing: {expected - job_ids}, Extra: {job_ids - expected}"
