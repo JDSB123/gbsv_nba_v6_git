@@ -86,7 +86,15 @@ async def add_security_headers(request: Request, call_next) -> Response:
 
 
 # ── API key authentication ────────────────────────────────────────
-_AUTH_EXEMPT = {"/", "/health", "/health/deep", "/health/freshness", "/model/status", "/docs", "/openapi.json"}
+_AUTH_EXEMPT = {
+    "/",
+    "/health",
+    "/health/deep",
+    "/health/freshness",
+    "/model/status",
+    "/docs",
+    "/openapi.json",
+}
 
 
 @app.middleware("http")
@@ -133,7 +141,7 @@ async def root(request: Request) -> HTMLResponse:
         'font-weight:700">NBA GBSV v6</div>'
         '<h1 style="margin:10px 0 12px;font-size:32px;line-height:1.1">Live API is running</h1>'
         '<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#40566f">'
-        'This service exposes health checks, prediction endpoints, and a browser-friendly slate view.'
+        "This service exposes health checks, prediction endpoints, and a browser-friendly slate view."
         "</p>"
         f'<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#5b728a">{auth_note}</p>'
         '<ul style="margin:0;padding-left:20px;font-size:15px;line-height:1.6">'

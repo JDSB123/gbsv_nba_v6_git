@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # ── Scheduler intervals (minutes) ────────────────────────────
     odds_fg_interval: int = 15
     odds_1h_interval: int = 30
-    stats_interval: int = 120
+    stats_interval: int = 360
     retrain_hour: int = 6  # 6am ET daily retrain
     morning_slate_hour: int = 10  # 10am ET = 9am CST daily publish
     pregame_lead_minutes: int = 60  # publish this many min before first tip
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     db_ssl: bool = True  # set DB_SSL=false for local Postgres without SSL
 
     # ── Prediction reliability ────────────────────────────────────
-    odds_freshness_max_age_minutes: int = 30
+    odds_freshness_max_age_minutes: int = 365
 
     # ── NBA constants ─────────────────────────────────────────────
     nba_avg_total: float = 230.0  # league-average total for edge calcs
