@@ -44,9 +44,7 @@ def build_synced_lines(
         key = match.group(1)
         template_value = template_values[key]
         existing_value = existing_values.get(key, "")
-        resolved_value = (
-            existing_value if existing_value.strip() else template_value
-        )
+        resolved_value = existing_value if existing_value.strip() else template_value
         override_value = override_values.get(key, "")
         if override_value.strip():
             resolved_value = override_value
@@ -108,10 +106,7 @@ def get_azd_values(environment_name: str | None) -> dict[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Sync .env from .env.example without overwriting "
-            "non-empty local values."
-        )
+        description=("Sync .env from .env.example without overwriting non-empty local values.")
     )
     parser.add_argument(
         "--quiet",
@@ -121,10 +116,7 @@ def main() -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help=(
-            "Ignore existing values and rewrite from the template "
-            "plus overrides."
-        ),
+        help=("Ignore existing values and rewrite from the template plus overrides."),
     )
     parser.add_argument(
         "--from-azd",
@@ -164,6 +156,14 @@ def main() -> int:
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+    elif not args.force:
+        azure_path = repo_root / ".env.azure"
+        if azure_path.exists():
+            azure_lines = azure_path.read_text(encoding="utf-8").splitlines()
+            azure_values, _ = parse_env_values(azure_lines)
+            for k, v in azure_values.items():
+                if v and "placeholder" not in v:
+                    override_values[k] = v
 
     synced_lines, added_keys = build_synced_lines(
         template_lines,
@@ -171,11 +171,7 @@ def main() -> int:
         override_values,
     )
     synced_content = "\n".join(synced_lines) + "\n"
-    previous_content = (
-        env_path.read_text(encoding="utf-8")
-        if env_path.exists()
-        else None
-    )
+    previous_content = env_path.read_text(encoding="utf-8") if env_path.exists() else None
 
     if previous_content == synced_content:
         if not args.quiet:
@@ -192,9 +188,7 @@ def main() -> int:
         if added_keys:
             print("Added missing keys: " + ", ".join(added_keys))
         if args.from_azd:
-            override_keys = sorted(
-                key for key, value in override_values.items() if value
-            )
+            override_keys = sorted(key for key, value in override_values.items() if value)
             if override_keys:
                 print("Overlayed azd keys: " + ", ".join(override_keys))
 

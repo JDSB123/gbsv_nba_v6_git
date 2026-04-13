@@ -168,6 +168,16 @@ if ($FromAzd) {
   } else {
     $sourceDescription = ".env.example + current azd environment"
   }
+} elseif (-not $Force -and (Test-Path (Join-Path $ROOT ".env.azure"))) {
+  Write-Host "Loading fallback values from .env.azure..." -ForegroundColor Cyan
+  $azureValues = Get-DotEnvValues -Path (Join-Path $ROOT ".env.azure")
+  foreach ($key in $azureValues.Keys) {
+    if ($azureValues[$key] -and $azureValues[$key] -notmatch "placeholder") {
+      $azdValues[$key] = $azureValues[$key]
+    }
+  }
+  $syncedKeys = @($azdValues.Keys | Sort-Object)
+  $sourceDescription = ".env.example + .env.azure fallback"
 }
 
 $rerunCommand = ".\\scripts\\setup-env.ps1 -Force"
