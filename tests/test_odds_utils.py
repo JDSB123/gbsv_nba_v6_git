@@ -11,7 +11,6 @@ from src.models.odds_utils import (
     prob_to_american,
 )
 
-
 # ── prob_to_american ────────────────────────────────────────────
 
 
@@ -108,9 +107,13 @@ class TestConsensusPrice:
 
 def _snap(bk: str, mkt: str, outcome: str, ts_str: str):
     from datetime import datetime
+
     ts = datetime.fromisoformat(ts_str)
     return SimpleNamespace(
-        bookmaker=bk, market=mkt, outcome_name=outcome, captured_at=ts,
+        bookmaker=bk,
+        market=mkt,
+        outcome_name=outcome,
+        captured_at=ts,
     )
 
 
@@ -143,9 +146,14 @@ class TestLatestSnapshots:
 
 def _full_snap(bk, mkt, outcome, price, point, ts_str):
     from datetime import datetime
+
     return SimpleNamespace(
-        bookmaker=bk, market=mkt, outcome_name=outcome,
-        price=price, point=point, captured_at=datetime.fromisoformat(ts_str),
+        bookmaker=bk,
+        market=mkt,
+        outcome_name=outcome,
+        price=price,
+        point=point,
+        captured_at=datetime.fromisoformat(ts_str),
     )
 
 
@@ -153,6 +161,7 @@ class TestBuildOddsDetail:
     def test_spread(self):
         snaps = [_full_snap("dk", "spreads", "Lakers", -110, -3.5, "2025-03-01T10:00:00")]
         from datetime import datetime
+
         result = build_odds_detail(snaps, "Lakers", "Celtics", datetime(2025, 3, 1))
         assert "books" in result
         assert "dk" in result["books"]
@@ -161,6 +170,7 @@ class TestBuildOddsDetail:
     def test_totals(self):
         snaps = [_full_snap("dk", "totals", "Over", -110, 220.5, "2025-03-01T10:00:00")]
         from datetime import datetime
+
         result = build_odds_detail(snaps, "Lakers", "Celtics", datetime(2025, 3, 1))
         assert result["books"]["dk"]["total"] == 220.5
 
@@ -170,6 +180,7 @@ class TestBuildOddsDetail:
             _full_snap("dk", "h2h", "Celtics", 130, None, "2025-03-01T10:00:00"),
         ]
         from datetime import datetime
+
         result = build_odds_detail(snaps, "Lakers", "Celtics", datetime(2025, 3, 1))
         assert result["books"]["dk"]["home_ml"] == -150
         assert result["books"]["dk"]["away_ml"] == 130
@@ -182,6 +193,7 @@ class TestBuildOddsDetail:
             _full_snap("dk", "h2h_h1", "Celtics", 110, None, "2025-03-01T10:00:00"),
         ]
         from datetime import datetime
+
         result = build_odds_detail(snaps, "Lakers", "Celtics", datetime(2025, 3, 1))
         bk = result["books"]["dk"]
         assert bk["spread_h1"] == -1.5
@@ -191,5 +203,6 @@ class TestBuildOddsDetail:
 
     def test_empty_snapshots(self):
         from datetime import datetime
+
         result = build_odds_detail([], "Lakers", "Celtics", datetime(2025, 3, 1))
         assert result["books"] == {}

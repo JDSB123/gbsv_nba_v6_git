@@ -18,7 +18,7 @@ from src.data.health_check import (
 @pytest.mark.asyncio
 class TestCheckOddsApi:
     async def test_ok_when_nba_found(self):
-        mock_resp = AsyncMock()
+        mock_resp = MagicMock()
         mock_resp.json.return_value = [{"key": "basketball_nba"}]
         mock_resp.headers = {"x-requests-remaining": "450", "x-requests-used": "50"}
         mock_resp.raise_for_status = MagicMock()
@@ -35,7 +35,7 @@ class TestCheckOddsApi:
                 assert result["quota_remaining"] == 450
 
     async def test_warning_when_nba_missing(self):
-        mock_resp = AsyncMock()
+        mock_resp = MagicMock()
         mock_resp.json.return_value = [{"key": "soccer_epl"}]
         mock_resp.headers = {}
         mock_resp.raise_for_status = MagicMock()
@@ -62,7 +62,7 @@ class TestCheckOddsApi:
 @pytest.mark.asyncio
 class TestCheckBasketballApi:
     async def test_ok(self):
-        mock_resp = AsyncMock()
+        mock_resp = MagicMock()
         mock_resp.json.return_value = {
             "response": {
                 "account": {"subscription": {"plan": "Mega"}},
@@ -97,12 +97,12 @@ class TestCheckDatabase:
         mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("src.data.health_check.async_session_factory", return_value=mock_cm):
+        with patch("src.db.session.async_session_factory", return_value=mock_cm):
             result = await check_database()
             assert result["status"] == "ok"
 
     async def test_error(self):
-        with patch("src.data.health_check.async_session_factory", side_effect=Exception("no db")):
+        with patch("src.db.session.async_session_factory", side_effect=Exception("no db")):
             result = await check_database()
             assert result["status"] == "error"
 
@@ -113,11 +113,23 @@ class TestRunStartupHealthCheck:
         with (
             patch("src.data.health_check.check_database", new_callable=AsyncMock) as mock_db,
             patch("src.data.health_check.check_odds_api", new_callable=AsyncMock) as mock_odds,
-            patch("src.data.health_check.check_basketball_api", new_callable=AsyncMock) as mock_bball,
+            patch(
+                "src.data.health_check.check_basketball_api", new_callable=AsyncMock
+            ) as mock_bball,
         ):
             mock_db.return_value = {"source": "database", "status": "ok"}
-            mock_odds.return_value = {"source": "odds_api_v4", "status": "ok", "quota_remaining": 500, "regions": "us"}
-            mock_bball.return_value = {"source": "basketball_api_v1", "status": "ok", "plan": "Mega", "pct_used": 1.0}
+            mock_odds.return_value = {
+                "source": "odds_api_v4",
+                "status": "ok",
+                "quota_remaining": 500,
+                "regions": "us",
+            }
+            mock_bball.return_value = {
+                "source": "basketball_api_v1",
+                "status": "ok",
+                "plan": "Mega",
+                "pct_used": 1.0,
+            }
             results = await run_startup_health_check()
             assert len(results) == 3
             assert all(r["status"] == "ok" for r in results)

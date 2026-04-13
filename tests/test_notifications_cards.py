@@ -46,18 +46,14 @@ class TestPickRow:
     def test_odds_tag_included(self):
         row = _pick_row(_make_pick(odds="+150"))
         texts = " ".join(
-            item.get("text", "")
-            for col in row["columns"]
-            for item in col.get("items", [])
+            item.get("text", "") for col in row["columns"] for item in col.get("items", [])
         )
         assert "(+150)" in texts
 
     def test_no_odds_tag_when_empty(self):
         row = _pick_row(_make_pick(odds=""))
         texts = " ".join(
-            item.get("text", "")
-            for col in row["columns"]
-            for item in col.get("items", [])
+            item.get("text", "") for col in row["columns"] for item in col.get("items", [])
         )
         assert "()" not in texts
 
@@ -69,11 +65,7 @@ class TestPickRow:
 
     def test_rationale_included(self):
         row = _pick_row(_make_pick(rationale="Strong model edge"))
-        all_items = [
-            item
-            for col in row["columns"]
-            for item in col.get("items", [])
-        ]
+        all_items = [item for col in row["columns"] for item in col.get("items", [])]
         texts = " ".join(item.get("text", "") for item in all_items)
         assert "Strong model edge" in texts
 
@@ -86,9 +78,7 @@ class TestPickRow:
     def test_records_in_matchup(self):
         row = _pick_row(_make_pick(home_record="50-10", away_record="25-35"))
         texts = " ".join(
-            item.get("text", "")
-            for col in row["columns"]
-            for item in col.get("items", [])
+            item.get("text", "") for col in row["columns"] for item in col.get("items", [])
         )
         assert "50-10" in texts
         assert "25-35" in texts

@@ -85,12 +85,12 @@ class TestChunkCardPayload:
 class TestSendAlert:
     async def test_no_webhook_configured(self):
         """Should silently return when no webhook URL is set."""
-        with patch("src.notifications._delivery.get_settings") as mock_settings:
+        with patch("src.config.get_settings") as mock_settings:
             mock_settings.return_value.teams_webhook_url = ""
             await send_alert("Test", "Some message")  # Should not raise
 
     async def test_sends_to_webhook(self):
-        with patch("src.notifications._delivery.get_settings") as mock_settings:
+        with patch("src.config.get_settings") as mock_settings:
             mock_settings.return_value.teams_webhook_url = "https://webhook.example.com/test"
             with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
                 mock_post.return_value.raise_for_status = lambda: None
@@ -100,9 +100,11 @@ class TestSendAlert:
                 assert "https://webhook.example.com/test" in str(call_kwargs)
 
     async def test_swallows_errors(self):
-        with patch("src.notifications._delivery.get_settings") as mock_settings:
+        with patch("src.config.get_settings") as mock_settings:
             mock_settings.return_value.teams_webhook_url = "https://webhook.example.com/test"
-            with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=Exception("fail")):
+            with patch(
+                "httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=Exception("fail")
+            ):
                 await send_alert("Title", "body")  # Should not raise
 
 

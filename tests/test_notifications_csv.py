@@ -16,9 +16,16 @@ def _game(home="Lakers", away="Celtics"):
     )
 
 
-def _pred(fg_spread=-5.0, fg_total=222.0, fg_home_ml_prob=0.65,
-          h1_spread=-3.0, h1_total=112.0, opening_spread=0.0,
-          opening_total=220.0, odds_sourced=None):
+def _pred(
+    fg_spread=-5.0,
+    fg_total=222.0,
+    fg_home_ml_prob=0.65,
+    h1_spread=-3.0,
+    h1_total=112.0,
+    opening_spread=0.0,
+    opening_total=220.0,
+    odds_sourced=None,
+):
     return SimpleNamespace(
         fg_spread=fg_spread,
         fg_total=fg_total,
@@ -82,7 +89,5 @@ class TestBuildSlateCsv:
                 "fd": {"spread": -4.5, "total": 221.0},
             }
         }
-        csv_str = build_slate_csv(
-            [(_pred(odds_sourced=sourced), _game())], min_edge=1.0
-        )
+        csv_str = build_slate_csv([(_pred(odds_sourced=sourced), _game())], min_edge=1.0)
         assert "consensus" in csv_str.lower() or len(csv_str) > 100

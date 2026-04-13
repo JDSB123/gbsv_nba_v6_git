@@ -69,24 +69,24 @@ class TestMainArgParsing:
 
     @patch("src.__main__._setup_logging")
     def test_train_command(self, mock_log):
-        with patch("sys.argv", ["src", "train"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "train"]), patch("src.__main__._run_train") as mock_rt:
             main()
-            mock_run.assert_called_once()
+            mock_rt.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_predict_command(self, mock_log):
-        with patch("sys.argv", ["src", "predict"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "predict"]), patch("src.__main__._run_predict") as mock_rp:
             main()
-            mock_run.assert_called_once()
+            mock_rp.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_backfill_command_with_season(self, mock_log):
         with (
             patch("sys.argv", ["src", "backfill", "--season", "2024-2025", "--days", "30"]),
-            patch("asyncio.run") as mock_run,
+            patch("src.__main__._run_backfill") as mock_rb,
         ):
             main()
-            mock_run.assert_called_once()
+            mock_rb.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_migrate_command(self, mock_log):
@@ -99,33 +99,33 @@ class TestMainArgParsing:
 
     @patch("src.__main__._setup_logging")
     def test_sync_command(self, mock_log):
-        with patch("sys.argv", ["src", "sync"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "sync"]), patch("src.__main__._run_sync") as mock_rs:
             main()
-            mock_run.assert_called_once()
+            mock_rs.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_odds_command(self, mock_log):
-        with patch("sys.argv", ["src", "odds"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "odds"]), patch("src.__main__._run_odds") as mock_ro:
             main()
-            mock_run.assert_called_once()
+            mock_ro.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_perf_command(self, mock_log):
-        with patch("sys.argv", ["src", "perf"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "perf"]), patch("src.__main__._run_perf") as mock_rp:
             main()
-            mock_run.assert_called_once()
+            mock_rp.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_audit_command(self, mock_log):
-        with patch("sys.argv", ["src", "audit"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "audit"]), patch("src.__main__._run_audit") as mock_ra:
             main()
-            mock_run.assert_called_once()
+            mock_ra.assert_called_once()
 
     @patch("src.__main__._setup_logging")
     def test_publish_teams_command(self, mock_log):
-        with patch("sys.argv", ["src", "publish-teams"]), patch("asyncio.run") as mock_run:
+        with patch("sys.argv", ["src", "publish-teams"]), patch("src.__main__._run_publish_teams") as mock_rpt:
             main()
-            mock_run.assert_called_once()
+            mock_rpt.assert_called_once()
 
     def test_missing_command_exits(self):
         with patch("sys.argv", ["src"]), pytest.raises(SystemExit):

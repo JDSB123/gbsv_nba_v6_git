@@ -47,6 +47,7 @@ class TestCmdWork:
         with (
             patch(f"{_MAIN_MOD}._setup_logging"),
             patch("src.data.scheduler.create_scheduler", return_value=scheduler),
+            patch("src.data.health_check.run_startup_health_check", new_callable=AsyncMock),
             patch(f"{_MAIN_MOD}.asyncio.Event", return_value=stop_event),
             patch(f"{_MAIN_MOD}.asyncio.get_running_loop", return_value=loop),
             patch(f"{_MAIN_MOD}.asyncio.run", side_effect=lambda coro: real_run(coro)),

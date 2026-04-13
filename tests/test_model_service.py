@@ -21,8 +21,10 @@ def _pred(
     closing_total=221.0,
     clv_spread=-1.0,
     clv_total=1.0,
-    fg_spread=-4.0,
+    fg_spread=4.0,
     fg_total=220.0,
+    h1_spread=2.0,
+    h1_total=110.0,
 ):
     return SimpleNamespace(
         game_id=game_id,
@@ -39,6 +41,8 @@ def _pred(
         clv_total=clv_total,
         fg_spread=fg_spread,
         fg_total=fg_total,
+        h1_spread=h1_spread,
+        h1_total=h1_total,
         created_at=None,
     )
 

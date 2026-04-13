@@ -50,7 +50,7 @@ DEFAULT_XGB_PARAMS = {
 }
 
 # Optuna search bounds
-OPTUNA_N_TRIALS = 30
+OPTUNA_N_TRIALS = 50
 
 
 def _evaluate_promotion(metrics: dict[str, float], row_count: int) -> tuple[bool, str]:
@@ -239,12 +239,12 @@ class ModelTrainer:
 
         await db.commit()
 
-    async def _build_dataset(self, db: AsyncSession) -> pd.DataFrame:
+    async def _build_dataset(self, db: AsyncSession, season: str | None = None) -> pd.DataFrame:
         """Build training dataset from completed games."""
         # Reset Elo cache so it's rebuilt fresh for this training run
         reset_elo_cache()
 
-        result = await db.execute(
+        query = (
             select(Game)
             .options(
                 selectinload(Game.home_team),
@@ -258,6 +258,10 @@ class ModelTrainer:
             )
             .order_by(Game.commence_time)
         )
+        if season:
+            query = query.where(Game.season == season)
+
+        result = await db.execute(query)
         games = result.scalars().all()
         logger.info("Building dataset from %d completed games", len(games))
 
@@ -303,12 +307,12 @@ class ModelTrainer:
         logger.info("Dataset shape: %s", df.shape)
         return df
 
-    async def train(self, db: AsyncSession) -> dict[str, float]:
+    async def train(self, db: AsyncSession, season: str | None = None) -> dict[str, float]:
         """Train all 4 models with optional Optuna tuning. Returns metrics."""
         # Pin every source of randomness so training is fully reproducible.
         np.random.seed(GLOBAL_SEED)
 
-        df = await self._build_dataset(db)
+        df = await self._build_dataset(db, season=season)
         if df.empty or len(df) < 50:
             logger.warning("Not enough data to train (%d rows)", len(df))
             return {}

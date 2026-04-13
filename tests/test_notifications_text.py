@@ -35,8 +35,10 @@ class TestFormatGameLine:
 
     def test_none_teams_fallback(self):
         game = SimpleNamespace(
-            home_team=None, away_team=None,
-            home_team_id=10, away_team_id=20,
+            home_team=None,
+            away_team=None,
+            home_team_id=10,
+            away_team_id=20,
             commence_time=datetime(2025, 3, 15, 23, 0, tzinfo=UTC),
         )
         line = _format_game_line(_pred(), game)
@@ -50,7 +52,9 @@ class TestFormatGameLine:
         assert "TBD" in line
 
     def test_null_spread_and_total(self):
-        line = _format_game_line(_pred(fg_spread=None, fg_total=None, fg_home_ml_prob=None), _game())
+        line = _format_game_line(
+            _pred(fg_spread=None, fg_total=None, fg_home_ml_prob=None), _game()
+        )
         assert "FG spread +0.0" in line
         assert "FG total 0.0" in line
 

@@ -67,6 +67,7 @@ class TestPredictionServiceFormatPrediction:
             closing_total=None,
             model_version="6.0.0",
             created_at=None,
+            predicted_at=None,
             game_id=1,
             id=1,
         )
@@ -80,6 +81,7 @@ class TestPredictionServiceFormatPrediction:
             away_team=SimpleNamespace(name="Celtics"),
             home_team_id=1,
             away_team_id=2,
+            odds_api_id=None,
             commence_time=None,
             status="NS",
             home_score_fg=None,
@@ -138,8 +140,14 @@ class TestPredictionServiceFormatPrediction:
     def test_with_odds_sourced(self):
         sourced = {
             "books": {
-                "dk": {"spread": -5.0, "spread_price": -110, "total": 220.5, "total_price": -110,
-                       "home_ml": -200, "away_ml": 170}
+                "dk": {
+                    "spread": -5.0,
+                    "spread_price": -110,
+                    "total": 220.5,
+                    "total_price": -110,
+                    "home_ml": -200,
+                    "away_ml": 170,
+                }
             },
             "captured_at": "2025-03-15T20:00:00Z",
         }

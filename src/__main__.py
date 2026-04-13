@@ -336,13 +336,15 @@ async def _run_perf(
 
     if fmt == "csv":
         import csv
+        import dataclasses
         import io
 
         buf = io.StringIO()
         if graded:
-            writer = csv.DictWriter(buf, fieldnames=graded[0].keys())
+            fields = [f.name for f in dataclasses.fields(graded[0])]
+            writer = csv.DictWriter(buf, fieldnames=fields)
             writer.writeheader()
-            writer.writerows(graded)
+            writer.writerows(dataclasses.asdict(g) for g in graded)
         content = buf.getvalue()
         if output_path:
             from pathlib import Path

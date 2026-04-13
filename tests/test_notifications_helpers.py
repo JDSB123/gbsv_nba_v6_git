@@ -18,7 +18,6 @@ from src.notifications._helpers import (
     _team_record,
 )
 
-
 # ── _fire_emojis ────────────────────────────────────────────────
 
 
@@ -159,7 +158,7 @@ def test_pick_fields():
         away_record="28-32",
         confidence=3,
         odds="-110",
-        rationale="Model edge 5.2"
+        rationale="Model edge 5.2",
     )
     assert p.label == "Lakers -3.5"
     assert p.edge == 5.2

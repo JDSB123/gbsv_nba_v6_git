@@ -77,11 +77,15 @@ class TestPickSideBorder:
         assert _pick_side_border(pick) == "#2563eb"
 
     def test_home_team_spread(self):
-        pick = SimpleNamespace(label="Lakers -5.0", market_type="SPREAD", matchup="Celtics @ Lakers")
+        pick = SimpleNamespace(
+            label="Lakers -5.0", market_type="SPREAD", matchup="Celtics @ Lakers"
+        )
         assert _pick_side_border(pick) == "#16a34a"
 
     def test_away_team_spread(self):
-        pick = SimpleNamespace(label="Celtics +5.0", market_type="SPREAD", matchup="Celtics @ Lakers")
+        pick = SimpleNamespace(
+            label="Celtics +5.0", market_type="SPREAD", matchup="Celtics @ Lakers"
+        )
         assert _pick_side_border(pick) == "#2563eb"
 
 
@@ -93,7 +97,12 @@ class TestBuildHtmlOddsSection:
         odds = {
             1: {
                 "books": {
-                    "dk": {"spread": -5.0, "spread_price": -110, "total": 220.5, "total_price": -110}
+                    "dk": {
+                        "spread": -5.0,
+                        "spread_price": -110,
+                        "total": 220.5,
+                        "total_price": -110,
+                    }
                 }
             }
         }

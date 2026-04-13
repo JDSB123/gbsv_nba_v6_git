@@ -96,13 +96,13 @@ class TestExtractPicks:
     def test_ml_pick_generated(self):
         """Strong model edge on ML → ML pick generated."""
         pred = _pred(fg_spread=8.0, fg_home_ml_prob=0.80)
-        picks = extract_picks(pred, _game(), min_edge=1.0)
+        picks = extract_picks(pred, _game(), min_edge=1.0, odds_map={"FG_ML_HOME": "-110"})
         ml_picks = [p for p in picks if p.market_type == "ML"]
         assert len(ml_picks) >= 1
 
     def test_low_edge_filtered(self):
         """With high min_edge, weak picks should be filtered."""
-        pred = _pred(fg_spread=-1.0, fg_total=222.0, h1_spread=-0.5, h1_total=112.0)
+        pred = _pred(fg_spread=-1.0, fg_total=230.0, h1_spread=-0.5, h1_total=115.0)
         picks = extract_picks(pred, _game(), min_edge=20.0)
         assert len(picks) == 0
 
@@ -140,8 +140,13 @@ class TestExtractPicks:
                 "fd": {"spread_price": -108, "total_price": -112},
             }
         }
-        pred = _pred(fg_spread=-5.0, opening_spread=0.0, opening_total=220.0,
-                     fg_total=230.0, odds_sourced=sourced)
+        pred = _pred(
+            fg_spread=-5.0,
+            opening_spread=0.0,
+            opening_total=220.0,
+            fg_total=230.0,
+            odds_sourced=sourced,
+        )
         picks = extract_picks(pred, _game(), min_edge=3.0)
         assert len(picks) >= 1
 
@@ -158,6 +163,6 @@ class TestExtractPicks:
     def test_1h_ml_pick(self):
         """Strong 1H ML edge should generate a pick."""
         pred = _pred(h1_spread=6.0, h1_home_ml_prob=0.80)
-        picks = extract_picks(pred, _game(), min_edge=1.0)
+        picks = extract_picks(pred, _game(), min_edge=1.0, odds_map={"1H_ML_HOME": "-110"})
         h1_ml = [p for p in picks if p.segment == "1H" and p.market_type == "ML"]
         assert len(h1_ml) >= 1

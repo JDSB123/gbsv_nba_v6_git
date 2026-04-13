@@ -70,7 +70,7 @@ def _box_score_percentage(stats: Any) -> float | None:
 
     try:
         pct = _as_float(stats.get("percentage"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pct = None
     if pct is not None:
         return pct
@@ -78,7 +78,7 @@ def _box_score_percentage(stats: Any) -> float | None:
     try:
         made = _as_float(stats.get("total"))
         attempts = _as_float(stats.get("attempts"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if made is None or attempts in (None, 0):
         return None
@@ -451,7 +451,7 @@ class BasketballClient:
                     return None
                 try:
                     return float(str(val).replace("%", ""))
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
 
             def _safe_int(val: Any) -> int | None:
@@ -459,7 +459,7 @@ class BasketballClient:
                     return None
                 try:
                     return int(str(val).split(":")[0]) if ":" in str(val) else int(val)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     return None
 
             # Parse minutes from "MM:SS" format

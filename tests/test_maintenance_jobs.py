@@ -19,11 +19,15 @@ class TestFillClv:
 
         with patch("src.data.jobs.maintenance.async_session_factory", return_value=mock_cm):
             from src.data.jobs.maintenance import fill_clv
+
             await fill_clv()  # Should return early without error
 
     async def test_handles_exception(self):
-        with patch("src.data.jobs.maintenance.async_session_factory", side_effect=Exception("db err")):
+        with patch(
+            "src.data.jobs.maintenance.async_session_factory", side_effect=Exception("db err")
+        ):
             from src.data.jobs.maintenance import fill_clv
+
             await fill_clv()  # Should catch and log, not raise
 
 
@@ -41,11 +45,15 @@ class TestPruneOldOdds:
 
         with patch("src.data.jobs.maintenance.async_session_factory", return_value=mock_cm):
             from src.data.jobs.maintenance import prune_old_odds
+
             await prune_old_odds()
 
     async def test_handles_exception(self):
-        with patch("src.data.jobs.maintenance.async_session_factory", side_effect=Exception("fail")):
+        with patch(
+            "src.data.jobs.maintenance.async_session_factory", side_effect=Exception("fail")
+        ):
             from src.data.jobs.maintenance import prune_old_odds
+
             await prune_old_odds()
 
 
@@ -59,14 +67,18 @@ class TestDbMaintenance:
 
         with patch("src.data.jobs.maintenance.async_session_factory", return_value=mock_cm):
             from src.data.jobs.maintenance import db_maintenance
+
             await db_maintenance()
             # Should have called execute for each table + commit
             assert mock_session.execute.await_count >= 5
             mock_session.commit.assert_awaited_once()
 
     async def test_handles_exception(self):
-        with patch("src.data.jobs.maintenance.async_session_factory", side_effect=Exception("fail")):
+        with patch(
+            "src.data.jobs.maintenance.async_session_factory", side_effect=Exception("fail")
+        ):
             from src.data.jobs.maintenance import db_maintenance
+
             await db_maintenance()
 
 
@@ -74,6 +86,7 @@ class TestDbMaintenance:
 class TestCheckDataFreshness:
     async def test_no_alerts_when_fresh(self):
         from datetime import UTC, datetime
+
         mock_session = AsyncMock()
 
         # Return recent timestamp for odds
@@ -91,15 +104,19 @@ class TestCheckDataFreshness:
 
         with (
             patch("src.data.jobs.maintenance.async_session_factory", return_value=mock_cm),
-            patch("src.data.jobs.maintenance.get_settings") as ms,
+            patch("src.config.get_settings") as ms,
         ):
             ms.return_value.odds_fg_interval = 30
             from src.data.jobs.maintenance import check_data_freshness
+
             await check_data_freshness()  # Should not raise
 
     async def test_handles_exception(self):
-        with patch("src.data.jobs.maintenance.async_session_factory", side_effect=Exception("fail")):
+        with patch(
+            "src.data.jobs.maintenance.async_session_factory", side_effect=Exception("fail")
+        ):
             from src.data.jobs.maintenance import check_data_freshness
+
             # check_data_freshness imports inside function body, so need the Settings mock too
             try:
                 await check_data_freshness()
