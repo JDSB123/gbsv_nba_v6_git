@@ -68,8 +68,8 @@ jobs:
 
       - name: Smoke fresh-checkout setup
         env:
-          ODDS_API_KEY: dev-odds-placeholder
-          BASKETBALL_API_KEY: dev-basketball-placeholder
+          ODDS_API_KEY: ci-smoke-odds-key
+          BASKETBALL_API_KEY: ci-smoke-basketball-key
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv
           DB_SSL: "false"
           APP_ENV: development
