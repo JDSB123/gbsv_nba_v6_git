@@ -251,11 +251,22 @@ def main() -> int:
     existing_lines = []
     if env_path.exists() and not args.force:
         existing_lines = env_path.read_text(encoding="utf-8").splitlines()
+
+    # Overlay real shell env values for known template keys. This is what
+    # CI smoke / devcontainer / azure.yaml post-provision rely on: set the
+    # real secret in the shell, run sync_env.py, and that value lands in
+    # .env instead of the placeholder. Azd values (if --from-azd) take
+    # precedence over shell values.
+    template_keys, _ = parse_env_values(template_lines)
     override_values: dict[str, str] = {}
+    for key in template_keys:
+        shell_value = os.getenv(key, "")
+        if shell_value.strip():
+            override_values[key] = shell_value
     if args.from_azd:
         azd_environment_name = resolve_azd_environment_name(args.environment_name)
         try:
-            override_values = get_azd_values(azd_environment_name)
+            override_values.update(get_azd_values(azd_environment_name))
         except RuntimeError as exc:
             error_message = str(exc)
             can_create = (
@@ -273,7 +284,7 @@ def main() -> int:
                     )
                 try:
                     ensure_azd_environment_exists(azd_environment_name)
-                    override_values = get_azd_values(azd_environment_name)
+                    override_values.update(get_azd_values(azd_environment_name))
                 except RuntimeError as create_exc:
                     print(str(create_exc), file=sys.stderr)
                     return 1
@@ -300,7 +311,7 @@ def main() -> int:
                 if not args.quiet:
                     print("Seeded missing azd keys from local values: " + ", ".join(seeded_keys))
                 try:
-                    override_values = get_azd_values(azd_environment_name)
+                    override_values.update(get_azd_values(azd_environment_name))
                 except RuntimeError as refresh_exc:
                     print(str(refresh_exc), file=sys.stderr)
                     return 1
