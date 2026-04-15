@@ -335,6 +335,22 @@
       "problemMatcher": []
     },
     {
+      "label": "ops: post-deploy smoke",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/scripts/post-deploy-smoke.ps1"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "test",
       "type": "shell",
       "command": "${command:python.interpreterPath}",
