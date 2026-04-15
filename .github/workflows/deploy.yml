@@ -173,46 +173,70 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Key Vault RBAC for CI principal
+      - name: Ensure Key Vault access for CI principal
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
+          # Best-effort: try to self-heal the "Key Vault Secrets User" role
+          # assignment. This requires Graph (sp show) AND role-management
+          # (Authorization/roleAssignments write) perms, which the CI principal
+          # may not have. If any of this fails, we fall through to the real
+          # verification below — what actually matters is whether we can read
+          # secrets, not how the grant was produced.
+          set +e
           CLIENT_ID=$(python - <<'PY'
           import json
           import os
-          payload = json.loads(os.environ['AZURE_CREDENTIALS'])
-          print(payload['clientId'])
+          print(json.loads(os.environ['AZURE_CREDENTIALS'])['clientId'])
           PY
           )
-
           PRINCIPAL_OBJECT_ID=$(az ad sp show \
             --only-show-errors \
             --id "$CLIENT_ID" \
-            --query id -o tsv)
-
+            --query id -o tsv 2>/dev/null)
           KV_SCOPE=$(az keyvault show \
             --only-show-errors \
             --name "$KV_NAME" \
-            --query id -o tsv)
-
-          HAS_KV_ACCESS=$(az role assignment list \
-            --only-show-errors \
-            --scope "$KV_SCOPE" \
-            --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
-            --query "length([?roleDefinitionName=='Key Vault Secrets User'])" -o tsv)
-
-          if [ "$HAS_KV_ACCESS" = "0" ]; then
-            az role assignment create \
+            --query id -o tsv 2>/dev/null)
+          if [ -n "$PRINCIPAL_OBJECT_ID" ] && [ -n "$KV_SCOPE" ]; then
+            HAS_KV_ACCESS=$(az role assignment list \
               --only-show-errors \
-              --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
-              --assignee-principal-type ServicePrincipal \
-              --role "Key Vault Secrets User" \
               --scope "$KV_SCOPE" \
-              --output none
-            echo "Granted Key Vault Secrets User role to CI principal."
+              --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+              --query "length([?roleDefinitionName=='Key Vault Secrets User'])" -o tsv 2>/dev/null)
+            if [ "${HAS_KV_ACCESS:-0}" = "0" ]; then
+              if az role assignment create \
+                --only-show-errors \
+                --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "Key Vault Secrets User" \
+                --scope "$KV_SCOPE" \
+                --output none 2>/dev/null; then
+                echo "Granted 'Key Vault Secrets User' role to CI principal."
+              else
+                echo "Could not auto-grant role (lack RBAC-write perms or role already exists). Verifying directly below."
+              fi
+            else
+              echo "CI principal already has 'Key Vault Secrets User' role."
+            fi
           else
-            echo "CI principal already has Key Vault Secrets User role."
+            echo "Could not resolve principal object ID or KV scope (Graph/KV read restricted). Verifying directly below."
           fi
+          set -e
+
+          # Mandatory: probe a real secret that the build job reads downstream.
+          # --query name (not value) keeps secret material out of the log.
+          if ! az keyvault secret show \
+               --only-show-errors \
+               --vault-name "$KV_NAME" \
+               --name odds-api-key \
+               --query name -o tsv > /dev/null 2>&1; then
+            echo "::error::CI principal cannot read secrets from Key Vault '$KV_NAME'."
+            echo "::error::Grant the service principal 'Key Vault Secrets User' on the vault, e.g.:"
+            echo "::error::  az role assignment create --assignee <clientId> --assignee-principal-type ServicePrincipal --role 'Key Vault Secrets User' --scope \$(az keyvault show --name $KV_NAME --query id -o tsv)"
+            exit 1
+          fi
+          echo "Key Vault access verified: CI principal can read secrets from '$KV_NAME'."
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -416,46 +440,70 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Key Vault RBAC for CI principal
+      - name: Ensure Key Vault access for CI principal
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
+          # Best-effort: try to self-heal the "Key Vault Secrets User" role
+          # assignment. This requires Graph (sp show) AND role-management
+          # (Authorization/roleAssignments write) perms, which the CI principal
+          # may not have. If any of this fails, we fall through to the real
+          # verification below — what actually matters is whether we can read
+          # secrets, not how the grant was produced.
+          set +e
           CLIENT_ID=$(python - <<'PY'
           import json
           import os
-          payload = json.loads(os.environ['AZURE_CREDENTIALS'])
-          print(payload['clientId'])
+          print(json.loads(os.environ['AZURE_CREDENTIALS'])['clientId'])
           PY
           )
-
           PRINCIPAL_OBJECT_ID=$(az ad sp show \
             --only-show-errors \
             --id "$CLIENT_ID" \
-            --query id -o tsv)
-
+            --query id -o tsv 2>/dev/null)
           KV_SCOPE=$(az keyvault show \
             --only-show-errors \
             --name "$KV_NAME" \
-            --query id -o tsv)
-
-          HAS_KV_ACCESS=$(az role assignment list \
-            --only-show-errors \
-            --scope "$KV_SCOPE" \
-            --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
-            --query "length([?roleDefinitionName=='Key Vault Secrets User'])" -o tsv)
-
-          if [ "$HAS_KV_ACCESS" = "0" ]; then
-            az role assignment create \
+            --query id -o tsv 2>/dev/null)
+          if [ -n "$PRINCIPAL_OBJECT_ID" ] && [ -n "$KV_SCOPE" ]; then
+            HAS_KV_ACCESS=$(az role assignment list \
               --only-show-errors \
-              --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
-              --assignee-principal-type ServicePrincipal \
-              --role "Key Vault Secrets User" \
               --scope "$KV_SCOPE" \
-              --output none
-            echo "Granted Key Vault Secrets User role to CI principal."
+              --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+              --query "length([?roleDefinitionName=='Key Vault Secrets User'])" -o tsv 2>/dev/null)
+            if [ "${HAS_KV_ACCESS:-0}" = "0" ]; then
+              if az role assignment create \
+                --only-show-errors \
+                --assignee-object-id "$PRINCIPAL_OBJECT_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "Key Vault Secrets User" \
+                --scope "$KV_SCOPE" \
+                --output none 2>/dev/null; then
+                echo "Granted 'Key Vault Secrets User' role to CI principal."
+              else
+                echo "Could not auto-grant role (lack RBAC-write perms or role already exists). Verifying directly below."
+              fi
+            else
+              echo "CI principal already has 'Key Vault Secrets User' role."
+            fi
           else
-            echo "CI principal already has Key Vault Secrets User role."
+            echo "Could not resolve principal object ID or KV scope (Graph/KV read restricted). Verifying directly below."
           fi
+          set -e
+
+          # Mandatory: probe a real secret that the build job reads downstream.
+          # --query name (not value) keeps secret material out of the log.
+          if ! az keyvault secret show \
+               --only-show-errors \
+               --vault-name "$KV_NAME" \
+               --name odds-api-key \
+               --query name -o tsv > /dev/null 2>&1; then
+            echo "::error::CI principal cannot read secrets from Key Vault '$KV_NAME'."
+            echo "::error::Grant the service principal 'Key Vault Secrets User' on the vault, e.g.:"
+            echo "::error::  az role assignment create --assignee <clientId> --assignee-principal-type ServicePrincipal --role 'Key Vault Secrets User' --scope \$(az keyvault show --name $KV_NAME --query id -o tsv)"
+            exit 1
+          fi
+          echo "Key Vault access verified: CI principal can read secrets from '$KV_NAME'."
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
