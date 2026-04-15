@@ -13,7 +13,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-import os
 from typing import Any
 
 from src.config import get_settings
@@ -28,7 +27,7 @@ def _setup_logging(log_level: str | None = None) -> None:
 
     level = getattr(logging, resolved_log_level.upper(), logging.INFO)
 
-    app_env = os.getenv("APP_ENV", "development")
+    app_env = get_settings().app_env
     if app_env not in ("development", "test"):
         # Structured JSON logging for production
         from pythonjsonlogger.json import JsonFormatter
@@ -375,7 +374,7 @@ def cmd_perf(args: argparse.Namespace) -> None:
 
 def cmd_migrate(args: argparse.Namespace) -> None:
     """Run Alembic migrations to head."""
-    _setup_logging(os.getenv("LOG_LEVEL", "INFO"))
+    _setup_logging(get_settings().log_level)
     from alembic import command
     from alembic.config import Config
 

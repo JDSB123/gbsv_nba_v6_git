@@ -109,7 +109,7 @@ $profileSelection = if ($resolvedOutputPath.StartsWith($ROOT, [System.StringComp
 }
 
 [System.IO.File]::WriteAllText($ACTIVE_PROFILE_FILE, "$profileSelection`n", [System.Text.UTF8Encoding]::new($false))
-$env:G_BSV_ENV_FILE = $profileSelection
+Remove-Item Env:G_BSV_ENV_FILE -ErrorAction SilentlyContinue
 
 if ($OutputPath -eq ".env") {
   Write-Host "Environment sync complete: $OutputPath" -ForegroundColor Green
@@ -118,7 +118,6 @@ if ($OutputPath -eq ".env") {
 } else {
   Write-Host "Environment sync complete: $OutputPath" -ForegroundColor Green
   Write-Host "Active profile: $profileSelection" -ForegroundColor Green
-  Write-Host "Applied current shell profile: G_BSV_ENV_FILE=$profileSelection" -ForegroundColor Green
   if ($useAzd) {
     Write-Host "Cleared conflicting process vars: DATABASE_URL, DB_SSL, ODDS_API_KEY, BASKETBALL_API_KEY" -ForegroundColor Green
   }

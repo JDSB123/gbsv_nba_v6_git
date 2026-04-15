@@ -14,16 +14,18 @@ def test_settings_defaults():
     assert s.odds_freshness_max_age_minutes == 365
 
 
-def test_settings_env_override(monkeypatch):
+def test_settings_ignores_shell_env(monkeypatch):
+    # os.environ must NOT bleed into Settings — the profile file is the sole source.
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("ODDS_API_KEY", "k1")
-    monkeypatch.setenv("BASKETBALL_API_KEY", "k2")
+    monkeypatch.setenv("ODDS_API_KEY", "stale_shell_value")
+    monkeypatch.setenv("BASKETBALL_API_KEY", "stale_shell_value")
     from src.config import Settings
 
-    s = Settings()
-    assert s.app_env == "production"
-    assert s.odds_api_key == "k1"
-    assert s.basketball_api_key == "k2"
+    # Explicit init kwargs (representing profile-file values) win.
+    s = Settings(app_env="test", odds_api_key="file_value", basketball_api_key="file_value")
+    assert s.app_env == "test"
+    assert s.odds_api_key == "file_value"
+    assert s.basketball_api_key == "file_value"
 
 
 def test_validation_skipped_in_test_env():
@@ -43,19 +45,18 @@ def test_validation_fails_when_keys_missing():
         Settings(app_env="development", odds_api_key="", basketball_api_key="")
 
 
-def test_resolve_database_url_prefers_env_without_api_keys(monkeypatch):
+def test_resolve_database_url_ignores_env_var(monkeypatch):
+    """Stale DATABASE_URL in os.environ must NOT bleed into resolve_database_url."""
     from src.config import get_settings, resolve_database_url
 
-    monkeypatch.setenv("APP_ENV", "development")
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@db.example:5432/nba")
-    # Point to a non-existent file so load_selected_env_values returns {} and
-    # the monkeypatched DATABASE_URL env var wins.
-    monkeypatch.setenv("G_BSV_ENV_FILE", ".env.nonexistent_test_isolation")
-    monkeypatch.delenv("ODDS_API_KEY", raising=False)
-    monkeypatch.delenv("BASKETBALL_API_KEY", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://stale:stale@stale:5432/stale")
+    # Force profile resolver to return no selected file so fallback path is deterministic.
+    monkeypatch.setattr("src.config._resolve_profile_file_selection", lambda: "")
     get_settings.cache_clear()
 
     try:
-        assert resolve_database_url() == "postgresql+asyncpg://user:pass@db.example:5432/nba"
+        url = resolve_database_url()
+        # Must come from Settings default, NOT from the stale env var.
+        assert "stale" not in url
     finally:
         get_settings.cache_clear()

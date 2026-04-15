@@ -136,7 +136,7 @@ Use two explicit host-side profiles instead of one mixed file.
 - Use `--allow-incomplete-azd` only for deliberate partial sync scenarios.
 - `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -OutputPath .env` syncs local profile and marks `.env` active.
 - `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -OutputPath .env.azure -CreateAzdEnvIfMissing` syncs Azure profile and marks `.env.azure` active.
-- `G_BSV_ENV_FILE` remains an explicit per-process override, but normal host flows should rely on `.env.profile` instead of manual shell exports.
+- `.env.profile` is the single host-side selector for runtime env loading; avoid per-process override variables.
 
 Local database defaults:
 

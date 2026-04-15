@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,6 @@ from typing import Any
 from dotenv import dotenv_values
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 ACTIVE_ENV_PROFILE_FILE = ".env.profile"
 
@@ -42,10 +40,6 @@ def _resolve_profile_file_selection() -> str:
 
 
 def resolve_settings_env_file() -> str:
-    explicit_env_file = os.getenv("G_BSV_ENV_FILE", "").strip()
-    if explicit_env_file:
-        return explicit_env_file
-
     profile_selected_file = _resolve_profile_file_selection()
     if profile_selected_file:
         return profile_selected_file
@@ -148,10 +142,21 @@ class Settings(BaseSettings):
     azure_storage_account_url: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,  # we own file loading via file_overrides in get_settings()
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        **kwargs,
+    ):
+        # Selected profile file (loaded as init kwargs) is the sole source of truth.
+        # os.environ is excluded so stale shell vars cannot drift over the active profile.
+        return (init_settings,)
 
     @model_validator(mode="after")
     def _check_required_secrets(self) -> Settings:
@@ -175,13 +180,8 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    env_file = resolve_settings_env_file()
-    env_path = Path(env_file)
     selected_values = load_selected_env_values()
     file_overrides: dict[str, Any] = {key.lower(): value for key, value in selected_values.items()}
-    if env_path.is_absolute() or env_path.exists() or env_file != ".env":
-        settings_kwargs: dict[str, Any] = {"_env_file": env_file}
-        return Settings(**settings_kwargs, **file_overrides)
     return Settings(**file_overrides)
 
 
@@ -199,8 +199,5 @@ def resolve_database_url() -> str:
     selected_database_url = selected_values.get("DATABASE_URL", "").strip()
     if selected_database_url:
         return selected_database_url
-
-    database_url = os.getenv("DATABASE_URL", "").strip()
-    if database_url:
-        return database_url
-    return get_settings().database_url
+    # Read the field default directly — avoids triggering the secrets validator.
+    return Settings.model_fields["database_url"].default

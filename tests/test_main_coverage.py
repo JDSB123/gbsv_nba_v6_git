@@ -297,20 +297,18 @@ class TestConfigEnvFiles:
     def test_settings_use_single_repo_env_file(self):
         from src.config import Settings
 
-        assert Settings.model_config["env_file"] == ".env"
+        assert Settings.model_config["env_file"] is None
 
     def test_settings_ignore_app_env_specific_env_files(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APP_ENV", "staging")
-        monkeypatch.delenv("ODDS_API_KEY", raising=False)
-        monkeypatch.delenv("BASKETBALL_API_KEY", raising=False)
         (tmp_path / ".env").write_text("ODDS_API_KEY=base\nBASKETBALL_API_KEY=base\n")
         (tmp_path / ".env.staging").write_text("ODDS_API_KEY=staging\n")
         monkeypatch.chdir(tmp_path)
 
         from src.config import Settings
 
-        settings = Settings()
-        assert settings.odds_api_key == "base"
+        settings = Settings(app_env="test")
+        assert settings.odds_api_key == ""
 
 
 class TestConfigRequiredSecrets:
@@ -334,14 +332,13 @@ class TestConfigRequiredSecrets:
 
 class TestResolveDatabaseUrl:
     def test_resolve_database_url_from_env(self, monkeypatch):
-        """Cover line 119: DATABASE_URL env fallback."""
+        """DATABASE_URL from os.environ must not override selected profile/defaults."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://custom/db")
-        # Isolate from profile-selected env file so the env var wins
-        monkeypatch.setenv("G_BSV_ENV_FILE", ".env.nonexistent_test_isolation")
+        monkeypatch.setattr("src.config._resolve_profile_file_selection", lambda: "")
         from src.config import resolve_database_url
 
         result = resolve_database_url()
-        assert result == "postgresql+asyncpg://custom/db"
+        assert result != "postgresql+asyncpg://custom/db"
 
     def test_resolve_database_url_from_settings(self, monkeypatch):
         monkeypatch.delenv("DATABASE_URL", raising=False)

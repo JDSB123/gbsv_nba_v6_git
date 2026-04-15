@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -106,9 +105,10 @@ class Predictor:
 
     def _download_blob_artifacts(self) -> None:
         """Try to download model artifacts from blob storage before loading locally."""
+        settings = get_settings()
         has_blob_config = bool(
-            (os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip())
-            or (os.getenv("AZURE_STORAGE_ACCOUNT_URL", "").strip())
+            (settings.azure_storage_connection_string or "").strip()
+            or (settings.azure_storage_account_url or "").strip()
         )
         if not has_blob_config:
             logger.warning(
