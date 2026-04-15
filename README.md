@@ -176,7 +176,7 @@ git remote prune origin
 Commit the stack contract files. Do not commit local state.
 
 - Commit: `pyproject.toml`, `.devcontainer/*`, `.vscode/tasks.json`, `.vscode/extensions.json`, `.vscode/settings.json`, `.env.example`, `scripts/*.ps1`, `scripts/*.py`, `azure.yaml`, and `infra/*` source files.
-- Do not commit: `.venv/`, `.env`, `.env.azure*`, `.env.profile`, `.azure/`, `infra/main.json`, and local `*_output*.txt` files.
+- Do not commit: `.venv/`, `.env`, `.env.azure*`, `.env.profile`, `.azure/`, `infra/main.json`, local `*_output*.txt` files, and root-level `run*.json` ad-hoc CI dump files.
 
 ## Git and CI
 
