@@ -11,7 +11,7 @@
   "terminal.integrated.profiles.windows": {
     "PowerShell (venv)": {
       "source": "PowerShell",
-      "args": ["-NoExit", "-Command", "& '${workspaceFolder}/.venv/Scripts/Activate.ps1'"]
+      "args": ["-NoExit", "-Command", "& '${workspaceFolder}/scripts/init-terminal.ps1'"]
     },
     "PowerShell": {
       "source": "PowerShell"
