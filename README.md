@@ -14,6 +14,8 @@ This repo now has one primary source of truth per concern:
 | --- | --- | --- |
 | Python dependencies and tooling | `pyproject.toml` | Runtime and dev dependencies, pytest, Ruff, package metadata |
 | Local env schema and safe defaults | `.env.example` | Canonical local env keys and default values |
+| Active host env profile selection | `.env.profile` (local state) | Persists the currently selected host env file for cross-process consistency |
+| Azure runtime environment values | `azd` environment (`.azure/<env>/.env`) and ACA app settings | Canonical cloud values consumed by provision/deploy/runtime |
 | Local env sync | `scripts/sync_env.py` | Cross-platform `.env` sync and optional azd overlay |
 | Windows env wrapper | `scripts/setup-env.ps1` | PowerShell wrapper around the same env contract |
 | App entry points | `src/__main__.py` | Canonical `python -m src ...` command family |
@@ -125,14 +127,16 @@ Use two explicit host-side profiles instead of one mixed file.
 
 - `.env` is the local host-development profile. VS Code and Python default to this file.
 - `.env.azure` is the optional Azure-attached host profile.
+- `.env.profile` stores the active host profile selection (`.env` or `.env.azure`).
 - `.env.example` is the schema and default template for both.
 - `python scripts/sync_env.py --force` resets `.env` to local defaults.
-- `python scripts/sync_env.py --from-azd --environment-name <environment> --output .env.azure --force` creates or refreshes `.env.azure` from the azd environment.
-- `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1` is the Windows wrapper for local `.env`.
-- `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName <environment> -OutputPath .env.azure` creates the Azure-attached host profile.
-- Set `G_BSV_ENV_FILE=.env.azure` only when you intentionally want a host process to use the Azure-attached profile.
-- In PowerShell, run `$env:G_BSV_ENV_FILE = '.env.azure'` to opt into the Azure-attached host profile for the current shell.
-- In PowerShell, run `Remove-Item Env:G_BSV_ENV_FILE -ErrorAction SilentlyContinue` to return the current shell to the default local `.env` profile.
+- `python scripts/sync_env.py --from-azd --output .env.azure --force --create-azd-env-if-missing` creates or refreshes `.env.azure` from the active azd environment.
+- When syncing from azd, required keys (`ODDS_API_KEY`, `BASKETBALL_API_KEY`, `DATABASE_URL`) now fail fast if missing or placeholder values.
+- `scripts/setup-env.ps1 -FromAzd` will attempt to seed missing azd keys from real local shell/.env values before fail-fast validation.
+- Use `--allow-incomplete-azd` only for deliberate partial sync scenarios.
+- `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -OutputPath .env` syncs local profile and marks `.env` active.
+- `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -OutputPath .env.azure -CreateAzdEnvIfMissing` syncs Azure profile and marks `.env.azure` active.
+- `G_BSV_ENV_FILE` remains an explicit per-process override, but normal host flows should rely on `.env.profile` instead of manual shell exports.
 
 Local database defaults:
 
@@ -141,7 +145,7 @@ Local database defaults:
 
 The default development workflow remains the dev container. The dev container stays local and isolated through `.devcontainer/docker-compose.yml`, even if `.env.azure` exists.
 
-Production does not depend on repo-local `.env` or `.env.azure`; production values come from Azure and azd environment state.
+Production does not depend on repo-local `.env` or `.env.azure`; production values come from ACA app settings and Azure-managed resources. Local env files are generated mirrors for host workflows.
 
 ## Host Export
 
@@ -150,7 +154,7 @@ The OneDrive export helper uses the same host env contract as the rest of the re
 For an Azure-backed export on the Windows host:
 
 ```powershell
-$env:G_BSV_ENV_FILE = '.env.azure'
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -OutputPath .env.azure -CreateAzdEnvIfMissing
 $env:ONEDRIVE_EXPORT_ROOT = 'C:\Users\<you>\OneDrive - Green Bier Capital\Early Stage Sport Ventures - Documents\NBA - Green Bier Sports'
 .\.venv\Scripts\python.exe .\scripts\export_onedrive.py
 ```
@@ -172,7 +176,7 @@ git remote prune origin
 Commit the stack contract files. Do not commit local state.
 
 - Commit: `pyproject.toml`, `.devcontainer/*`, `.vscode/tasks.json`, `.vscode/extensions.json`, `.vscode/settings.json`, `.env.example`, `scripts/*.ps1`, `scripts/*.py`, `azure.yaml`, and `infra/*` source files.
-- Do not commit: `.venv/`, `.env`, `.env.azure*`, `.azure/`, `infra/main.json`, and local `*_output*.txt` files.
+- Do not commit: `.venv/`, `.env`, `.env.azure*`, `.env.profile`, `.azure/`, `infra/main.json`, and local `*_output*.txt` files.
 
 ## Git and CI
 

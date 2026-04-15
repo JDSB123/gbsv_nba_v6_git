@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 ENV_LINE_PATTERN = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
+PLACEHOLDER_PATTERN = re.compile(r"placeholder", re.IGNORECASE)
+REQUIRED_AZD_KEYS = ("ODDS_API_KEY", "BASKETBALL_API_KEY", "DATABASE_URL")
 
 
 def parse_env_values(lines: list[str]) -> tuple[dict[str, str], list[str]]:
@@ -104,6 +107,84 @@ def get_azd_values(environment_name: str | None) -> dict[str, str]:
     return {str(key): str(value) for key, value in raw_values.items()}
 
 
+def resolve_azd_environment_name(explicit_name: str | None) -> str | None:
+    if explicit_name and explicit_name.strip():
+        return explicit_name.strip()
+    env_name = (os.getenv("AZURE_ENV_NAME", "") or "").strip()
+    return env_name or None
+
+
+def ensure_azd_environment_exists(environment_name: str) -> None:
+    try:
+        subprocess.run(
+            ["azd", "env", "new", environment_name],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if exc.stderr else "unknown azd error"
+        raise RuntimeError(f"azd env new failed: {stderr}") from exc
+
+
+def set_azd_env_value(environment_name: str | None, key: str, value: str) -> None:
+    command = ["azd", "env", "set", key, value]
+    if environment_name:
+        command.extend(["--environment", environment_name])
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if exc.stderr else "unknown azd error"
+        raise RuntimeError(f"azd env set failed for {key}: {stderr}") from exc
+
+
+def is_real_secret(value: str | None) -> bool:
+    if value is None:
+        return False
+    trimmed = value.strip()
+    if not trimmed:
+        return False
+    return PLACEHOLDER_PATTERN.search(trimmed) is None
+
+
+def validate_required_azd_values(values: dict[str, str]) -> list[str]:
+    missing: list[str] = []
+    for key in REQUIRED_AZD_KEYS:
+        if not is_real_secret(values.get(key, "")):
+            missing.append(key)
+    return missing
+
+
+def collect_local_seed_values(repo_root: Path, output_env_path: Path) -> dict[str, str]:
+    candidates: dict[str, str] = {}
+
+    # Highest priority: shell environment values.
+    for key in REQUIRED_AZD_KEYS:
+        shell_value = os.getenv(key, "")
+        if is_real_secret(shell_value):
+            candidates[key] = shell_value
+
+    # Next priority: .env and then target output env file.
+    for source_path in (repo_root / ".env", output_env_path):
+        if not source_path.exists():
+            continue
+        source_lines = source_path.read_text(encoding="utf-8").splitlines()
+        source_values, _ = parse_env_values(source_lines)
+        for key in REQUIRED_AZD_KEYS:
+            if key in candidates:
+                continue
+            value = source_values.get(key, "")
+            if is_real_secret(value):
+                candidates[key] = value
+
+    return candidates
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=("Sync .env from .env.example without overwriting non-empty local values.")
@@ -126,7 +207,28 @@ def main() -> int:
     parser.add_argument(
         "--environment-name",
         default=None,
-        help="Optional azd environment name to query.",
+        help="Optional azd environment name to query. Defaults to AZURE_ENV_NAME when unset.",
+    )
+    parser.add_argument(
+        "--create-azd-env-if-missing",
+        action="store_true",
+        help="When used with --from-azd, create the azd environment if it does not exist.",
+    )
+    parser.add_argument(
+        "--allow-incomplete-azd",
+        action="store_true",
+        help=(
+            "Allow writing output even when required azd keys are missing. "
+            "By default, missing critical keys are treated as an error."
+        ),
+    )
+    parser.add_argument(
+        "--seed-azd-from-local",
+        action="store_true",
+        help=(
+            "When required azd keys are missing, attempt to seed them from local "
+            "shell/.env values before failing."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -151,20 +253,87 @@ def main() -> int:
         existing_lines = env_path.read_text(encoding="utf-8").splitlines()
     override_values: dict[str, str] = {}
     if args.from_azd:
+        azd_environment_name = resolve_azd_environment_name(args.environment_name)
         try:
-            override_values = get_azd_values(args.environment_name)
+            override_values = get_azd_values(azd_environment_name)
         except RuntimeError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
-    elif not args.force:
-        azure_path = repo_root / ".env.azure"
-        if azure_path.exists():
-            azure_lines = azure_path.read_text(encoding="utf-8").splitlines()
-            azure_values, _ = parse_env_values(azure_lines)
-            for k, v in azure_values.items():
-                if v and "placeholder" not in v:
-                    override_values[k] = v
+            error_message = str(exc)
+            can_create = (
+                args.create_azd_env_if_missing
+                and azd_environment_name is not None
+                and "environment does not exist" in error_message.lower()
+            )
+            if can_create:
+                assert azd_environment_name is not None
+                if not args.quiet:
+                    print(
+                        "azd environment "
+                        f"'{azd_environment_name}' not found; creating it because "
+                        "--create-azd-env-if-missing was set."
+                    )
+                try:
+                    ensure_azd_environment_exists(azd_environment_name)
+                    override_values = get_azd_values(azd_environment_name)
+                except RuntimeError as create_exc:
+                    print(str(create_exc), file=sys.stderr)
+                    return 1
+            else:
+                print(error_message, file=sys.stderr)
+                return 1
 
+        missing_keys = validate_required_azd_values(override_values)
+        if missing_keys and args.seed_azd_from_local:
+            local_seed_values = collect_local_seed_values(repo_root, env_path)
+            seeded_keys: list[str] = []
+            for key in missing_keys:
+                seed_value = local_seed_values.get(key, "")
+                if not is_real_secret(seed_value):
+                    continue
+                try:
+                    set_azd_env_value(azd_environment_name, key, seed_value)
+                    seeded_keys.append(key)
+                except RuntimeError as seed_exc:
+                    print(str(seed_exc), file=sys.stderr)
+                    return 1
+
+            if seeded_keys:
+                if not args.quiet:
+                    print("Seeded missing azd keys from local values: " + ", ".join(seeded_keys))
+                try:
+                    override_values = get_azd_values(azd_environment_name)
+                except RuntimeError as refresh_exc:
+                    print(str(refresh_exc), file=sys.stderr)
+                    return 1
+                missing_keys = validate_required_azd_values(override_values)
+
+        if missing_keys and not args.allow_incomplete_azd:
+            display_env = azd_environment_name or "<current>"
+            print(
+                "azd environment is missing required non-placeholder values: "
+                + ", ".join(missing_keys),
+                file=sys.stderr,
+            )
+            print(
+                "Set them before syncing, for example:",
+                file=sys.stderr,
+            )
+            print(
+                f"  azd env set ODDS_API_KEY <value> --environment {display_env}",
+                file=sys.stderr,
+            )
+            print(
+                f"  azd env set BASKETBALL_API_KEY <value> --environment {display_env}",
+                file=sys.stderr,
+            )
+            print(
+                f"  azd env set DATABASE_URL <value> --environment {display_env}",
+                file=sys.stderr,
+            )
+            print(
+                "If you intentionally need partial sync, re-run with --allow-incomplete-azd.",
+                file=sys.stderr,
+            )
+            return 2
     synced_lines, added_keys = build_synced_lines(
         template_lines,
         existing_lines,

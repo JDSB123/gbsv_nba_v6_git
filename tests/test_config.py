@@ -48,6 +48,9 @@ def test_resolve_database_url_prefers_env_without_api_keys(monkeypatch):
 
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@db.example:5432/nba")
+    # Point to a non-existent file so load_selected_env_values returns {} and
+    # the monkeypatched DATABASE_URL env var wins.
+    monkeypatch.setenv("G_BSV_ENV_FILE", ".env.nonexistent_test_isolation")
     monkeypatch.delenv("ODDS_API_KEY", raising=False)
     monkeypatch.delenv("BASKETBALL_API_KEY", raising=False)
     get_settings.cache_clear()

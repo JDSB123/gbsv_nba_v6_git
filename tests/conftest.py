@@ -1,7 +1,8 @@
 import os
 
 # Force test environment for all tests so secret validation stays disabled.
-os.environ.setdefault("APP_ENV", "test")
+# Use direct assignment (not setdefault) to override any OS-level APP_ENV.
+os.environ["APP_ENV"] = "test"
 # Disable API-key auth in tests; individual tests that verify auth behaviour
 # set the key explicitly via monkeypatch or mock.
 os.environ.pop("API_KEY", None)

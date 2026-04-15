@@ -6,19 +6,25 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from src.config import get_settings
 from src.db.models import Game, GameOddsArchive, OddsSnapshot
 
 logger = logging.getLogger(__name__)
 
+
+def _should_retry(exc: BaseException) -> bool:
+    """Retry only on transient 5xx or network errors; never retry on 4xx (auth/client errors)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, (httpx.ConnectError, httpx.TimeoutException))
+
+
 _RETRY = retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(
-        (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException)
-    ),
+    retry=retry_if_exception(_should_retry),
     before_sleep=lambda rs: logger.warning(
         "Retry #%d for %s",
         rs.attempt_number,

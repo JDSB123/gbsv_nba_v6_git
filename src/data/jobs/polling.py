@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import httpx
 from sqlalchemy import func, select
 
 from src.data.reconciliation import _GAME_MATCH_WINDOW, _find_matching_game
@@ -237,6 +238,14 @@ async def poll_scores_and_box() -> None:
                     stats = await client.fetch_player_stats(game_id)
                     if stats:
                         await client.persist_player_game_stats(game_id, stats, db)
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code in (401, 403):
+                        logger.warning(
+                            "Basketball API auth failure (HTTP %d) — skipping remaining box scores",
+                            exc.response.status_code,
+                        )
+                        break
+                    logger.warning("Failed to fetch box score for game %d", game_id, exc_info=True)
                 except Exception:
                     logger.warning("Failed to fetch box score for game %d", game_id, exc_info=True)
     except Exception:

@@ -184,9 +184,9 @@ Write-Host "Syncing .env from .env.example" -ForegroundColor Cyan
 Push-Location $ROOT
 try {
   Invoke-CheckedCommand `
-    -Executable $VENV_PYTHON `
-    -Arguments @("scripts/sync_env.py") `
-    -FailureMessage "Failed to sync .env from .env.example."
+    -Executable "pwsh" `
+    -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/setup-env.ps1") `
+    -FailureMessage "Failed to sync environment via scripts/setup-env.ps1."
 } finally {
   Pop-Location
 }

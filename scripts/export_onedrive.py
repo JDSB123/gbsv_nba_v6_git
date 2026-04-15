@@ -13,8 +13,8 @@ Generates:
   - latest/GBSV_NBA_Predictions.xlsx
     - nba_slate_YYYY-MM-DD.csv
 
-This script uses the repo env contract. For Azure-backed host exports,
-set G_BSV_ENV_FILE=.env.azure before running it.
+This script uses the repo env contract and active profile selection.
+Run scripts/setup-env.ps1 first to sync/select the desired profile.
 """
 from __future__ import annotations
 
@@ -77,22 +77,23 @@ def _resolve_export_root() -> Path:
 
 
 def _resolve_export_database_url() -> tuple[str, bool]:
-    from src.config import resolve_database_url, resolve_settings_env_file
+    from src.config import get_settings, resolve_database_url, resolve_settings_env_file
 
-    database_url = _env_value("DATABASE_URL") or resolve_database_url().strip()
+    settings = get_settings()
+    database_url = resolve_database_url().strip()
     if not database_url:
         raise RuntimeError(
-            "DATABASE_URL is not configured. Set G_BSV_ENV_FILE=.env.azure or export DATABASE_URL before running export_onedrive.py."
+            "DATABASE_URL is not configured. Run scripts/setup-env.ps1 to sync/select the correct profile before export_onedrive.py."
         )
 
     allow_local_db = _env_bool("EXPORT_ALLOW_LOCAL_DB", False)
     if not allow_local_db and ("localhost" in database_url or "127.0.0.1" in database_url):
         raise RuntimeError(
             "export_onedrive.py refuses to use a local DATABASE_URL. "
-            f"Set G_BSV_ENV_FILE=.env.azure or DATABASE_URL to an Azure database. Current env file: {resolve_settings_env_file()}"
+            f"Select an Azure-backed profile with scripts/setup-env.ps1. Current env file: {resolve_settings_env_file()}"
         )
 
-    return database_url, _env_bool("DB_SSL", True)
+    return database_url, settings.db_ssl
 
 
 async def main() -> None:
@@ -110,11 +111,12 @@ async def main() -> None:
 
     database_url, db_ssl = _resolve_export_database_url()
     clean_database_url = re.sub(r"[?&]ssl(?:mode)?=[^&]*", "", database_url).rstrip("?&")
+    ssl_connect_arg = "require" if db_ssl else False
     one_drive_root = _resolve_export_root()
     engine = create_async_engine(
         clean_database_url,
         echo=False,
-        connect_args={"ssl": db_ssl},
+        connect_args={"ssl": ssl_connect_arg},
     )
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -414,7 +416,7 @@ async def main() -> None:
         print("openpyxl not installed — skipping XLSX")
 
     print()
-    print(f"Export complete → {date_dir}")
+    print(f"Export complete -> {date_dir}")
     print(f"  CSV  : {csv_root.name}")
     print(f"  HTML : {html_dated.name}")
     print(f"  JSON : {json_dated.name}")

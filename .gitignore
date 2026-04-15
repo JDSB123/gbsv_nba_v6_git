@@ -19,6 +19,7 @@ env/
 .env
 .env.azure
 .env.azure.*
+.env.profile
 
 # IDE
 .idea/

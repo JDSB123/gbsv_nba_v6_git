@@ -15,6 +15,7 @@ def _get_engine():
     # not as URL query parameters, otherwise it raises TypeError.
     raw_url = settings.database_url
     clean_url = re.sub(r"[?&]ssl(?:mode)?=[^&]*", "", raw_url).rstrip("?&")
+    ssl_connect_arg = "require" if settings.db_ssl else False
     return create_async_engine(
         clean_url,
         echo=(settings.app_env == "development"),
@@ -23,7 +24,7 @@ def _get_engine():
         pool_timeout=60,
         pool_recycle=7200,
         pool_pre_ping=True,
-        connect_args={"ssl": settings.db_ssl},
+        connect_args={"ssl": ssl_connect_arg},
     )
 
 

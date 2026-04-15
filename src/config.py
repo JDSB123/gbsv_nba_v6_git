@@ -10,16 +10,54 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+ACTIVE_ENV_PROFILE_FILE = ".env.profile"
+
+
+def _is_placeholder_value(value: str) -> bool:
+    return "placeholder" in value.lower()
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_profile_file_selection() -> str:
+    profile_path = _project_root() / ACTIVE_ENV_PROFILE_FILE
+    if not profile_path.exists():
+        return ""
+
+    raw_selection = profile_path.read_text(encoding="utf-8").strip()
+    if not raw_selection:
+        return ""
+
+    selection_path = Path(raw_selection)
+    if selection_path.is_absolute():
+        return raw_selection if selection_path.exists() else ""
+
+    resolved = _project_root() / selection_path
+    if resolved.exists():
+        return raw_selection
+
+    return ""
+
+
 def resolve_settings_env_file() -> str:
-    env_file = os.getenv("G_BSV_ENV_FILE", ".env").strip()
-    return env_file or ".env"
+    explicit_env_file = os.getenv("G_BSV_ENV_FILE", "").strip()
+    if explicit_env_file:
+        return explicit_env_file
+
+    profile_selected_file = _resolve_profile_file_selection()
+    if profile_selected_file:
+        return profile_selected_file
+
+    return ".env"
 
 
 def load_selected_env_values() -> dict[str, str]:
     env_file = resolve_settings_env_file()
     env_path = Path(env_file)
     if not env_path.is_absolute():
-        env_path = Path(__file__).resolve().parent.parent / env_path
+        env_path = _project_root() / env_path
     if not env_path.exists():
         return {}
 
@@ -120,10 +158,11 @@ class Settings(BaseSettings):
         """Fail fast if required secrets are missing outside test env."""
         if self.app_env == "test":
             return self
+
         missing: list[str] = []
-        if not self.odds_api_key:
+        if not self.odds_api_key or _is_placeholder_value(self.odds_api_key):
             missing.append("ODDS_API_KEY")
-        if not self.basketball_api_key:
+        if not self.basketball_api_key or _is_placeholder_value(self.basketball_api_key):
             missing.append("BASKETBALL_API_KEY")
         if not self.database_url:
             missing.append("DATABASE_URL")
@@ -138,10 +177,12 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     env_file = resolve_settings_env_file()
     env_path = Path(env_file)
+    selected_values = load_selected_env_values()
+    file_overrides: dict[str, Any] = {key.lower(): value for key, value in selected_values.items()}
     if env_path.is_absolute() or env_path.exists() or env_file != ".env":
         settings_kwargs: dict[str, Any] = {"_env_file": env_file}
-        return Settings(**settings_kwargs)
-    return Settings()
+        return Settings(**settings_kwargs, **file_overrides)
+    return Settings(**file_overrides)
 
 
 def get_nba_avg_total() -> float:
@@ -154,6 +195,11 @@ def get_nba_avg_total() -> float:
 
 def resolve_database_url() -> str:
     """Return the database URL without forcing unrelated secret validation."""
+    selected_values = load_selected_env_values()
+    selected_database_url = selected_values.get("DATABASE_URL", "").strip()
+    if selected_database_url:
+        return selected_database_url
+
     database_url = os.getenv("DATABASE_URL", "").strip()
     if database_url:
         return database_url

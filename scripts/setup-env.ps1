@@ -1,216 +1,125 @@
 <#
 .SYNOPSIS
-  Sync `.env` for local development and optional Azure sync.
+  Sync environment files using the canonical Python env sync tool.
 
 .DESCRIPTION
-    After cloning the repo, run this script to:
-  1. Sync `.env` from `.env.example`
-  2. Preserve existing local values unless `-Force` is used
-  3. Optionally merge values from an `azd` environment
+  This PowerShell wrapper delegates to scripts/sync_env.py so there is one
+  implementation for env synchronization across Windows and cross-platform use.
 
-  Use `scripts/bootstrap-host.ps1` when you want the full Windows host
-  bootstrap: `.venv`, Python dependencies, `.env`, and recommended
-  VS Code extensions.
+  It also persists the selected host env file to .env.profile so subsequent
+  processes resolve the same profile without relying on shell-local env vars.
 
-  This is the Windows wrapper for the same env contract used by
-  `python scripts/sync_env.py`.
-
-    The default workflow still uses the dev container. This script does
-    not create a virtual environment or install Python packages.
+  If AZURE_ENV_NAME is set and -FromAzd is not explicitly passed, this script
+  defaults to using azd values as the source of truth.
 
 .EXAMPLE
-    .\scripts\setup-env.ps1
-    .\scripts\setup-env.ps1 -Force
-    .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName dev
-    .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName validation -OutputPath .env.azure
-  .\scripts\bootstrap-host.ps1
+  .\scripts\setup-env.ps1 -Force
+
+.EXAMPLE
+  .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName validation -OutputPath .env.azure -CreateAzdEnvIfMissing
 #>
 param(
   [switch]$Force,
   [switch]$FromAzd,
   [string]$EnvironmentName,
-  [string]$OutputPath = ".env"
+  [string]$OutputPath = ".env",
+  [switch]$CreateAzdEnvIfMissing
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $ROOT = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$ENV_FILE = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
-  $OutputPath
-} else {
-  Join-Path $ROOT $OutputPath
-}
-$ENV_TEMPLATE_FILE = Join-Path $ROOT ".env.example"
+$VENV_PYTHON = Join-Path $ROOT ".venv\Scripts\python.exe"
+$ACTIVE_PROFILE_FILE = Join-Path $ROOT ".env.profile"
 
-function Get-DotEnvValues {
-  param(
-    [string]$Path
-  )
-
-  $values = @{}
-  if (-not (Test-Path $Path)) {
-    return $values
+function Resolve-PythonExecutable {
+  if (Test-Path $VENV_PYTHON) {
+    return $VENV_PYTHON
   }
 
-  foreach ($line in Get-Content -Path $Path) {
-    if ($line -match '^\s*([A-Z][A-Z0-9_]*)=(.*)$') {
-      $values[$Matches[1]] = $Matches[2]
-    }
+  $python = Get-Command python -ErrorAction SilentlyContinue
+  if ($python) {
+    return $python.Source
   }
 
-  return $values
+  $py = Get-Command py -ErrorAction SilentlyContinue
+  if ($py) {
+    return $py.Source
+  }
+
+  throw "Python was not found. Install Python 3.14+ or run scripts/bootstrap-host.ps1 first."
 }
 
-function New-SyncedEnvContent {
-  param(
-    [string[]]$TemplateLines,
-    [hashtable]$ExistingValues,
-    [hashtable]$OverrideValues
-  )
-
-  $templateKeys = New-Object System.Collections.Generic.List[string]
-  $rendered = New-Object System.Collections.Generic.List[string]
-
-  foreach ($line in $TemplateLines) {
-    if ($line -match '^\s*([A-Z][A-Z0-9_]*)=(.*)$') {
-      $key = $Matches[1]
-      $templateValue = $Matches[2]
-      $value = $templateValue
-
-      if ($ExistingValues.ContainsKey($key) -and -not [string]::IsNullOrWhiteSpace($ExistingValues[$key])) {
-        $value = [string]$ExistingValues[$key]
-      }
-
-      if ($OverrideValues.ContainsKey($key) -and -not [string]::IsNullOrWhiteSpace($OverrideValues[$key])) {
-        $value = [string]$OverrideValues[$key]
-      }
-
-      $templateKeys.Add($key) | Out-Null
-      $rendered.Add("$key=$value") | Out-Null
-      continue
-    }
-
-    $rendered.Add($line) | Out-Null
-  }
-
-  $extraKeys = @($ExistingValues.Keys | Where-Object { $templateKeys -notcontains $_ })
-  if ($extraKeys.Count -gt 0) {
-    $rendered.Add("") | Out-Null
-    $rendered.Add("# Preserved local-only keys") | Out-Null
-    foreach ($key in $extraKeys) {
-      $rendered.Add("$key=$($ExistingValues[$key])") | Out-Null
-    }
-  }
-
-  return $rendered
+$useAzd = $FromAzd
+if (-not $useAzd -and -not [string]::IsNullOrWhiteSpace($env:AZURE_ENV_NAME)) {
+  $useAzd = $true
+  Write-Host "AZURE_ENV_NAME detected; using azd environment values as source of truth." -ForegroundColor Cyan
 }
 
-function Get-AzdEnvironmentValues {
-  param(
-    [string]$RootPath,
-    [string]$Name
-  )
+$pythonExe = Resolve-PythonExecutable
+$syncScript = Join-Path $ROOT "scripts\sync_env.py"
+[System.Collections.Generic.List[string]]$syncCommand = @($syncScript, "--output", $OutputPath)
 
-  if (-not (Get-Command azd -ErrorAction SilentlyContinue)) {
-    throw "azd CLI was not found on PATH."
-  }
-
-  $arguments = @("env", "get-values", "--output", "json")
-  if ($Name) {
-    $arguments += @("--environment", $Name)
-  }
-
-  Push-Location $RootPath
-  try {
-    $output = & azd @arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-      throw ($output | Out-String).Trim()
-    }
-  } finally {
-    Pop-Location
-  }
-
-  $json = ($output | Out-String).Trim()
-  if (-not $json) {
-    return @{}
-  }
-
-  $parsed = $json | ConvertFrom-Json
-  $values = @{}
-  foreach ($property in $parsed.PSObject.Properties) {
-    $values[$property.Name] = [string]$property.Value
-  }
-
-  return $values
+if ($Force) {
+  $syncCommand.Add("--force")
 }
 
-if (-not (Test-Path $ENV_TEMPLATE_FILE)) {
-  throw "Missing template file: $ENV_TEMPLATE_FILE"
-}
-
-$templateLines = Get-Content -Path $ENV_TEMPLATE_FILE
-$existingValues = @{}
-if ((Test-Path $ENV_FILE) -and -not $Force) {
-  $existingValues = Get-DotEnvValues -Path $ENV_FILE
-}
-
-$sourceDescription = ".env.example"
-$azdValues = @{}
-$syncedKeys = @()
-
-if ($FromAzd) {
-  Write-Host "Loading values from azd environment..." -ForegroundColor Cyan
-  $azdValues = Get-AzdEnvironmentValues -RootPath $ROOT -Name $EnvironmentName
-  $syncedKeys = @($azdValues.Keys | Sort-Object)
-
+if ($useAzd) {
+  $syncCommand.Add("--from-azd")
   if ($EnvironmentName) {
-    $sourceDescription = ".env.example + azd environment '$EnvironmentName'"
-  } else {
-    $sourceDescription = ".env.example + current azd environment"
+    $syncCommand.Add("--environment-name")
+    $syncCommand.Add($EnvironmentName)
   }
-} elseif (-not $Force -and (Test-Path (Join-Path $ROOT ".env.azure"))) {
-  Write-Host "Loading fallback values from .env.azure..." -ForegroundColor Cyan
-  $azureValues = Get-DotEnvValues -Path (Join-Path $ROOT ".env.azure")
-  foreach ($key in $azureValues.Keys) {
-    if ($azureValues[$key] -and $azureValues[$key] -notmatch "placeholder") {
-      $azdValues[$key] = $azureValues[$key]
-    }
+  if ($CreateAzdEnvIfMissing) {
+    $syncCommand.Add("--create-azd-env-if-missing")
   }
-  $syncedKeys = @($azdValues.Keys | Sort-Object)
-  $sourceDescription = ".env.example + .env.azure fallback"
+  $syncCommand.Add("--seed-azd-from-local")
 }
 
-$rerunCommand = ".\\scripts\\setup-env.ps1 -Force"
-if ($FromAzd) {
-  $rerunCommand += " -FromAzd"
-}
-if ($EnvironmentName) {
-  $rerunCommand += " -EnvironmentName $EnvironmentName"
-}
-
-$syncedTemplateLines = New-SyncedEnvContent -TemplateLines $templateLines -ExistingValues $existingValues -OverrideValues $azdValues
-$newContent = ($syncedTemplateLines -join "`n") + "`n"
-$existingContent = if (Test-Path $ENV_FILE) { Get-Content -Path $ENV_FILE -Raw } else { $null }
-
-if ($existingContent -eq $newContent) {
-  Write-Host ".env is already up to date at $ENV_FILE" -ForegroundColor Green
-  exit 0
+Push-Location $ROOT
+try {
+  & $pythonExe @syncCommand
+  if ($LASTEXITCODE -ne 0) {
+    throw "Environment sync failed with exit code $LASTEXITCODE"
+  }
+} finally {
+  Pop-Location
 }
 
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($ENV_FILE, $newContent, $utf8NoBom)
-if ($existingContent) {
-  Write-Host "Updated $ENV_FILE" -ForegroundColor Green
+if ($useAzd) {
+  # Prevent stale process vars from hijacking the selected Azure profile.
+  Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DB_SSL -ErrorAction SilentlyContinue
+  Remove-Item Env:ODDS_API_KEY -ErrorAction SilentlyContinue
+  Remove-Item Env:BASKETBALL_API_KEY -ErrorAction SilentlyContinue
+}
+
+$resolvedOutputPath = $OutputPath
+if ([System.IO.Path]::IsPathRooted($OutputPath)) {
+  $resolvedOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 } else {
-  Write-Host "Created $ENV_FILE" -ForegroundColor Green
+  $resolvedOutputPath = [System.IO.Path]::GetFullPath((Join-Path $ROOT $OutputPath))
 }
-if ($syncedKeys.Count -gt 0) {
-  Write-Host "Synced from azd: $($syncedKeys -join ', ')" -ForegroundColor Green
-} elseif ($FromAzd) {
-  Write-Host "No matching override values were found in the azd environment; kept repo defaults." -ForegroundColor Yellow
+
+$profileSelection = if ($resolvedOutputPath.StartsWith($ROOT, [System.StringComparison]::OrdinalIgnoreCase)) {
+  [System.IO.Path]::GetRelativePath($ROOT, $resolvedOutputPath)
+} else {
+  $resolvedOutputPath
 }
+
+[System.IO.File]::WriteAllText($ACTIVE_PROFILE_FILE, "$profileSelection`n", [System.Text.UTF8Encoding]::new($false))
+$env:G_BSV_ENV_FILE = $profileSelection
+
 if ($OutputPath -eq ".env") {
-  Write-Host "Done. Open the repo in the dev container and run: python -m src migrate" -ForegroundColor Green
+  Write-Host "Environment sync complete: $OutputPath" -ForegroundColor Green
+  Write-Host "Active profile: $profileSelection" -ForegroundColor Green
+  Write-Host "Run: python -m src migrate" -ForegroundColor Green
 } else {
-  Write-Host "Done. Use G_BSV_ENV_FILE=$OutputPath when you want the Azure-attached host profile." -ForegroundColor Green
+  Write-Host "Environment sync complete: $OutputPath" -ForegroundColor Green
+  Write-Host "Active profile: $profileSelection" -ForegroundColor Green
+  Write-Host "Applied current shell profile: G_BSV_ENV_FILE=$profileSelection" -ForegroundColor Green
+  if ($useAzd) {
+    Write-Host "Cleared conflicting process vars: DATABASE_URL, DB_SSL, ODDS_API_KEY, BASKETBALL_API_KEY" -ForegroundColor Green
+  }
 }

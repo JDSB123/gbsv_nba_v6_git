@@ -336,6 +336,8 @@ class TestResolveDatabaseUrl:
     def test_resolve_database_url_from_env(self, monkeypatch):
         """Cover line 119: DATABASE_URL env fallback."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://custom/db")
+        # Isolate from profile-selected env file so the env var wins
+        monkeypatch.setenv("G_BSV_ENV_FILE", ".env.nonexistent_test_isolation")
         from src.config import resolve_database_url
 
         result = resolve_database_url()

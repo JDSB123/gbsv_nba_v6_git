@@ -21,9 +21,6 @@
         "-File", "${workspaceFolder}/scripts/bootstrap-host.ps1",
         "-SkipVSCodeExtensions"
       ],
-      "runOptions": {
-        "runOn": "folderOpen"
-      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -50,10 +47,13 @@
     {
       "label": "env: reset local",
       "type": "shell",
-      "command": "${command:python.interpreterPath}",
+      "command": "pwsh",
       "args": [
-        "scripts/sync_env.py",
-        "--force"
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/scripts/setup-env.ps1",
+        "-Force",
+        "-OutputPath", ".env"
       ],
       "presentation": {
         "reveal": "silent",
@@ -65,15 +65,15 @@
     {
       "label": "env: sync azure",
       "type": "shell",
-      "command": "${command:python.interpreterPath}",
+      "command": "pwsh",
       "args": [
-        "scripts/sync_env.py",
-        "--from-azd",
-        "--environment-name",
-        "validation",
-        "--output",
-        ".env.azure",
-        "--force"
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/scripts/setup-env.ps1",
+        "-Force",
+        "-FromAzd",
+        "-OutputPath", ".env.azure",
+        "-CreateAzdEnvIfMissing"
       ],
       "presentation": {
         "reveal": "silent",
@@ -91,6 +91,11 @@
         "src",
         "serve"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -128,6 +133,32 @@
         "src",
         "work"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "app: work (azure env)",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-m",
+        "src",
+        "work"
+      ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -186,6 +217,11 @@
         "src",
         "train"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -202,6 +238,32 @@
         "src",
         "predict"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "model: predict (azure env)",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-m",
+        "src",
+        "predict"
+      ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -218,6 +280,32 @@
         "src",
         "audit"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "ops: audit (azure env)",
+      "type": "shell",
+      "command": "${command:python.interpreterPath}",
+      "args": [
+        "-m",
+        "src",
+        "audit"
+      ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env.azure"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -234,6 +322,11 @@
         "src",
         "migrate"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -251,6 +344,11 @@
         "tests",
         "-v"
       ],
+      "options": {
+        "env": {
+          "G_BSV_ENV_FILE": "${workspaceFolder}\\.env"
+        }
+      },
       "presentation": {
         "reveal": "always",
         "panel": "shared",
