@@ -62,7 +62,10 @@ class TestPredictorFeatureNameMismatch:
         ):
             predictor = Predictor()
 
-        assert predictor._last_error == "Model feature name mismatch. Code and artifacts are out of sync."
+        assert (
+            predictor._last_error
+            == "Model feature name mismatch. Code and artifacts are out of sync."
+        )
 
 
 class TestPredictorIncompatibleModels:
@@ -162,7 +165,11 @@ class TestTrainerFeatureImportanceDrift:
 
         # Previous importance: feature a is #1, b is #2, etc.
         prev_importance = {
-            "f_a": 0.50, "f_b": 0.30, "f_c": 0.10, "f_d": 0.05, "f_e": 0.03,
+            "f_a": 0.50,
+            "f_b": 0.30,
+            "f_c": 0.10,
+            "f_d": 0.05,
+            "f_e": 0.03,
             "f_f": 0.02,
         }
         # We need enough features to trigger >10 rank shift
@@ -200,18 +207,26 @@ class TestServicesModelGetPerformance:
         from src.services.model import ModelService
 
         pred = SimpleNamespace(
-            game_id=1, model_version="v6-test",
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0,
-            h1_spread=3.0, h1_total=107.0,
-            clv_spread=-0.5, clv_total=1.0,
+            game_id=1,
+            model_version="v6-test",
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
+            clv_spread=-0.5,
+            clv_total=1.0,
             predicted_at=None,
         )
         game = SimpleNamespace(
             id=1,
-            home_score_fg=112, away_score_fg=108,
-            home_score_1h=54, away_score_1h=53,
+            home_score_fg=112,
+            away_score_fg=108,
+            home_score_1h=54,
+            away_score_1h=53,
         )
 
         repo = MagicMock()
@@ -239,22 +254,33 @@ class TestServicesPredictionsGetList:
 
         pred = SimpleNamespace(
             game_id=1,
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0,
-            h1_spread=3.0, h1_total=107.0,
-            fg_home_ml_prob=0.65, h1_home_ml_prob=0.60,
-            opening_spread=-3.5, opening_total=220.0,
-            opening_h1_spread=-1.5, opening_h1_total=109.5,
-            closing_spread=-3.0, closing_total=219.0,
-            clv_spread=-0.5, clv_total=1.0,
-            clv_h1_spread=None, clv_h1_total=None,
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
+            fg_home_ml_prob=0.65,
+            h1_home_ml_prob=0.60,
+            opening_spread=-3.5,
+            opening_total=220.0,
+            opening_h1_spread=-1.5,
+            opening_h1_total=109.5,
+            closing_spread=-3.0,
+            closing_total=219.0,
+            clv_spread=-0.5,
+            clv_total=1.0,
+            clv_h1_spread=None,
+            clv_h1_total=None,
             model_version="v6-test",
             predicted_at=None,
             odds_sourced={
-                "captured_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace(
-                    "+00:00", "Z"
-                )
+                "captured_at": datetime.now(UTC)
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z")
             },
         )
         game = SimpleNamespace(
@@ -294,14 +320,19 @@ class TestServicesPredictionsGetList:
 
         pred = SimpleNamespace(
             game_id=1,
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0,
-            h1_spread=3.0, h1_total=107.0,
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
             odds_sourced={
-                "captured_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace(
-                    "+00:00", "Z"
-                )
+                "captured_at": datetime.now(UTC)
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z")
             },
         )
         game = SimpleNamespace(id=1)

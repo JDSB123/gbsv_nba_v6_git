@@ -1,5 +1,6 @@
 """Tests for src.data.jobs.maintenance — CLV fill, odds pruning, DB maintenance."""
 
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -117,8 +118,7 @@ class TestCheckDataFreshness:
         ):
             from src.data.jobs.maintenance import check_data_freshness
 
-            # check_data_freshness imports inside function body, so need the Settings mock too
-            try:
+            # check_data_freshness imports inside function body; some imports may
+            # fail, which is OK for this test — we just want it to run.
+            with contextlib.suppress(Exception):
                 await check_data_freshness()
-            except Exception:
-                pass  # Some imports may fail, that's ok for this test

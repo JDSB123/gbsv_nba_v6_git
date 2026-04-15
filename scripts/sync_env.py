@@ -8,6 +8,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# src/ is the schema source of truth — Settings declares every env-template field
+# via json_schema_extra metadata, and generate_env_template() renders it.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+from src.config import generate_env_template  # noqa: E402
+
 ENV_LINE_PATTERN = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
 PLACEHOLDER_PATTERN = re.compile(r"placeholder", re.IGNORECASE)
 REQUIRED_AZD_KEYS = ("ODDS_API_KEY", "BASKETBALL_API_KEY", "DATABASE_URL")
@@ -187,7 +193,11 @@ def collect_local_seed_values(repo_root: Path, output_env_path: Path) -> dict[st
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=("Sync .env from .env.example without overwriting non-empty local values.")
+        description=(
+            "Sync .env from the Settings schema in src/config.py without overwriting "
+            "non-empty local values. src/config.py is the single schema source — there "
+            "is no committed .env template file."
+        )
     )
     parser.add_argument(
         "--quiet",
@@ -230,24 +240,14 @@ def main() -> int:
             "shell/.env values before failing."
         ),
     )
-    parser.add_argument(
-        "--output",
-        default=".env",
-        help="Repo-relative or absolute path of the env file to write.",
-    )
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parent.parent
-    template_path = repo_root / ".env.example"
-    env_path = Path(args.output)
-    if not env_path.is_absolute():
-        env_path = repo_root / env_path
+    repo_root = _REPO_ROOT
+    env_path = repo_root / ".env"
 
-    if not template_path.exists():
-        print(f"Template not found: {template_path}", file=sys.stderr)
-        return 1
-
-    template_lines = template_path.read_text(encoding="utf-8").splitlines()
+    # Template comes from the Settings class in src/config.py, NOT a sibling
+    # .env.example file. There is no longer any committed env template on disk.
+    template_lines = generate_env_template().splitlines()
     existing_lines = []
     if env_path.exists() and not args.force:
         existing_lines = env_path.read_text(encoding="utf-8").splitlines()

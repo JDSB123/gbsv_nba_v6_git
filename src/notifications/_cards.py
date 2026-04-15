@@ -211,7 +211,9 @@ def build_teams_card(
                 {
                     "type": "Column",
                     "width": "stretch",
-                    "items": [{"type": "TextBlock", "text": "**PICK**", "size": "Small", "isSubtle": True}],
+                    "items": [
+                        {"type": "TextBlock", "text": "**PICK**", "size": "Small", "isSubtle": True}
+                    ],
                 },
                 {
                     "type": "Column",
@@ -280,9 +282,13 @@ def build_teams_card(
 
     actions: list[dict[str, str]] = []
     if download_url:
-        actions.append({"type": "Action.OpenUrl", "title": "📊 View Full Slate", "url": download_url})
+        actions.append(
+            {"type": "Action.OpenUrl", "title": "📊 View Full Slate", "url": download_url}
+        )
     if csv_download_url:
-        actions.append({"type": "Action.OpenUrl", "title": "📥 Download CSV", "url": csv_download_url})
+        actions.append(
+            {"type": "Action.OpenUrl", "title": "📥 Download CSV", "url": csv_download_url}
+        )
     if actions:
         card["actions"] = actions
 

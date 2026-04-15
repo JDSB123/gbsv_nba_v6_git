@@ -12,8 +12,18 @@ from src.api.routes.performance import (
 )
 
 
-def _pred_game(home_fg=110, away_fg=105, spread=-3.5, total=220.0, h1_spread=None,
-               h1_total=None, home_1h=55, away_1h=52, clv_spread=1.0, clv_total=-0.5):
+def _pred_game(
+    home_fg=110,
+    away_fg=105,
+    spread=-3.5,
+    total=220.0,
+    h1_spread=None,
+    h1_total=None,
+    home_1h=55,
+    away_1h=52,
+    clv_spread=1.0,
+    clv_total=-0.5,
+):
     pred = MagicMock()
     pred.predicted_home_fg = home_fg
     pred.predicted_away_fg = away_fg

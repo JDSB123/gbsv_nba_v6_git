@@ -4,8 +4,9 @@
 
 .DESCRIPTION
   This script creates or refreshes `.venv`, installs the repo's dev
-  dependencies from `pyproject.toml`, syncs `.env` from `.env.example`,
-  and optionally installs the recommended VS Code extensions.
+  dependencies from `pyproject.toml`, generates `.env` from the Settings
+  schema in `src/config.py`, and optionally installs the recommended VS Code
+  extensions.
 
   Use this when you want to work on the Windows host instead of the
   default dev-container workflow.
@@ -124,6 +125,16 @@ function Install-RecommendedExtensions {
   }
 }
 
+function Write-BootstrapError {
+  param([Parameter(Mandatory = $true)][string]$Message)
+  $line = $MyInvocation.ScriptLineNumber
+  # Format consumed by the .vscode/tasks.json problem matcher to surface
+  # bootstrap failures via VS Code's Problems panel.
+  Write-Host "BOOTSTRAP_ERROR scripts/bootstrap-host.ps1:${line}: $Message" -ForegroundColor Red
+}
+
+try {
+
 if ($RecreateVenv -and (Test-Path $VENV_DIR)) {
   Write-Host "Removing existing .venv" -ForegroundColor Yellow
   Remove-Item -Path $VENV_DIR -Recurse -Force
@@ -180,7 +191,7 @@ if (-not $SkipDependencyInstall) {
   }
 }
 
-Write-Host "Syncing .env from .env.example" -ForegroundColor Cyan
+Write-Host "Generating .env from src/config.py (Settings schema)" -ForegroundColor Cyan
 Push-Location $ROOT
 try {
   Invoke-CheckedCommand `
@@ -197,3 +208,8 @@ if (-not $SkipVSCodeExtensions) {
 
 Write-Host "Host bootstrap complete." -ForegroundColor Green
 Write-Host "Use .venv\\Scripts\\python.exe for host commands, or reopen the repo in the dev container for the default workflow." -ForegroundColor Green
+
+} catch {
+  Write-BootstrapError $_.Exception.Message
+  throw
+}

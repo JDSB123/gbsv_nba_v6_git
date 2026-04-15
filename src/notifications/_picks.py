@@ -133,9 +133,19 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    label, e, t_cst, matchup, "FG", "SPREAD", f"{mkt_spread:+.1f}",
-                    fg_scores, h_rec, a_rec, _fire_count(e),
-                    odds=odds_map.get("FG_SPREAD", ""), rationale=rationale,
+                    label,
+                    e,
+                    t_cst,
+                    matchup,
+                    "FG",
+                    "SPREAD",
+                    f"{mkt_spread:+.1f}",
+                    fg_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
+                    odds=odds_map.get("FG_SPREAD", ""),
+                    rationale=rationale,
                 )
             )
     elif abs(fg_spread) >= min_edge:
@@ -146,17 +156,25 @@ def extract_picks(
         rationale = f"No market line · Model projects {side_name} by {e:.1f}pts"
         picks.append(
             Pick(
-                label, e, t_cst, matchup, "FG", "SPREAD", f"{-fg_spread:+.1f}",
-                fg_scores, h_rec, a_rec, _fire_count(e),
-                odds=odds_map.get("FG_SPREAD", ""), rationale=rationale,
+                label,
+                e,
+                t_cst,
+                matchup,
+                "FG",
+                "SPREAD",
+                f"{-fg_spread:+.1f}",
+                fg_scores,
+                h_rec,
+                a_rec,
+                _fire_count(e),
+                odds=odds_map.get("FG_SPREAD", ""),
+                rationale=rationale,
             )
         )
 
     # ── Full-game total ───────────────────────────────────────
     mkt_total = (
-        float(opening_total)
-        if opening_total is not None
-        else _consensus_line(books, "total")
+        float(opening_total) if opening_total is not None else _consensus_line(books, "total")
     )
     if mkt_total is not None:
         total_edge = abs(fg_total - mkt_total)
@@ -169,9 +187,19 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    f"{direction} {mkt_total:.1f}", e, t_cst, matchup, "FG", "TOTAL",
-                    f"{mkt_total:.1f}", fg_scores, h_rec, a_rec, _fire_count(e),
-                    odds=odds_map.get("FG_TOTAL", ""), rationale=rationale,
+                    f"{direction} {mkt_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "FG",
+                    "TOTAL",
+                    f"{mkt_total:.1f}",
+                    fg_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
+                    odds=odds_map.get("FG_TOTAL", ""),
+                    rationale=rationale,
                 )
             )
     else:
@@ -183,9 +211,19 @@ def extract_picks(
             rationale = f"Model total {fg_total:.1f} vs NBA avg {nba_avg:.0f} → {e:.1f}pt {direction.lower()}"
             picks.append(
                 Pick(
-                    f"{direction} {fg_total:.1f}", e, t_cst, matchup, "FG", "TOTAL",
-                    f"{fg_total:.1f}", fg_scores, h_rec, a_rec, _fire_count(e),
-                    odds=odds_map.get("FG_TOTAL", ""), rationale=rationale,
+                    f"{direction} {fg_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "FG",
+                    "TOTAL",
+                    f"{fg_total:.1f}",
+                    fg_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
+                    odds=odds_map.get("FG_TOTAL", ""),
+                    rationale=rationale,
                 )
             )
 
@@ -208,9 +246,19 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    label, e, t_cst, matchup, "1H", "SPREAD", f"{mkt_h1_spread:+.1f}",
-                    h1_scores, h_rec, a_rec, _fire_count(e),
-                    odds=odds_map.get("1H_SPREAD", ""), rationale=rationale,
+                    label,
+                    e,
+                    t_cst,
+                    matchup,
+                    "1H",
+                    "SPREAD",
+                    f"{mkt_h1_spread:+.1f}",
+                    h1_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
+                    odds=odds_map.get("1H_SPREAD", ""),
+                    rationale=rationale,
                 )
             )
     elif abs(h1_spread) >= min_edge:
@@ -221,9 +269,19 @@ def extract_picks(
         rationale = f"No 1H line · Model projects {side_name} 1H by {e:.1f}pts"
         picks.append(
             Pick(
-                label, e, t_cst, matchup, "1H", "SPREAD", f"{-h1_spread:+.1f}",
-                h1_scores, h_rec, a_rec, _fire_count(e),
-                odds=odds_map.get("1H_SPREAD", ""), rationale=rationale,
+                label,
+                e,
+                t_cst,
+                matchup,
+                "1H",
+                "SPREAD",
+                f"{-h1_spread:+.1f}",
+                h1_scores,
+                h_rec,
+                a_rec,
+                _fire_count(e),
+                odds=odds_map.get("1H_SPREAD", ""),
+                rationale=rationale,
             )
         )
 
@@ -244,9 +302,19 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    f"{direction} {mkt_h1_total:.1f}", e, t_cst, matchup, "1H", "TOTAL",
-                    f"{mkt_h1_total:.1f}", h1_scores, h_rec, a_rec, _fire_count(e),
-                    odds=odds_map.get("1H_TOTAL", ""), rationale=rationale,
+                    f"{direction} {mkt_h1_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "1H",
+                    "TOTAL",
+                    f"{mkt_h1_total:.1f}",
+                    h1_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
+                    odds=odds_map.get("1H_TOTAL", ""),
+                    rationale=rationale,
                 )
             )
     else:
@@ -260,9 +328,19 @@ def extract_picks(
             )
             picks.append(
                 Pick(
-                    f"{direction} {h1_total:.1f}", e, t_cst, matchup, "1H", "TOTAL",
-                    f"{h1_total:.1f}", h1_scores, h_rec, a_rec, _fire_count(e),
-                    odds=odds_map.get("1H_TOTAL", ""), rationale=rationale,
+                    f"{direction} {h1_total:.1f}",
+                    e,
+                    t_cst,
+                    matchup,
+                    "1H",
+                    "TOTAL",
+                    f"{h1_total:.1f}",
+                    h1_scores,
+                    h_rec,
+                    a_rec,
+                    _fire_count(e),
+                    odds=odds_map.get("1H_TOTAL", ""),
+                    rationale=rationale,
                 )
             )
 
@@ -288,9 +366,19 @@ def extract_picks(
         )
         picks.append(
             Pick(
-                f"{side} ML", ml_pts_edge, t_cst, matchup, "FG", "ML",
-                ml_odds or _prob_to_american(win_prob), fg_scores, h_rec, a_rec,
-                _fire_count(ml_pts_edge), odds=ml_odds, rationale=rationale,
+                f"{side} ML",
+                ml_pts_edge,
+                t_cst,
+                matchup,
+                "FG",
+                "ML",
+                ml_odds or _prob_to_american(win_prob),
+                fg_scores,
+                h_rec,
+                a_rec,
+                _fire_count(ml_pts_edge),
+                odds=ml_odds,
+                rationale=rationale,
             )
         )
 
@@ -306,7 +394,9 @@ def extract_picks(
         h1_ml_odds = odds_map.get("1H_ML_AWAY", "") or _prob_to_american(1 - h1_prob)
 
     h1_market_prob = _american_to_prob(h1_ml_odds)
-    h1_prob_edge = (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+    h1_prob_edge = (
+        (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+    )
 
     if h1_prob_edge > 0.02:
         h1_ml_pts_edge = round(h1_prob_edge * 33.3, 1)
@@ -317,9 +407,19 @@ def extract_picks(
         )
         picks.append(
             Pick(
-                f"{h1_side} 1H ML", h1_ml_pts_edge, t_cst, matchup, "1H", "ML",
-                h1_ml_odds or _prob_to_american(h1_win_prob), h1_scores, h_rec, a_rec,
-                _fire_count(h1_ml_pts_edge), odds=h1_ml_odds, rationale=h1_rationale,
+                f"{h1_side} 1H ML",
+                h1_ml_pts_edge,
+                t_cst,
+                matchup,
+                "1H",
+                "ML",
+                h1_ml_odds or _prob_to_american(h1_win_prob),
+                h1_scores,
+                h_rec,
+                a_rec,
+                _fire_count(h1_ml_pts_edge),
+                odds=h1_ml_odds,
+                rationale=h1_rationale,
             )
         )
 

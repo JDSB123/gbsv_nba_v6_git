@@ -13,8 +13,8 @@ This repo now has one primary source of truth per concern:
 | Concern | Source of truth | Purpose |
 | --- | --- | --- |
 | Python dependencies and tooling | `pyproject.toml` | Runtime and dev dependencies, pytest, Ruff, package metadata |
-| Local env schema and safe defaults | `.env.example` | Canonical local env keys and default values |
-| Active host env profile selection | `.env.profile` (local state) | Persists the currently selected host env file for cross-process consistency |
+| Env schema and safe defaults | `src/config.py` (`Settings` class) | Canonical declaration of every env key, default, and template — annotated via `json_schema_extra`. There is NO committed env template file. |
+| Runtime env file | `.env` (local state) | The single materialized env file. No `.env.example`, no `.env.azure`, no `.env.profile`, no per-process overrides. |
 | Azure runtime environment values | `azd` environment (`.azure/<env>/.env`) and ACA app settings | Canonical cloud values consumed by provision/deploy/runtime |
 | Local env sync | `scripts/sync_env.py` | Cross-platform `.env` sync and optional azd overlay |
 | Windows env wrapper | `scripts/setup-env.ps1` | PowerShell wrapper around the same env contract |
@@ -77,12 +77,12 @@ The dev container provides the Python runtime, system packages, Docker tooling, 
 
 Fresh clone behavior is now intentionally self-healing:
 
-- `.env.example` defines the local env contract.
-- `scripts/sync_env.py` creates or repairs `.env` without overwriting non-empty local values.
+- `src/config.py` (`Settings` class) declares every env key, default, and template via `json_schema_extra` metadata. It is the only schema.
+- `scripts/sync_env.py` calls `generate_env_template()` on the Settings class to create or repair `.env` without overwriting non-empty local values.
 - `.devcontainer/devcontainer.json` runs the sync on create and on every start.
 - The same sync contract is used by CI smoke setup and by Azure post-provision hooks.
 
-That means missing or newly added env keys are repaired automatically when the repo is reopened.
+That means missing or newly added env keys are repaired automatically the moment they're added to the Settings class.
 
 ## Fresh Host Clone
 
@@ -96,7 +96,7 @@ That script will:
 
 - create `.venv` with Python 3.14+
 - install the repo's dev dependencies from `pyproject.toml`
-- sync `.env` from `.env.example`
+- generate `.env` from the Settings schema in `src/config.py`
 - install the recommended VS Code extensions when the `code` CLI is available
 
 Useful variants:
@@ -123,29 +123,34 @@ VS Code tasks in `.vscode/tasks.json` mirror the main operational commands so th
 
 ## Local Environment
 
-Use two explicit host-side profiles instead of one mixed file.
+There is exactly one runtime env file: `.env`. There is one schema source: `src/config.py` (the `Settings` class). There is no `.env.example`, no `.env.azure`, no `.env.profile`, and no per-process override variable.
 
-- `.env` is the local host-development profile. VS Code and Python default to this file.
-- `.env.azure` is the optional Azure-attached host profile.
-- `.env.profile` stores the active host profile selection (`.env` or `.env.azure`).
-- `.env.example` is the schema and default template for both.
-- `python scripts/sync_env.py --force` resets `.env` to local defaults.
-- `python scripts/sync_env.py --from-azd --output .env.azure --force --create-azd-env-if-missing` creates or refreshes `.env.azure` from the active azd environment.
-- When syncing from azd, required keys (`ODDS_API_KEY`, `BASKETBALL_API_KEY`, `DATABASE_URL`) now fail fast if missing or placeholder values.
-- `scripts/setup-env.ps1 -FromAzd` will attempt to seed missing azd keys from real local shell/.env values before fail-fast validation.
-- Use `--allow-incomplete-azd` only for deliberate partial sync scenarios.
-- `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -OutputPath .env` syncs local profile and marks `.env` active.
-- `powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -OutputPath .env.azure -CreateAzdEnvIfMissing` syncs Azure profile and marks `.env.azure` active.
-- `.env.profile` is the single host-side selector for runtime env loading; avoid per-process override variables.
+- **`src/config.py`** declares every env key, default, and template inline via Pydantic `Field(json_schema_extra=...)` metadata. To add a new env key, add a field on `Settings` with `json_schema_extra={"env_group": "...", "env_template": "...", "env_comment": "..."}`. That's it — no other file to update.
+- **`.env`** is the materialized active env file. Gitignored. Read by VS Code (`python.envFile`), the integrated terminal (via `scripts/init-terminal.ps1`), and `src/config.py` itself at runtime.
+- Generate `.env` from the schema: `pwsh -File scripts/setup-env.ps1 -Force` (or `python scripts/sync_env.py --force`). Existing non-empty values in `.env` are preserved.
+- Overlay azd values: `pwsh -File scripts/setup-env.ps1 -Force -FromAzd -EnvironmentName production -CreateAzdEnvIfMissing`.
+- Required azd keys (`ODDS_API_KEY`, `BASKETBALL_API_KEY`, `DATABASE_URL`) fail fast if missing or placeholder values. `setup-env.ps1 -FromAzd` will seed them from local shell/.env values before failing. Use `--allow-incomplete-azd` only for deliberate partial sync.
+- VS Code tasks: `env: sync local` and `env: sync azure`. Both write `.env`.
+
+### Refreshing already-open terminals
+
+After a sync, an already-open integrated terminal still has stale env vars in its own process — that's a Windows process-environment fact, not a script bug. To rebind in place, run inside the terminal:
+
+```powershell
+Sync-Env           # re-render .env from src/config.py and reload it into THIS shell
+Sync-Env -Azure    # re-sync from azd and reload .env into THIS shell
+```
+
+`Sync-Env` is exposed by `scripts/init-terminal.ps1`, which the workspace's PowerShell (venv) profile dot-sources on every new terminal. No need to kill and reopen the terminal.
 
 Local database defaults:
 
 - Dev container: `postgresql+asyncpg://postgres:postgres@db:5432/nba_gbsv`
 - Host-only: `postgresql+asyncpg://postgres:postgres@localhost:5432/nba_gbsv`
 
-The default development workflow remains the dev container. The dev container stays local and isolated through `.devcontainer/docker-compose.yml`, even if `.env.azure` exists.
+The default development workflow remains the dev container. The dev container stays local and isolated through `.devcontainer/docker-compose.yml`.
 
-Production does not depend on repo-local `.env` or `.env.azure`; production values come from ACA app settings and Azure-managed resources. Local env files are generated mirrors for host workflows.
+Production does not depend on repo-local `.env`; production values come from ACA app settings and Azure-managed resources. Local `.env` is a generated mirror for host workflows only.
 
 ## Host Export
 
@@ -154,7 +159,7 @@ The OneDrive export helper uses the same host env contract as the rest of the re
 For an Azure-backed export on the Windows host:
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -OutputPath .env.azure -CreateAzdEnvIfMissing
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -CreateAzdEnvIfMissing
 $env:ONEDRIVE_EXPORT_ROOT = 'C:\Users\<you>\OneDrive - Green Bier Capital\Early Stage Sport Ventures - Documents\NBA - Green Bier Sports'
 .\.venv\Scripts\python.exe .\scripts\export_onedrive.py
 ```
@@ -171,12 +176,12 @@ git fetch --prune --tags
 git remote prune origin
 ```
 
-`git clean -fdX` removes ignored local artifacts such as `.venv`, `.env`, `.env.azure`, `.azure`, `infra/main.json`, and local run outputs. After that, rerun `scripts/bootstrap-host.ps1` for host work or reopen in the dev container for the default workflow.
+`git clean -fdX` removes ignored local artifacts such as `.venv`, `.env`, `.azure`, `infra/main.json`, and local run outputs. After that, rerun `scripts/bootstrap-host.ps1` for host work or reopen in the dev container for the default workflow.
 
 Commit the stack contract files. Do not commit local state.
 
-- Commit: `pyproject.toml`, `.devcontainer/*`, `.vscode/tasks.json`, `.vscode/extensions.json`, `.vscode/settings.json`, `.env.example`, `scripts/*.ps1`, `scripts/*.py`, `azure.yaml`, and `infra/*` source files.
-- Do not commit: `.venv/`, `.env`, `.env.azure*`, `.env.profile`, `.azure/`, `infra/main.json`, local `*_output*.txt` files, and root-level `run*.json` ad-hoc CI dump files.
+- Commit: `pyproject.toml`, `.devcontainer/*`, `.vscode/tasks.json`, `.vscode/extensions.json`, `.vscode/settings.json`, `src/config.py` (the env schema source), `scripts/*.ps1`, `scripts/*.py`, `azure.yaml`, and `infra/*` source files.
+- Do not commit: `.venv/`, `.env`, any other `.env.*`, `.azure/`, `infra/main.json`, local `*_output*.txt` files, and root-level `run*.json` ad-hoc CI dump files.
 
 ## Git and CI
 

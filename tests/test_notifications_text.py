@@ -75,7 +75,7 @@ class TestBuildTeamsText:
         assert "Games: 1" in result
         # Only first game should appear in body
         lines = result.split("\n")
-        game_lines = [l for l in lines if l.startswith("- ")]
+        game_lines = [line for line in lines if line.startswith("- ")]
         assert len(game_lines) == 1
 
     def test_empty_input(self):

@@ -197,15 +197,17 @@ class TestTrainOutlierAndDrift:
 
         np.random.seed(42)
         n = 100
-        df = pd.DataFrame({
-            "f1": np.random.randn(n),
-            "f2": np.random.randn(n),
-            "home_score_fg": np.random.normal(105, 10, n),
-            "away_score_fg": np.random.normal(102, 10, n),
-            "home_score_1h": np.random.normal(52, 5, n),
-            "away_score_1h": np.random.normal(50, 5, n),
-            "commence_time": pd.date_range("2024-01-01", periods=n, freq="D"),
-        })
+        df = pd.DataFrame(
+            {
+                "f1": np.random.randn(n),
+                "f2": np.random.randn(n),
+                "home_score_fg": np.random.normal(105, 10, n),
+                "away_score_fg": np.random.normal(102, 10, n),
+                "home_score_1h": np.random.normal(52, 5, n),
+                "away_score_1h": np.random.normal(50, 5, n),
+                "commence_time": pd.date_range("2024-01-01", periods=n, freq="D"),
+            }
+        )
 
         # Create a previous importance file with very different rankings
         prev_importance = {"f2": 0.9, "f1": 0.1}
@@ -342,7 +344,10 @@ class TestTrainOutlierAndDrift:
             await trainer.train(db)
 
         assert mock_warning.called
-        assert "Feature importance drift detected (>10 rank shift): %s" in mock_warning.call_args_list[-1].args[0]
+        assert (
+            "Feature importance drift detected (>10 rank shift): %s"
+            in mock_warning.call_args_list[-1].args[0]
+        )
 
 
 class TestSyncModelRegistry:
@@ -388,6 +393,7 @@ class TestSyncModelRegistry:
 
         # Return existing for version lookup, then return list for deactivation
         call_count = 0
+
         async def fake_execute(stmt, *a, **kw):
             nonlocal call_count
             call_count += 1

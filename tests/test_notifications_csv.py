@@ -54,17 +54,17 @@ class TestBuildSlateCsv:
 
     def test_produces_data_rows(self):
         csv_str = build_slate_csv([(_pred(), _game())], min_edge=1.0)
-        lines = [l for l in csv_str.strip().split("\n") if l.strip()]
+        lines = [line for line in csv_str.strip().split("\n") if line.strip()]
         assert len(lines) >= 2  # header + at least 1 data row
 
     def test_empty_input(self):
         csv_str = build_slate_csv([], min_edge=1.0)
-        lines = [l for l in csv_str.strip().split("\n") if l.strip()]
+        lines = [line for line in csv_str.strip().split("\n") if line.strip()]
         assert len(lines) == 1  # header only
 
     def test_high_min_edge_filters_all(self):
         csv_str = build_slate_csv([(_pred(fg_spread=-1.0), _game())], min_edge=50.0)
-        lines = [l for l in csv_str.strip().split("\n") if l.strip()]
+        lines = [line for line in csv_str.strip().split("\n") if line.strip()]
         assert len(lines) == 1  # header only
 
     def test_odds_map_passed_through(self):

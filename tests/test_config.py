@@ -50,8 +50,8 @@ def test_resolve_database_url_ignores_env_var(monkeypatch):
     from src.config import get_settings, resolve_database_url
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://stale:stale@stale:5432/stale")
-    # Force profile resolver to return no selected file so fallback path is deterministic.
-    monkeypatch.setattr("src.config._resolve_profile_file_selection", lambda: "")
+    # Force .env loader to return no values so the fallback path is deterministic.
+    monkeypatch.setattr("src.config.load_selected_env_values", lambda: {})
     get_settings.cache_clear()
 
     try:

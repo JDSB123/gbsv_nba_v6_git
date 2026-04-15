@@ -76,6 +76,7 @@ async def list_predictions(
         ]
 
     if min_edge is not None:
+
         def _max_edge(p: dict) -> float:
             markets = p.get("markets", {})
             edges = []

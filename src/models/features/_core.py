@@ -930,15 +930,15 @@ def _derived_features(
     _h_def = features.get("home_def_rating", NaN)
     out["home_adj_off"] = _h_off - _a_def
     out["home_adj_def"] = _a_off - _h_def
-    
+
     # Rest and Travel Disadvantage
     _h_rest = features.get("home_rest_days", NaN)
     _a_rest = features.get("away_rest_days", NaN)
     out["rest_diff"] = _h_rest - _a_rest
-    
+
     _h_b2b = features.get("home_b2b", 0.0)
     _a_b2b = features.get("away_b2b", 0.0)
-    
+
     # Severe rest asymmetry: one team is on B2B, the other is fully rested (2+ days)
     out["home_severe_rest_disadv"] = 1.0 if (_h_b2b == 1.0 and _a_rest >= 2.0) else 0.0
     out["away_severe_rest_disadv"] = 1.0 if (_a_b2b == 1.0 and _h_rest >= 2.0) else 0.0
@@ -947,7 +947,7 @@ def _derived_features(
     _h_3pt = features.get("home_player_3pt_pct", NaN)
     _a_3pt = features.get("away_player_3pt_pct", NaN)
     out["matchup_3pt_diff"] = _h_3pt - _a_3pt
-    
+
     # Pace Mismatch (extreme contrast in styles)
     _h_pace = features.get("home_pace", NaN)
     _a_pace = features.get("away_pace", NaN)

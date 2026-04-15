@@ -297,7 +297,10 @@ class TestConfigEnvFiles:
     def test_settings_use_single_repo_env_file(self):
         from src.config import Settings
 
-        assert Settings.model_config["env_file"] is None
+        # .env is the single runtime env file. settings_customise_sources still
+        # excludes os.environ and dotenv sources from field loading; this just
+        # declares the canonical path for the repo contract.
+        assert Settings.model_config["env_file"] == ".env"
 
     def test_settings_ignore_app_env_specific_env_files(self, tmp_path, monkeypatch):
         monkeypatch.setenv("APP_ENV", "staging")
@@ -332,9 +335,9 @@ class TestConfigRequiredSecrets:
 
 class TestResolveDatabaseUrl:
     def test_resolve_database_url_from_env(self, monkeypatch):
-        """DATABASE_URL from os.environ must not override selected profile/defaults."""
+        """DATABASE_URL from os.environ must not override .env/defaults."""
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://custom/db")
-        monkeypatch.setattr("src.config._resolve_profile_file_selection", lambda: "")
+        monkeypatch.setattr("src.config.load_selected_env_values", lambda: {})
         from src.config import resolve_database_url
 
         result = resolve_database_url()

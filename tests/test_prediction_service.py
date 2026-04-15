@@ -3,8 +3,6 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from src.services.predictions import PredictionService, _as_float, _parse_iso_utc
 
 

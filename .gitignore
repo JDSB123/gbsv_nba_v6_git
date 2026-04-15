@@ -15,11 +15,10 @@ build/
 venv/
 env/
 
-# Environment variables (.env.example is the only committed template)
+# Environment variables — .env is the single runtime env file.
+# The schema lives in src/config.py (Settings). NO .env.* file is committed.
 .env
-.env.azure
-.env.azure.*
-.env.profile
+.env.*
 
 # IDE
 .idea/

@@ -137,7 +137,7 @@ class OODDetector:
             self._ready = True
             logger.info("OOD detector loaded (threshold=%.2f)", self._threshold)
             return True
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except json.JSONDecodeError, KeyError, ValueError:
             logger.warning("Failed to load OOD detector", exc_info=True)
             return False
 

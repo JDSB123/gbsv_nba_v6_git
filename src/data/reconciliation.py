@@ -125,13 +125,19 @@ async def _merge_game_records(db: Any, source_game: Game, target_game: Game) -> 
         )
 
     target_preds = (
-        await db.execute(select(Prediction).where(Prediction.game_id == target_id))
-    ).scalars().all()
+        (await db.execute(select(Prediction).where(Prediction.game_id == target_id)))
+        .scalars()
+        .all()
+    )
     source_preds = (
-        await db.execute(select(Prediction).where(Prediction.game_id == source_id))
-    ).scalars().all()
+        (await db.execute(select(Prediction).where(Prediction.game_id == source_id)))
+        .scalars()
+        .all()
+    )
     target_by_version = {
-        str(cast(Any, pred.model_version)): pred for pred in target_preds if pred.model_version is not None
+        str(cast(Any, pred.model_version)): pred
+        for pred in target_preds
+        if pred.model_version is not None
     }
 
     for source_pred in source_preds:
@@ -151,7 +157,9 @@ async def _merge_game_records(db: Any, source_game: Game, target_game: Game) -> 
             await db.execute(
                 select(PlayerGameStats.player_id).where(PlayerGameStats.game_id == target_id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if target_player_ids:
         await db.execute(
@@ -162,9 +170,7 @@ async def _merge_game_records(db: Any, source_game: Game, target_game: Game) -> 
         )
 
     await db.execute(
-        update(OddsSnapshot)
-        .where(OddsSnapshot.game_id == source_id)
-        .values(game_id=target_id)
+        update(OddsSnapshot).where(OddsSnapshot.game_id == source_id).values(game_id=target_id)
     )
     await db.execute(
         update(PlayerGameStats)
@@ -172,14 +178,10 @@ async def _merge_game_records(db: Any, source_game: Game, target_game: Game) -> 
         .values(game_id=target_id)
     )
     await db.execute(
-        update(GameReferee)
-        .where(GameReferee.game_id == source_id)
-        .values(game_id=target_id)
+        update(GameReferee).where(GameReferee.game_id == source_id).values(game_id=target_id)
     )
     await db.execute(
-        update(RotationChange)
-        .where(RotationChange.game_id == source_id)
-        .values(game_id=target_id)
+        update(RotationChange).where(RotationChange.game_id == source_id).values(game_id=target_id)
     )
 
     await db.flush()

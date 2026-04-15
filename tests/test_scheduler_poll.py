@@ -60,9 +60,7 @@ class TestPoll1hOdds:
         mock_client.fetch_events = AsyncMock(
             return_value=[{"id": "ev1"}, {"id": "ev2"}, {}]  # 3rd has no id
         )
-        mock_client.fetch_event_odds = AsyncMock(
-            return_value={"bookmakers": [{"key": "dk"}]}
-        )
+        mock_client.fetch_event_odds = AsyncMock(return_value={"bookmakers": [{"key": "dk"}]})
         mock_client.persist_odds = AsyncMock()
         mock_client._should_skip = MagicMock(return_value=False)
 
@@ -135,9 +133,7 @@ class TestPollPlayerProps:
         mock_client = MagicMock()
         mock_client.fetch_events = AsyncMock(return_value=[{"id": "e1"}, {}])
         mock_client._should_skip = MagicMock(return_value=False)
-        mock_client.fetch_player_props = AsyncMock(
-            return_value={"bookmakers": [{"key": "fd"}]}
-        )
+        mock_client.fetch_player_props = AsyncMock(return_value={"bookmakers": [{"key": "fd"}]})
         mock_client.persist_odds = AsyncMock()
 
         with (
@@ -246,7 +242,9 @@ class TestPollStats:
             patch(f"{_POLL}.async_session_factory", mock_sf),
             patch("src.data.circuit_breaker.basketball_api_breaker") as mock_b,
             patch("src.data.basketball_client.BasketballClient", return_value=mock_client),
-            patch(f"{_RECON}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=2) as mock_reconcile,
+            patch(
+                f"{_RECON}.reconcile_duplicate_games", new_callable=AsyncMock, return_value=2
+            ) as mock_reconcile,
         ):
             mock_b.should_skip.return_value = False
             await poll_stats()
@@ -363,12 +361,14 @@ class TestSyncEventsToGames:
 
         mock_client = MagicMock()
         mock_client.fetch_events = AsyncMock(
-            return_value=[{
-                "id": "evt1",
-                "commence_time": "2024-10-01T00:00:00Z",
-                "home_team": "TeamA",
-                "away_team": "TeamB",
-            }]
+            return_value=[
+                {
+                    "id": "evt1",
+                    "commence_time": "2024-10-01T00:00:00Z",
+                    "home_team": "TeamA",
+                    "away_team": "TeamB",
+                }
+            ]
         )
 
         with (
@@ -402,12 +402,14 @@ class TestSyncEventsToGames:
 
         mock_client = MagicMock()
         mock_client.fetch_events = AsyncMock(
-            return_value=[{
-                "id": "odds_evt_99",
-                "commence_time": "2024-11-01T00:00:00Z",
-                "home_team": "Lakers",
-                "away_team": "Celtics",
-            }]
+            return_value=[
+                {
+                    "id": "odds_evt_99",
+                    "commence_time": "2024-11-01T00:00:00Z",
+                    "home_team": "Lakers",
+                    "away_team": "Celtics",
+                }
+            ]
         )
 
         with (
@@ -440,12 +442,14 @@ class TestSyncEventsToGames:
 
         mock_client = MagicMock()
         mock_client.fetch_events = AsyncMock(
-            return_value=[{
-                "id": "evt1",
-                "commence_time": "2024-11-01T00:00:00Z",
-                "home_team": "Lakers",
-                "away_team": "Celtics",  # Not in team_by_name
-            }]
+            return_value=[
+                {
+                    "id": "evt1",
+                    "commence_time": "2024-11-01T00:00:00Z",
+                    "home_team": "Lakers",
+                    "away_team": "Celtics",  # Not in team_by_name
+                }
+            ]
         )
 
         with (
@@ -493,12 +497,14 @@ class TestSyncEventsToGames:
 
         mock_client = MagicMock()
         mock_client.fetch_events = AsyncMock(
-            return_value=[{
-                "id": "evt1",
-                "commence_time": "2024-11-01T00:00:00Z",
-                "home_team": "Lakers",
-                "away_team": "Celtics",
-            }]
+            return_value=[
+                {
+                    "id": "evt1",
+                    "commence_time": "2024-11-01T00:00:00Z",
+                    "home_team": "Lakers",
+                    "away_team": "Celtics",
+                }
+            ]
         )
 
         with (
@@ -506,7 +512,9 @@ class TestSyncEventsToGames:
             patch("src.data.odds_client.OddsClient", return_value=mock_client),
             patch(f"{_POLL}.parse_api_datetime", return_value=datetime(2024, 11, 1)),
             patch(f"{_POLL}._find_matching_game", new_callable=AsyncMock, return_value=real_game),
-            patch(f"{_RECON}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
+            patch(
+                f"{_RECON}._merge_game_records", new_callable=AsyncMock, return_value=True
+            ) as mock_merge,
         ):
             await sync_events_to_games()
         mock_merge.assert_awaited_once_with(mock_db, synthetic_game, real_game)
@@ -601,8 +609,14 @@ class TestGameReconciliationHelpers:
         mock_db.execute = AsyncMock(return_value=result)
 
         with (
-            patch(f"{_RECON}._find_matching_game", new_callable=AsyncMock, return_value=SimpleNamespace(id=10)),
-            patch(f"{_RECON}._merge_game_records", new_callable=AsyncMock, return_value=True) as mock_merge,
+            patch(
+                f"{_RECON}._find_matching_game",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(id=10),
+            ),
+            patch(
+                f"{_RECON}._merge_game_records", new_callable=AsyncMock, return_value=True
+            ) as mock_merge,
         ):
             reconciled = await reconcile_duplicate_games(mock_db, lookback_days=None)
 
@@ -705,7 +719,9 @@ class TestPregameCheckTrigger:
             et = ZoneInfo("US/Eastern")
             now = datetime(2026, 3, 29, 19, 0, tzinfo=et)
             # A game starting 30 minutes from now (within default 60-min lead)
-            game_ct_utc = (now + timedelta(minutes=30)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            game_ct_utc = (
+                (now + timedelta(minutes=30)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            )
 
             mock_sf, mock_db = _mock_session()
             result = MagicMock()
@@ -721,7 +737,9 @@ class TestPregameCheckTrigger:
 
             with (
                 patch(f"{_PRED}.async_session_factory", mock_sf),
-                patch(f"{_PRED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
+                patch(
+                    f"{_PRED}.generate_predictions_and_publish", new_callable=AsyncMock
+                ) as mock_pub,
                 patch(f"{_PRED}.get_settings") as mock_s,
                 patch(f"{_PRED}.datetime", _FixedDateTime),
             ):
@@ -740,7 +758,11 @@ class TestPregameCheckTrigger:
         pmod._pregame_published_date = None
         try:
             et = ZoneInfo("US/Eastern")
-            tomorrow_utc = (datetime.now(et) + timedelta(days=1)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            tomorrow_utc = (
+                (datetime.now(et) + timedelta(days=1))
+                .astimezone(ZoneInfo("UTC"))
+                .replace(tzinfo=None)
+            )
 
             mock_sf, mock_db = _mock_session()
             result = MagicMock()
@@ -749,7 +771,9 @@ class TestPregameCheckTrigger:
 
             with (
                 patch(f"{_PRED}.async_session_factory", mock_sf),
-                patch(f"{_PRED}.generate_predictions_and_publish", new_callable=AsyncMock) as mock_pub,
+                patch(
+                    f"{_PRED}.generate_predictions_and_publish", new_callable=AsyncMock
+                ) as mock_pub,
             ):
                 await pregame_check()
             mock_pub.assert_not_awaited()
@@ -784,7 +808,11 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings") as mock_s,
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
         ):
@@ -813,7 +841,11 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings") as mock_s,
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
@@ -855,7 +887,11 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings", return_value=MagicMock()),
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.send_alert", new_callable=AsyncMock) as mock_alert,
@@ -893,7 +929,11 @@ class TestPublishFlow:
                 result.scalar.return_value = 3
                 return result
             if call_n["n"] == 3:
-                result.scalars.return_value.all.return_value = [mock_game_1, mock_game_2, mock_game_3]
+                result.scalars.return_value.all.return_value = [
+                    mock_game_1,
+                    mock_game_2,
+                    mock_game_3,
+                ]
                 return result
             if call_n["n"] == 4:
                 result.scalar_one_or_none.return_value = datetime.now()
@@ -904,7 +944,9 @@ class TestPublishFlow:
         mock_db.execute = mock_exec
 
         mock_predictor = MagicMock(is_ready=True)
-        mock_predictor.predict_upcoming = AsyncMock(return_value=[mock_pred_1, mock_pred_2, mock_pred_3])
+        mock_predictor.predict_upcoming = AsyncMock(
+            return_value=[mock_pred_1, mock_pred_2, mock_pred_3]
+        )
 
         mock_settings = MagicMock()
         mock_settings.teams_team_id = ""
@@ -922,7 +964,11 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings", return_value=mock_settings),
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
@@ -983,11 +1029,17 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings", return_value=mock_settings),
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
-            patch("src.notifications.teams.send_card_to_teams", new_callable=AsyncMock) as mock_send,
+            patch(
+                "src.notifications.teams.send_card_to_teams", new_callable=AsyncMock
+            ) as mock_send,
         ):
             await generate_predictions_and_publish()
         mock_send.assert_awaited_once()
@@ -1040,13 +1092,21 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings", return_value=mock_settings),
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_html_slate", return_value="<html>"),
             patch("builtins.open", mock_open()),
-            patch("src.notifications.teams.build_teams_card", return_value={"body": []}) as mock_build_card,
-            patch("src.notifications.teams.send_card_to_teams", new_callable=AsyncMock) as mock_send,
+            patch(
+                "src.notifications.teams.build_teams_card", return_value={"body": []}
+            ) as mock_build_card,
+            patch(
+                "src.notifications.teams.send_card_to_teams", new_callable=AsyncMock
+            ) as mock_send,
         ):
             await generate_predictions_and_publish()
 
@@ -1102,13 +1162,23 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings", return_value=mock_settings),
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),
             patch("src.notifications.teams.build_slate_csv", return_value="csv_data"),
-            patch("src.notifications.teams.upload_csv_to_channel", new_callable=AsyncMock, return_value="https://csv.url"),
-            patch("src.notifications.teams.send_card_via_graph", new_callable=AsyncMock) as mock_graph,
+            patch(
+                "src.notifications.teams.upload_csv_to_channel",
+                new_callable=AsyncMock,
+                return_value="https://csv.url",
+            ),
+            patch(
+                "src.notifications.teams.send_card_via_graph", new_callable=AsyncMock
+            ) as mock_graph,
             patch("src.notifications.teams.build_html_slate", return_value="<html>"),
             patch("src.notifications.teams.send_html_via_graph", new_callable=AsyncMock),
         ):
@@ -1160,7 +1230,11 @@ class TestPublishFlow:
             patch(f"{_POLL}.poll_player_props", new_callable=AsyncMock),
             patch(f"{_PRED}.get_settings", return_value=mock_settings),
             patch(f"{_PRED}.async_session_factory", mock_sf),
-            patch(f"{_PRED}.purge_invalid_upcoming_predictions", new_callable=AsyncMock, return_value=0),
+            patch(
+                f"{_PRED}.purge_invalid_upcoming_predictions",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
             patch("src.models.predictor.Predictor", return_value=mock_predictor),
             patch("src.models.features.reset_elo_cache"),
             patch("src.notifications.teams.build_teams_card", return_value={"body": []}),

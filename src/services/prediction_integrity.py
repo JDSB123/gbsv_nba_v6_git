@@ -39,7 +39,7 @@ def prediction_has_valid_score_payload(prediction: Any) -> bool:
     for field in _NUMERIC_PREDICTION_FIELDS:
         try:
             value = float(cast(Any, getattr(prediction, field, None)))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         if not math.isfinite(value):
             return False
@@ -94,7 +94,9 @@ def prediction_has_valid_score_payload(prediction: Any) -> bool:
 
 
 def prediction_has_valid_payload(prediction: Any) -> bool:
-    return _parse_captured_at(prediction) is not None and prediction_has_valid_score_payload(prediction)
+    return _parse_captured_at(prediction) is not None and prediction_has_valid_score_payload(
+        prediction
+    )
 
 
 def prediction_payload_has_integrity_issues(prediction: Any) -> bool:

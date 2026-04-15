@@ -33,7 +33,7 @@ def _american_to_prob(odds_val: Any) -> float | None:
         return None
     try:
         odds = float(str(odds_val).replace("+", ""))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     if odds == 0:
         return 0.5
@@ -240,7 +240,11 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
                 side = home if h1_home_edge > 0 else away
                 picks.append(
                     GradedPick(
-                        "1H", "SPREAD", round(abs(h1_home_edge), 1), result, matchup,
+                        "1H",
+                        "SPREAD",
+                        round(abs(h1_home_edge), 1),
+                        result,
+                        matchup,
                         f"{side} 1H ATS {opening_h1_spread:+.1f}",
                     )
                 )
@@ -295,7 +299,9 @@ def _grade_game(pred: Any, game: Any) -> list[GradedPick]:
         else:
             h1_ml_odds_val = _consensus_ml_odds(books, "away_ml_h1")
         h1_market_prob = _american_to_prob(h1_ml_odds_val)
-        h1_prob_edge = (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+        h1_prob_edge = (
+            (h1_win_prob - h1_market_prob) if h1_market_prob is not None else (h1_win_prob - 0.5)
+        )
 
         if h1_prob_edge > 0.02:
             h1_ml_pts = round(h1_prob_edge * 33.3, 1)
@@ -469,9 +475,7 @@ def _latest_valid_score_rows(rows: list[tuple[Any, Any]]) -> list[tuple[Any, Any
         if prediction_score_rank(pred) > prediction_score_rank(existing[0]):
             seen[gid] = (pred, game)
     return [
-        seen[gid]
-        for gid in ordered_game_ids
-        if prediction_has_valid_score_payload(seen[gid][0])
+        seen[gid] for gid in ordered_game_ids if prediction_has_valid_score_payload(seen[gid][0])
     ]
 
 

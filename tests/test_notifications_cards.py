@@ -1,7 +1,5 @@
 """Tests for src.notifications._cards — Adaptive Card builder."""
 
-from types import SimpleNamespace
-
 from src.notifications._cards import _odds_source_block, _pick_row
 from src.notifications._helpers import Pick
 

@@ -14,9 +14,7 @@ def load_stack_config() -> dict[str, object]:
 def build_variables(config: dict[str, object]) -> dict[str, str]:
     container_apps = config["containerApps"]
     if not isinstance(container_apps, dict):
-        raise ValueError(
-            "containerApps must be an object in stack-config.json"
-        )
+        raise ValueError("containerApps must be an object in stack-config.json")
 
     registry_name = str(config["registryName"])
 
@@ -48,9 +46,7 @@ def write_output_file(path: str, variables: dict[str, str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Export shared stack variables from infra/stack-config.json"
-        )
+        description=("Export shared stack variables from infra/stack-config.json")
     )
     parser.add_argument(
         "--github-env",
@@ -60,9 +56,7 @@ def main() -> int:
     parser.add_argument(
         "--github-output",
         default=None,
-        help=(
-            "Append lowercase step outputs to the provided GitHub output file."
-        ),
+        help=("Append lowercase step outputs to the provided GitHub output file."),
     )
     args = parser.parse_args()
 

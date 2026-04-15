@@ -197,7 +197,11 @@ async def test_get_prediction_not_found():
 
     app.dependency_overrides[get_db] = override_db
     try:
-        with patch("src.services.predictions.PredictionService.get_prediction_detail", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "src.services.predictions.PredictionService.get_prediction_detail",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.get("/predictions/99999")
@@ -240,7 +244,9 @@ async def test_model_registry():
         ),
     ]
     mock_db.execute = AsyncMock(
-        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=mock_rows))))
+        return_value=MagicMock(
+            scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=mock_rows)))
+        )
     )
 
     async def override_db():
@@ -275,9 +281,7 @@ async def test_model_retrain():
                 mock_gs.return_value = mock_settings
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as client:
-                    resp = await client.post(
-                        "/model/retrain", headers={"X-API-Key": "test-key"}
-                    )
+                    resp = await client.post("/model/retrain", headers={"X-API-Key": "test-key"})
             assert resp.status_code == 200
             data = resp.json()
             assert data["status"] == "complete"
@@ -377,9 +381,9 @@ async def test_slate_html_success():
     try:
         with (
             patch(
-            "src.services.predictions.PredictionService.get_slate_payload",
-            new_callable=AsyncMock,
-            return_value=([("pred_mock", "game_mock")], None),
+                "src.services.predictions.PredictionService.get_slate_payload",
+                new_callable=AsyncMock,
+                return_value=([("pred_mock", "game_mock")], None),
             ),
             patch(
                 "src.notifications.teams.build_html_slate",

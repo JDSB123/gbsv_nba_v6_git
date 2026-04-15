@@ -1,9 +1,6 @@
 """Tests for src.models.blob_storage — Azure Blob upload/download/sync."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.models.blob_storage import (
     ARTIFACTS_DIR,
@@ -116,7 +113,7 @@ class TestSyncArtifactsUp:
     def test_uploads_json_and_txt_files(self):
         (ARTIFACTS_DIR / "_test_sync_up.json").write_text("{}")
         try:
-            with patch("src.models.blob_storage.upload_artifact", return_value=True) as mock_up:
+            with patch("src.models.blob_storage.upload_artifact", return_value=True):
                 count = sync_artifacts_up()
                 assert count >= 1
         finally:

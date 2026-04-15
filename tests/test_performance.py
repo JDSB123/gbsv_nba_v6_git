@@ -247,12 +247,16 @@ def test_score_accuracy_perfect():
 
 def test_score_accuracy_no_1h():
     pred = SimpleNamespace(
-        predicted_home_fg=100, predicted_away_fg=90,
-        predicted_home_1h=50, predicted_away_1h=45,
+        predicted_home_fg=100,
+        predicted_away_fg=90,
+        predicted_home_1h=50,
+        predicted_away_1h=45,
     )
     game = SimpleNamespace(
-        home_score_fg=102, away_score_fg=88,
-        home_score_1h=None, away_score_1h=None,
+        home_score_fg=102,
+        away_score_fg=88,
+        home_score_1h=None,
+        away_score_1h=None,
     )
     acc = _score_accuracy([(pred, game)])
     assert "h1_score_mae" not in acc
@@ -412,7 +416,14 @@ def test_grade_game_no_1h_scores():
 def test_grade_game_small_edge_filtered():
     game = _fake_game()
     # opening_spread + fg_spread = edge only 1.0 (below MIN_EDGE=6.0)
-    pred = _fake_pred(fg_spread=1.0, opening_spread=-2.0, h1_spread=0.5, fg_total=230.0, h1_total=115.0, opening_total=229.5)
+    pred = _fake_pred(
+        fg_spread=1.0,
+        opening_spread=-2.0,
+        h1_spread=0.5,
+        fg_total=230.0,
+        h1_total=115.0,
+        opening_total=229.5,
+    )
     picks = _grade_game(pred, game)
     # Small edges should be filtered
     fg_spread_picks = [p for p in picks if p.segment == "FG" and p.market == "SPREAD"]
@@ -477,6 +488,7 @@ def test_grade_game_1h_total_fallback_without_market():
 def test_nba_avg_total_matches_config():
     """get_nba_avg_total should match config default (230.0)."""
     from src.config import get_nba_avg_total
+
     avg = get_nba_avg_total()
     assert avg == 230.0
 

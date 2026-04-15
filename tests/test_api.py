@@ -82,7 +82,9 @@ async def test_predictions_requires_ready_models_detail():
 
 
 def test_odds_freshness_summary_flags_stale_and_missing():
-    service = PredictionService(None, None, Settings(odds_freshness_max_age_minutes=1, app_env="test"))
+    service = PredictionService(
+        None, None, Settings(odds_freshness_max_age_minutes=1, app_env="test")
+    )
     stale_time = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     rows = [
         {"odds_sourced": {"captured_at": stale_time}},

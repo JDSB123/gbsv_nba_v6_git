@@ -211,8 +211,12 @@ class TestModelSmokeTest:
     def test_is_ready_false_when_incompatible(self):
         p = Predictor.__new__(Predictor)
         p.feature_cols = ["a"]
-        p.models = {"model_home_fg": MagicMock(), "model_away_fg": MagicMock(),
-                     "model_home_1h": MagicMock(), "model_away_1h": MagicMock()}
+        p.models = {
+            "model_home_fg": MagicMock(),
+            "model_away_fg": MagicMock(),
+            "model_home_1h": MagicMock(),
+            "model_away_1h": MagicMock(),
+        }
         p._incompatible_models = {"model_home_fg": 10}
         assert not p.is_ready
 
@@ -240,12 +244,16 @@ class TestLoadModelsEdgeCases:
         m2.get_booster.return_value.num_features.return_value = 5
 
         p.models = {
-            "model_home_fg": m1, "model_away_fg": m1,
-            "model_home_1h": m1, "model_away_1h": m2,
+            "model_home_fg": m1,
+            "model_away_fg": m1,
+            "model_home_1h": m1,
+            "model_away_1h": m2,
         }
         p._model_feature_counts = {
-            "model_home_fg": 3, "model_away_fg": 3,
-            "model_home_1h": 3, "model_away_1h": 5,
+            "model_home_fg": 3,
+            "model_away_fg": 3,
+            "model_home_1h": 3,
+            "model_away_1h": 5,
         }
         p._load_models.__func__(p)  # type: ignore[attr-defined]
         # After re-running, models should be cleared
@@ -268,14 +276,17 @@ class TestLoadModelsEdgeCases:
         mock_model.get_booster.return_value.num_features.return_value = 2
         mock_model.get_booster.return_value.feature_names = None
 
-        p.models = {n: mock_model for n in ["model_home_fg", "model_away_fg",
-                                              "model_home_1h", "model_away_1h"]}
+        p.models = {
+            n: mock_model
+            for n in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
         p._model_feature_counts = {n: 2 for n in p.models}
 
         # Call the tail of _load_models (feature count validation)
         # We need to call the private method with models already loaded
         from unittest.mock import patch as _patch
-        with _patch.object(type(p), '_load_models', lambda self: None):
+
+        with _patch.object(type(p), "_load_models", lambda self: None):
             pass  # skip actual file loading
 
         # Directly test the validation logic
@@ -295,8 +306,9 @@ class TestLoadModelsEdgeCases:
         p = Predictor.__new__(Predictor)
         p.feature_cols = ["a", "b"]
         p._inference_feature_cols = list(p.feature_cols)
-        p._model_feature_counts = {n: 10 for n in ["model_home_fg", "model_away_fg",
-                                                     "model_home_1h", "model_away_1h"]}
+        p._model_feature_counts = {
+            n: 10 for n in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
         p._incompatible_models = {}
         p._last_error = None
         p._compatibility_mode = False
@@ -306,8 +318,10 @@ class TestLoadModelsEdgeCases:
         mock_model = MagicMock()
         mock_model.get_booster.return_value.num_features.return_value = 10
         mock_model.get_booster.return_value.feature_names = None
-        p.models = {n: mock_model for n in ["model_home_fg", "model_away_fg",
-                                              "model_home_1h", "model_away_1h"]}
+        p.models = {
+            n: mock_model
+            for n in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
 
         # Test the validation logic directly
         expected_count = len(p.feature_cols)
@@ -315,7 +329,8 @@ class TestLoadModelsEdgeCases:
         model_feature_count = unique_counts[0]
         if model_feature_count > expected_count:
             p._incompatible_models = {
-                name: count for name, count in p._model_feature_counts.items()
+                name: count
+                for name, count in p._model_feature_counts.items()
                 if count != expected_count
             }
             p._last_error = "feature mismatch"
@@ -374,8 +389,10 @@ class TestPredictAndStore:
         p = Predictor.__new__(Predictor)
         p.feature_cols = ["a"]
         p._inference_feature_cols = ["a"]
-        p.models = {n: MagicMock() for n in ["model_home_fg", "model_away_fg",
-                                               "model_home_1h", "model_away_1h"]}
+        p.models = {
+            n: MagicMock()
+            for n in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
         p._incompatible_models = {}
         p._last_error = None
         p._compatibility_mode = False
@@ -386,11 +403,18 @@ class TestPredictAndStore:
         mock_db = AsyncMock()
 
         pred_dict = {
-            "predicted_home_fg": 110.0, "predicted_away_fg": 105.0,
-            "predicted_home_1h": 55.0, "predicted_away_1h": 52.0,
-            "fg_spread": 5.0, "fg_total": 215.0, "fg_home_ml_prob": 0.65,
-            "h1_spread": 3.0, "h1_total": 107.0, "h1_home_ml_prob": 0.6,
-            "opening_spread": -3.5, "opening_total": 220.0,
+            "predicted_home_fg": 110.0,
+            "predicted_away_fg": 105.0,
+            "predicted_home_1h": 55.0,
+            "predicted_away_1h": 52.0,
+            "fg_spread": 5.0,
+            "fg_total": 215.0,
+            "fg_home_ml_prob": 0.65,
+            "h1_spread": 3.0,
+            "h1_total": 107.0,
+            "h1_home_ml_prob": 0.6,
+            "opening_spread": -3.5,
+            "opening_total": 220.0,
             "odds_detail": {"books": {}},
         }
 
@@ -418,8 +442,10 @@ class TestPredictAndStore:
         p = Predictor.__new__(Predictor)
         p.feature_cols = ["a"]
         p._inference_feature_cols = ["a"]
-        p.models = {n: MagicMock() for n in ["model_home_fg", "model_away_fg",
-                                               "model_home_1h", "model_away_1h"]}
+        p.models = {
+            n: MagicMock()
+            for n in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
         p._incompatible_models = {}
         p._last_error = None
         p._compatibility_mode = False
@@ -429,11 +455,18 @@ class TestPredictAndStore:
         mock_game = MagicMock(id=1)
 
         pred_dict = {
-            "predicted_home_fg": 110.0, "predicted_away_fg": 105.0,
-            "predicted_home_1h": 55.0, "predicted_away_1h": 52.0,
-            "fg_spread": 5.0, "fg_total": 215.0, "fg_home_ml_prob": 0.65,
-            "h1_spread": 3.0, "h1_total": 107.0, "h1_home_ml_prob": 0.6,
-            "opening_spread": -3.5, "opening_total": 220.0,
+            "predicted_home_fg": 110.0,
+            "predicted_away_fg": 105.0,
+            "predicted_home_1h": 55.0,
+            "predicted_away_1h": 52.0,
+            "fg_spread": 5.0,
+            "fg_total": 215.0,
+            "fg_home_ml_prob": 0.65,
+            "h1_spread": 3.0,
+            "h1_total": 107.0,
+            "h1_home_ml_prob": 0.6,
+            "opening_spread": -3.5,
+            "opening_total": 220.0,
             "odds_detail": {"books": {}},
         }
 
@@ -500,7 +533,8 @@ class TestPredictUpcoming:
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         pred1 = MagicMock()
-        with patch.object(p, "predict_and_store", new_callable=AsyncMock,
-                          side_effect=[pred1, None]):
+        with patch.object(
+            p, "predict_and_store", new_callable=AsyncMock, side_effect=[pred1, None]
+        ):
             result = await p.predict_upcoming(mock_db)
             assert len(result) == 1

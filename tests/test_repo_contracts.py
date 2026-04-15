@@ -25,14 +25,30 @@ def test_pyproject_is_dependency_source_of_truth():
     assert not (ROOT / "requirements-dev.txt").exists()
 
 
-def test_repo_uses_single_committed_env_template():
+def test_repo_uses_single_env_schema_source():
     assert (ROOT / ".gitattributes").exists()
-    assert (ROOT / ".env.example").exists()
-    assert not (ROOT / ".env.smoke").exists()
-    assert not (ROOT / ".env.production").exists()
-    assert not (ROOT / ".env.local").exists()
-    assert not (ROOT / ".env.test").exists()
+    # src/config.py (Settings) is the single env schema source — there is NO
+    # committed .env template file. scripts/sync_env.py renders .env from
+    # Settings.generate_env_template().
+    forbidden_env_files = (
+        ".env.example",
+        ".env.smoke",
+        ".env.production",
+        ".env.local",
+        ".env.test",
+        ".env.azure",
+        ".env.profile",
+    )
+    for name in forbidden_env_files:
+        assert not (ROOT / name).exists(), f"forbidden env file present: {name}"
     assert Settings.model_config["env_file"] == ".env"
+
+    # The generator must declare every required runtime key.
+    from src.config import generate_env_template
+
+    rendered = generate_env_template()
+    for required_key in ("ODDS_API_KEY", "BASKETBALL_API_KEY", "DATABASE_URL"):
+        assert f"{required_key}=" in rendered, f"missing required env key: {required_key}"
 
 
 def test_readme_describes_single_dev_workflow():

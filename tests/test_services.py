@@ -254,9 +254,10 @@ async def test_get_list_predictions():
 async def test_get_list_predictions_filters_stale_rows():
     stale_pred = _make_prediction(
         odds_sourced={
-            "captured_at": (
-                datetime.now(UTC) - timedelta(hours=2)
-            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            "captured_at": (datetime.now(UTC) - timedelta(hours=2))
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
         },
     )
     game = _make_game()
@@ -374,9 +375,10 @@ async def test_get_slate_payload():
 async def test_get_slate_payload_filters_stale_predictions():
     stale_pred = _make_prediction(
         odds_sourced={
-            "captured_at": (
-                datetime.now(UTC) - timedelta(hours=2)
-            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            "captured_at": (datetime.now(UTC) - timedelta(hours=2))
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
         },
     )
     game = _make_game()
@@ -489,9 +491,10 @@ async def test_get_prediction_detail_no_prediction():
 async def test_get_prediction_detail_hides_stale_prediction():
     stale_pred = _make_prediction(
         odds_sourced={
-            "captured_at": (
-                datetime.now(UTC) - timedelta(hours=2)
-            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            "captured_at": (datetime.now(UTC) - timedelta(hours=2))
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
         },
     )
     game = _make_game()

@@ -110,16 +110,16 @@ def _team_record(team: Any) -> str:
 class Pick:
     """A single actionable pick derived from a prediction."""
 
-    label: str        # e.g. "UNDER 222.5" or "Celtics -3.5"
-    edge: float       # positive value, higher = stronger
-    time_cst: str     # "6:30 PM CT"
-    matchup: str      # "Heat @ Celtics"
-    segment: str      # "FG" or "1H"
+    label: str  # e.g. "UNDER 222.5" or "Celtics -3.5"
+    edge: float  # positive value, higher = stronger
+    time_cst: str  # "6:30 PM CT"
+    matchup: str  # "Heat @ Celtics"
+    segment: str  # "FG" or "1H"
     market_type: str  # "SPREAD", "TOTAL", "ML"
     market_line: str  # "-3.5", "222.5", "-160"
     model_scores: str  # "Celtics 112, Heat 108"
     home_record: str  # "42-18" or ""
     away_record: str  # "28-32" or ""
-    confidence: int   # 1-5 fire count
-    odds: str = ""    # American odds, e.g. "-110", "+150"
+    confidence: int  # 1-5 fire count
+    odds: str = ""  # American odds, e.g. "-110", "+150"
     rationale: str = ""  # Brief explanation of the edge

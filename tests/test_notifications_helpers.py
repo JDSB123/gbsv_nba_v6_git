@@ -1,11 +1,8 @@
 """Tests for src.notifications._helpers — pure helper functions."""
 
-import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
-
-import pytest
 
 from src.notifications._helpers import (
     Pick,

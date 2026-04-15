@@ -123,7 +123,10 @@ class TestMainArgParsing:
 
     @patch("src.__main__._setup_logging")
     def test_publish_teams_command(self, mock_log):
-        with patch("sys.argv", ["src", "publish-teams"]), patch("src.__main__._run_publish_teams") as mock_rpt:
+        with (
+            patch("sys.argv", ["src", "publish-teams"]),
+            patch("src.__main__._run_publish_teams") as mock_rpt,
+        ):
             main()
             mock_rpt.assert_called_once()
 

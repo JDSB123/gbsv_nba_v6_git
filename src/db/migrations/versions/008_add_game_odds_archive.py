@@ -9,6 +9,7 @@ Revises: 007_ingestion_failures
 Create Date: 2026-04-06 00:00:00.000000
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -38,7 +39,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["game_id"], ["games.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "game_id", "bookmaker", "market", "outcome_name", "capture_date",
+            "game_id",
+            "bookmaker",
+            "market",
+            "outcome_name",
+            "capture_date",
             name="uq_game_odds_archive_daily",
         ),
     )

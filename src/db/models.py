@@ -172,7 +172,9 @@ class OddsSnapshot(Base):
     description = Column(String(120))  # player name for prop bets
     price = Column(Float, nullable=False)
     point = Column(Float)  # spread or total line
-    captured_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True)
+    captured_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True
+    )
 
     game = relationship("Game", back_populates="odds_snapshots")
 
@@ -206,7 +208,11 @@ class GameOddsArchive(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "game_id", "bookmaker", "market", "outcome_name", "capture_date",
+            "game_id",
+            "bookmaker",
+            "market",
+            "outcome_name",
+            "capture_date",
             name="uq_game_odds_archive_daily",
         ),
         Index("ix_game_odds_archive_game_date", "game_id", "capture_date"),
@@ -241,7 +247,9 @@ class Prediction(Base):
     clv_spread = Column(Float)
     clv_total = Column(Float)
     odds_sourced = Column(JSON)  # per-book odds snapshot at prediction time
-    predicted_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True)
+    predicted_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None), index=True
+    )
 
     game = relationship("Game", back_populates="predictions")
 
@@ -266,7 +274,9 @@ class ModelRegistry(Base):
     promotion_reason = Column(String(255))
     metrics_json = Column(Text)
     params_json = Column(Text)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
 
     __table_args__ = (Index("ix_model_registry_is_active", "is_active"),)
 
@@ -283,7 +293,9 @@ class Injury(Base):
     )
     status = Column(String(20), nullable=False)  # out, doubtful, questionable, probable
     description = Column(String(255))
-    reported_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    reported_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
 
     player = relationship("Player", back_populates="injuries")
     team = relationship("Team", back_populates="injuries")
@@ -301,7 +313,9 @@ class IngestionFailure(Base):
     retry_count = Column(Integer, nullable=False, default=0, server_default="0")
     permanently_failed = Column(Boolean, nullable=False, default=False, server_default="false")
     resolved_at = Column(DateTime)
-    failed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    failed_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
 
 
 class GameReferee(Base):
@@ -330,7 +344,9 @@ class ModelAuditLog(Base):
     action = Column(String(20), nullable=False)  # 'promote' or 'rollback'
     previous_version = Column(String(64))
     reason = Column(String(255))
-    performed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None))
+    performed_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
 
 
 class RotationChange(Base):

@@ -26,48 +26,44 @@
       },
       "presentation": {
         "reveal": "silent",
-        "panel": "shared",
+        "revealProblems": "onProblem",
+        "panel": "dedicated",
         "focus": false,
-        "close": true
+        "close": false
       },
-      "problemMatcher": []
+      "problemMatcher": {
+        "owner": "bootstrap-host",
+        "source": "bootstrap-host",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^BOOTSTRAP_ERROR\\s+([^:]+):(\\d+):\\s*(.+)$",
+          "file": 1,
+          "line": 2,
+          "message": 3
+        }
+      }
     },
     {
-      "label": "env: bootstrap",
-      "type": "shell",
-      "command": "pwsh",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", "${workspaceFolder}/scripts/setup-env.ps1"
-      ],
-      "presentation": {
-        "reveal": "silent",
-        "panel": "shared",
-        "close": true
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "env: reset local",
+      "label": "env: sync local",
+      "detail": "Rewrite .env from src/config.py (Settings). Run 'Sync-Env' in your terminal afterward to refresh open shells.",
       "type": "shell",
       "command": "pwsh",
       "args": [
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", "${workspaceFolder}/scripts/setup-env.ps1",
-        "-Force",
-        "-OutputPath", ".env"
+        "-Force"
       ],
       "presentation": {
-        "reveal": "silent",
-        "panel": "shared",
-        "close": true
+        "reveal": "always",
+        "panel": "dedicated",
+        "close": false
       },
       "problemMatcher": []
     },
     {
       "label": "env: sync azure",
+      "detail": "Rewrite .env from the active azd environment. Run 'Sync-Env -Azure' in your terminal afterward to refresh open shells.",
       "type": "shell",
       "command": "pwsh",
       "args": [
@@ -76,13 +72,12 @@
         "-File", "${workspaceFolder}/scripts/setup-env.ps1",
         "-Force",
         "-FromAzd",
-        "-OutputPath", ".env.azure",
         "-CreateAzdEnvIfMissing"
       ],
       "presentation": {
-        "reveal": "silent",
-        "panel": "shared",
-        "close": true
+        "reveal": "always",
+        "panel": "dedicated",
+        "close": false
       },
       "problemMatcher": []
     },

@@ -16,6 +16,7 @@ Generates:
 This script uses the repo env contract and active profile selection.
 Run scripts/setup-env.ps1 first to sync/select the desired profile.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,9 +61,7 @@ def _resolve_export_root() -> Path:
         return Path(configured)
 
     one_drive_base = (
-        os.getenv("ONEDRIVECOMMERCIAL")
-        or os.getenv("ONEDRIVE")
-        or os.getenv("ONEDRIVECONSUMER")
+        os.getenv("ONEDRIVECOMMERCIAL") or os.getenv("ONEDRIVE") or os.getenv("ONEDRIVECONSUMER")
     )
     if one_drive_base:
         return (
@@ -227,7 +226,9 @@ async def main() -> None:
         # Compute FG spread edge
         mkt_spread = opening_spread
         if mkt_spread is None and books:
-            vals = [b["spread"] for b in books.values() if "spread" in b and b["spread"] is not None]
+            vals = [
+                b["spread"] for b in books.values() if "spread" in b and b["spread"] is not None
+            ]
             mkt_spread = round(sum(vals) / len(vals), 1) if vals else None
 
         # Compute FG total edge
@@ -255,39 +256,45 @@ async def main() -> None:
 
         ct_time = None
         if game.commence_time:
-            naive_utc = game.commence_time.replace(tzinfo=None) if game.commence_time.tzinfo is None else game.commence_time
+            naive_utc = (
+                game.commence_time.replace(tzinfo=None)
+                if game.commence_time.tzinfo is None
+                else game.commence_time
+            )
             if naive_utc.tzinfo is None:
                 naive_utc = naive_utc.replace(tzinfo=UTC)
             ct_time = naive_utc.astimezone(_CST).isoformat()
 
-        json_games.append({
-            "event_id": str(game.odds_api_id or game.id),
-            "home": home,
-            "away": away,
-            "game_time": ct_time,
-            "home_record": home_rec,
-            "away_record": away_rec,
-            "status": game.status,
-            "projected_scores": {
-                "home_pred": round(pred_home_fg, 1),
-                "away_pred": round(pred_away_fg, 1),
-                "proj_total": round(fg_total, 1),
-                "proj_margin": round(fg_spread, 1),
-            },
-            "projected_scores_1h": {
-                "home_pred": round(pred_home_1h, 1),
-                "away_pred": round(pred_away_1h, 1),
-                "proj_total": round(h1_total, 1),
-                "proj_margin": round(h1_spread, 1),
-            },
-            "market_lines": {
-                "opening_spread": opening_spread,
-                "opening_total": opening_total,
-                "opening_h1_spread": opening_h1_spread,
-                "opening_h1_total": opening_h1_total,
-            },
-            "picks": markets,
-        })
+        json_games.append(
+            {
+                "event_id": str(game.odds_api_id or game.id),
+                "home": home,
+                "away": away,
+                "game_time": ct_time,
+                "home_record": home_rec,
+                "away_record": away_rec,
+                "status": game.status,
+                "projected_scores": {
+                    "home_pred": round(pred_home_fg, 1),
+                    "away_pred": round(pred_away_fg, 1),
+                    "proj_total": round(fg_total, 1),
+                    "proj_margin": round(fg_spread, 1),
+                },
+                "projected_scores_1h": {
+                    "home_pred": round(pred_home_1h, 1),
+                    "away_pred": round(pred_away_1h, 1),
+                    "proj_total": round(h1_total, 1),
+                    "proj_margin": round(h1_spread, 1),
+                },
+                "market_lines": {
+                    "opening_spread": opening_spread,
+                    "opening_total": opening_total,
+                    "opening_h1_spread": opening_h1_spread,
+                    "opening_h1_total": opening_h1_total,
+                },
+                "picks": markets,
+            }
+        )
 
     completed_at = datetime.now(_CST)
     json_payload = {
@@ -390,8 +397,17 @@ async def main() -> None:
             ws.append(row_vals)
             try:
                 edge_val = float(row_dict.get("Edge", 0) or 0)
-                fire_cnt = (5 if edge_val >= 9 else 4 if edge_val >= 7 else
-                            3 if edge_val >= 5 else 2 if edge_val >= 3.5 else 1)
+                fire_cnt = (
+                    5
+                    if edge_val >= 9
+                    else 4
+                    if edge_val >= 7
+                    else 3
+                    if edge_val >= 5
+                    else 2
+                    if edge_val >= 3.5
+                    else 1
+                )
                 color = fire_colors.get(fire_cnt, "FFFFFF")
                 for cell in ws[i]:
                     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")

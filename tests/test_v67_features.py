@@ -36,8 +36,10 @@ class TestBlobStorage:
         from src.models.blob_storage import upload_artifact
 
         client = MagicMock()
-        with patch("src.models.blob_storage._get_blob_client", return_value=client), \
-             patch("src.models.blob_storage.ARTIFACTS_DIR", tmp_path):
+        with (
+            patch("src.models.blob_storage._get_blob_client", return_value=client),
+            patch("src.models.blob_storage.ARTIFACTS_DIR", tmp_path),
+        ):
             assert upload_artifact("nonexistent_file.json") is False
 
     def test_sync_artifacts_down_returns_count(self):

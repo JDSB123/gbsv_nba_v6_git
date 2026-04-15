@@ -92,24 +92,50 @@ class TestSituationalUrgencyFeatures:
         # Home: tanking team (10-50)
         home_stats = SimpleNamespace(
             team_id=1,
-            ppg=100.0, oppg=110.0, wins=10, losses=50,
-            pace=98.0, off_rating=105.0, def_rating=115.0,
+            ppg=100.0,
+            oppg=110.0,
+            wins=10,
+            losses=50,
+            pace=98.0,
+            off_rating=105.0,
+            def_rating=115.0,
             games_played=60,
-            fg_pct=0.44, ft_pct=0.75, three_pct=0.35,
-            reb_rate=0.48, ast_rate=0.22, tov_rate=0.15,
-            orb_pct=0.25, drb_pct=0.75, stl_pct=0.08, blk_pct=0.05,
-            efg_pct=0.50, ts_pct=0.55,
+            fg_pct=0.44,
+            ft_pct=0.75,
+            three_pct=0.35,
+            reb_rate=0.48,
+            ast_rate=0.22,
+            tov_rate=0.15,
+            orb_pct=0.25,
+            drb_pct=0.75,
+            stl_pct=0.08,
+            blk_pct=0.05,
+            efg_pct=0.50,
+            ts_pct=0.55,
         )
         # Away: clinching team (50-10)
         away_stats = SimpleNamespace(
             team_id=2,
-            ppg=115.0, oppg=100.0, wins=50, losses=10,
-            pace=100.0, off_rating=115.0, def_rating=105.0,
+            ppg=115.0,
+            oppg=100.0,
+            wins=50,
+            losses=10,
+            pace=100.0,
+            off_rating=115.0,
+            def_rating=105.0,
             games_played=60,
-            fg_pct=0.48, ft_pct=0.80, three_pct=0.40,
-            reb_rate=0.52, ast_rate=0.25, tov_rate=0.12,
-            orb_pct=0.27, drb_pct=0.73, stl_pct=0.09, blk_pct=0.06,
-            efg_pct=0.53, ts_pct=0.58,
+            fg_pct=0.48,
+            ft_pct=0.80,
+            three_pct=0.40,
+            reb_rate=0.52,
+            ast_rate=0.25,
+            tov_rate=0.12,
+            orb_pct=0.27,
+            drb_pct=0.73,
+            stl_pct=0.09,
+            blk_pct=0.06,
+            efg_pct=0.53,
+            ts_pct=0.58,
         )
         stats_by_order = [home_stats, away_stats]  # home queried first, then away
         team_stats_call_idx = 0
@@ -118,9 +144,7 @@ class TestSituationalUrgencyFeatures:
             nonlocal team_stats_call_idx
             result = MagicMock()
             # Default: empty
-            result.scalars = MagicMock(
-                return_value=MagicMock(all=MagicMock(return_value=[]))
-            )
+            result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
             result.all = MagicMock(return_value=[])
             result.scalar = MagicMock(return_value=None)
             result.scalar_one_or_none = MagicMock(return_value=None)

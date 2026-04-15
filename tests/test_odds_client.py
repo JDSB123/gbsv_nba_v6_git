@@ -447,21 +447,27 @@ async def test_persist_odds_invalid_price():
     result_mock.scalar_one_or_none.return_value = 42
     db.execute = AsyncMock(return_value=result_mock)
 
-    data = [{
-        "id": "ev1",
-        "bookmakers": [{
-            "key": "bk1",
-            "markets": [{
-                "key": "h2h",
-                "outcomes": [
-                    {"name": "A", "price": "not_a_number"},
-                    {"name": "B", "price": None},
-                    {"name": "", "price": 100},  # empty name
-                    {"name": "C", "price": 150, "point": "bad_point"},
-                ],
-            }],
-        }],
-    }]
+    data = [
+        {
+            "id": "ev1",
+            "bookmakers": [
+                {
+                    "key": "bk1",
+                    "markets": [
+                        {
+                            "key": "h2h",
+                            "outcomes": [
+                                {"name": "A", "price": "not_a_number"},
+                                {"name": "B", "price": None},
+                                {"name": "", "price": 100},  # empty name
+                                {"name": "C", "price": 150, "point": "bad_point"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
     count = await client.persist_odds(data, db)
     # Only outcome "C" has valid price + name (point becomes None)
     assert count == 1

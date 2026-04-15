@@ -124,9 +124,14 @@ class TestPredictionIntegrityHelpers:
         from src.services.prediction_integrity import prediction_has_valid_payload
 
         pred = SimpleNamespace(
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0, h1_spread=3.0, h1_total=107.0,
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
             odds_sourced=None,
         )
         assert prediction_has_valid_payload(pred) is False
@@ -135,9 +140,14 @@ class TestPredictionIntegrityHelpers:
         from src.services.prediction_integrity import prediction_payload_has_integrity_issues
 
         pred = SimpleNamespace(
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0, h1_spread=3.0, h1_total=107.0,
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
             odds_sourced={"captured_at": "2025-03-15T15:30:00Z"},
         )
         assert prediction_payload_has_integrity_issues(pred) is False
@@ -179,9 +189,14 @@ class TestPredictionIntegrityHelpers:
         from src.services.prediction_integrity import prediction_score_rank
 
         pred = SimpleNamespace(
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0, h1_spread=3.0, h1_total=107.0,
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
             predicted_at=datetime(2025, 3, 1),
         )
         rank = prediction_score_rank(pred)
@@ -191,9 +206,14 @@ class TestPredictionIntegrityHelpers:
         from src.services.prediction_integrity import prediction_rank
 
         pred = SimpleNamespace(
-            predicted_home_fg=110.0, predicted_away_fg=105.0,
-            predicted_home_1h=55.0, predicted_away_1h=52.0,
-            fg_spread=5.0, fg_total=215.0, h1_spread=3.0, h1_total=107.0,
+            predicted_home_fg=110.0,
+            predicted_away_fg=105.0,
+            predicted_home_1h=55.0,
+            predicted_away_1h=52.0,
+            fg_spread=5.0,
+            fg_total=215.0,
+            h1_spread=3.0,
+            h1_total=107.0,
             odds_sourced={"captured_at": "2025-03-15T15:30:00Z"},
             predicted_at=datetime(2025, 3, 1),
         )
@@ -414,7 +434,9 @@ class TestEnsembleEdgeCases:
         model = xgb.XGBRegressor(n_estimators=5, random_state=42)
         model.fit(X, y)
 
-        y_dict = {name: y for name in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]}
+        y_dict = {
+            name: y for name in ["model_home_fg", "model_away_fg", "model_home_1h", "model_away_1h"]
+        }
         xgb_models = {name: model for name in y_dict}
         masks = {"fg": np.ones(60, dtype=bool), "1h": np.ones(60, dtype=bool)}
 
@@ -625,8 +647,9 @@ class TestAppInsightsLifespan:
         s = MagicMock()
         s.applicationinsights_connection_string = "InstrumentationKey=test"
         s.app_env = "test"
-        with patch("src.api.main.get_settings", return_value=s), patch.dict(
-            sys.modules, {"azure.monitor.opentelemetry": mock_module}
+        with (
+            patch("src.api.main.get_settings", return_value=s),
+            patch.dict(sys.modules, {"azure.monitor.opentelemetry": mock_module}),
         ):
             async with lifespan(app):
                 mock_configure.assert_called_once()
@@ -644,8 +667,9 @@ class TestAppInsightsLifespan:
         s = MagicMock()
         s.applicationinsights_connection_string = "InstrumentationKey=test"
         s.app_env = "test"
-        with patch("src.api.main.get_settings", return_value=s), patch.dict(
-            sys.modules, {"azure.monitor.opentelemetry": mock_module}
+        with (
+            patch("src.api.main.get_settings", return_value=s),
+            patch.dict(sys.modules, {"azure.monitor.opentelemetry": mock_module}),
         ):
             async with lifespan(app):
                 pass  # Should not raise

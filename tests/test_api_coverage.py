@@ -317,9 +317,7 @@ async def test_prediction_detail_no_pred_400():
 
     mock_service = MagicMock()
     mock_service.predictor = SimpleNamespace(is_ready=True)
-    mock_service.get_prediction_detail = AsyncMock(
-        return_value={"game": {}, "pred": None}
-    )
+    mock_service.get_prediction_detail = AsyncMock(return_value={"game": {}, "pred": None})
 
     app.dependency_overrides[get_prediction_service] = lambda: mock_service
     try:

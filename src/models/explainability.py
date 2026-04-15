@@ -106,10 +106,7 @@ class Explainer:
             name: round(float(val), 4) for name, val in zip(self._feature_cols, values, strict=True)
         }
         sorted_features = sorted(feature_shap.items(), key=lambda x: abs(x[1]), reverse=True)
-        top_drivers = [
-            {"feature": name, "impact": val}
-            for name, val in sorted_features[:10]
-        ]
+        top_drivers = [{"feature": name, "impact": val} for name, val in sorted_features[:10]]
 
         return {
             "base_value": round(base_value, 2),

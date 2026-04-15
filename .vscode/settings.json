@@ -11,7 +11,7 @@
   "terminal.integrated.profiles.windows": {
     "PowerShell (venv)": {
       "source": "PowerShell",
-      "args": ["-NoExit", "-Command", "& '${workspaceFolder}/scripts/init-terminal.ps1'"]
+      "args": ["-NoExit", "-Command", ". '${workspaceFolder}/scripts/init-terminal.ps1'"]
     },
     "PowerShell": {
       "source": "PowerShell"
@@ -46,5 +46,68 @@
     "editor.codeActionsOnSave": {
       "source.organizeImports": "explicit"
     }
-  }
+  },
+
+  "cSpell.words": [
+    "aca",
+    "alembic",
+    "applicationinsights",
+    "asyncio",
+    "asyncpg",
+    "azd",
+    "bicep",
+    "brier",
+    "charliermarsh",
+    "codeactions",
+    "cors",
+    "cspell",
+    "datacls",
+    "devcontainer",
+    "dotenv",
+    "entrypoint",
+    "entrypoints",
+    "fastapi",
+    "gbsv",
+    "gitignored",
+    "graphviz",
+    "h2h",
+    "httpx",
+    "keyvault",
+    "kwargs",
+    "levelname",
+    "liveness",
+    "lineitem",
+    "lookback",
+    "mypy",
+    "nba",
+    "noqa",
+    "odds",
+    "onedrive",
+    "onprem",
+    "optuna",
+    "passlib",
+    "pgadmin",
+    "pinnacle",
+    "postgres",
+    "postgresql",
+    "preprocess",
+    "prestart",
+    "pyproject",
+    "pytest",
+    "pydantic",
+    "pwsh",
+    "ruff",
+    "runtimes",
+    "scikit",
+    "seaborn",
+    "sklearn",
+    "sqlalchemy",
+    "structlog",
+    "tacv2",
+    "teamsclient",
+    "uvicorn",
+    "venv",
+    "workbench",
+    "xgboost"
+  ]
 }

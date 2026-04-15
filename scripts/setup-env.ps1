@@ -1,28 +1,23 @@
 <#
 .SYNOPSIS
-  Sync environment files using the canonical Python env sync tool.
+  Sync the canonical .env file using scripts/sync_env.py.
 
 .DESCRIPTION
-  This PowerShell wrapper delegates to scripts/sync_env.py so there is one
-  implementation for env synchronization across Windows and cross-platform use.
-
-  It also persists the selected host env file to .env.profile so subsequent
-  processes resolve the same profile without relying on shell-local env vars.
-
-  If AZURE_ENV_NAME is set and -FromAzd is not explicitly passed, this script
-  defaults to using azd values as the source of truth.
+  Thin PowerShell wrapper around scripts/sync_env.py. There is exactly one
+  env file at runtime: .env, and exactly one schema source: src/config.py
+  (Settings). Pass -FromAzd to overlay values from the active azd environment
+  on top of the schema-rendered template.
 
 .EXAMPLE
   .\scripts\setup-env.ps1 -Force
 
 .EXAMPLE
-  .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName validation -OutputPath .env.azure -CreateAzdEnvIfMissing
+  .\scripts\setup-env.ps1 -Force -FromAzd -EnvironmentName production -CreateAzdEnvIfMissing
 #>
 param(
   [switch]$Force,
   [switch]$FromAzd,
   [string]$EnvironmentName,
-  [string]$OutputPath = ".env",
   [switch]$CreateAzdEnvIfMissing
 )
 
@@ -31,7 +26,6 @@ Set-StrictMode -Version Latest
 
 $ROOT = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $VENV_PYTHON = Join-Path $ROOT ".venv\Scripts\python.exe"
-$ACTIVE_PROFILE_FILE = Join-Path $ROOT ".env.profile"
 
 function Resolve-PythonExecutable {
   if (Test-Path $VENV_PYTHON) {
@@ -59,7 +53,7 @@ if (-not $useAzd -and -not [string]::IsNullOrWhiteSpace($env:AZURE_ENV_NAME)) {
 
 $pythonExe = Resolve-PythonExecutable
 $syncScript = Join-Path $ROOT "scripts\sync_env.py"
-[System.Collections.Generic.List[string]]$syncCommand = @($syncScript, "--output", $OutputPath)
+[System.Collections.Generic.List[string]]$syncCommand = @($syncScript)
 
 if ($Force) {
   $syncCommand.Add("--force")
@@ -88,37 +82,18 @@ try {
 }
 
 if ($useAzd) {
-  # Prevent stale process vars from hijacking the selected Azure profile.
+  # Prevent stale process vars from hijacking the freshly synced .env.
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
   Remove-Item Env:DB_SSL -ErrorAction SilentlyContinue
   Remove-Item Env:ODDS_API_KEY -ErrorAction SilentlyContinue
   Remove-Item Env:BASKETBALL_API_KEY -ErrorAction SilentlyContinue
 }
 
-$resolvedOutputPath = $OutputPath
-if ([System.IO.Path]::IsPathRooted($OutputPath)) {
-  $resolvedOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+Write-Host "Environment sync complete: .env" -ForegroundColor Green
+if ($useAzd) {
+  $azdLabel = if ($EnvironmentName) { $EnvironmentName } else { '<current>' }
+  Write-Host "Source: azd ($azdLabel)" -ForegroundColor Green
+  Write-Host "Cleared conflicting process vars: DATABASE_URL, DB_SSL, ODDS_API_KEY, BASKETBALL_API_KEY" -ForegroundColor Green
 } else {
-  $resolvedOutputPath = [System.IO.Path]::GetFullPath((Join-Path $ROOT $OutputPath))
-}
-
-$profileSelection = if ($resolvedOutputPath.StartsWith($ROOT, [System.StringComparison]::OrdinalIgnoreCase)) {
-  [System.IO.Path]::GetRelativePath($ROOT, $resolvedOutputPath)
-} else {
-  $resolvedOutputPath
-}
-
-[System.IO.File]::WriteAllText($ACTIVE_PROFILE_FILE, "$profileSelection`n", [System.Text.UTF8Encoding]::new($false))
-Remove-Item Env:G_BSV_ENV_FILE -ErrorAction SilentlyContinue
-
-if ($OutputPath -eq ".env") {
-  Write-Host "Environment sync complete: $OutputPath" -ForegroundColor Green
-  Write-Host "Active profile: $profileSelection" -ForegroundColor Green
-  Write-Host "Run: python -m src migrate" -ForegroundColor Green
-} else {
-  Write-Host "Environment sync complete: $OutputPath" -ForegroundColor Green
-  Write-Host "Active profile: $profileSelection" -ForegroundColor Green
-  if ($useAzd) {
-    Write-Host "Cleared conflicting process vars: DATABASE_URL, DB_SSL, ODDS_API_KEY, BASKETBALL_API_KEY" -ForegroundColor Green
-  }
+  Write-Host "Source: src/config.py (Settings schema)" -ForegroundColor Green
 }
